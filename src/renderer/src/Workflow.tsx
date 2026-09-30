@@ -441,6 +441,11 @@ function SelectorField({ label, value, choices, onChange }: { label: string; val
   )
 }
 
+function shownType(type: unknown): string {
+  if (type === 'number' || type === 'time' || type === 'time-range' || type === 'select' || type === 'checkbox' || type === 'text-input') return type
+  return 'text-input'
+}
+
 function StartInputs({ variables, onChange }: { variables: Record<string, unknown>[]; onChange: (variables: Record<string, unknown>[]) => void }) {
   return (
     <div className="grid gap-2">
@@ -451,14 +456,25 @@ function StartInputs({ variables, onChange }: { variables: Record<string, unknow
           <TextField label="显示名" value={String(item.label || '')} onCommit={(label) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, label } : candidate))} />
           <Label className="grid gap-1 text-xs text-muted-foreground">
             类型
-            <Select value={item.type === 'number' ? 'number' : 'text-input'} onValueChange={(type) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, type } : candidate))}>
+            <Select value={shownType(item.type)} onValueChange={(type) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, type } : candidate))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="text-input">文本</SelectItem>
                 <SelectItem value="number">数字</SelectItem>
+                <SelectItem value="time">时间</SelectItem>
+                <SelectItem value="time-range">时间范围</SelectItem>
+                <SelectItem value="select">单选</SelectItem>
+                <SelectItem value="checkbox">复选</SelectItem>
               </SelectContent>
             </Select>
           </Label>
+          {(item.type === 'select' || item.type === 'checkbox') && (
+            <TextField
+              label="选项"
+              value={Array.isArray(item.options) ? item.options.join('，') : ''}
+              onCommit={(text) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, options: text.split(/[,，]/).map((part) => part.trim()).filter(Boolean) } : candidate))}
+            />
+          )}
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">必填</span>
             <Switch checked={item.required !== false} onCheckedChange={(required) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, required } : candidate))} />

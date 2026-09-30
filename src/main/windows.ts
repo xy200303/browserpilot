@@ -255,7 +255,7 @@ function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings', title:
 }
 
 export function openMarket(runtime: WindowRuntime): TabRuntime {
-  return openBuiltin(runtime, 'market', '工作流市场', MARKET_PAGE)
+  return openBuiltin(runtime, 'market', '工作流', MARKET_PAGE)
 }
 
 export function openSettingsPage(runtime: WindowRuntime, _section = '环境'): TabRuntime {
@@ -300,6 +300,14 @@ export function activateTab(runtime: WindowRuntime, tabId: string): void {
   if (!runtime.headless) runtime.win.focus()
 }
 
+export function closeWorkflowPages(workflowId: string): void {
+  const url = workflowPage(workflowId)
+  for (const runtime of windows.values()) {
+    const ids = runtime.tabs.filter((tab) => tab.kind === 'workflow' && tab.url === url).map((tab) => tab.id)
+    for (const tabId of ids) closeTab(runtime, tabId)
+  }
+}
+
 export function closeTab(runtime: WindowRuntime, tabId: string): void {
   const index = runtime.tabs.findIndex((item) => item.id === tabId)
   if (index < 0) throw new Error(`没有这个标签 ${tabId}`)
@@ -327,7 +335,13 @@ export function duplicateTab(runtime: WindowRuntime, tabId: string): TabRuntime 
 }
 
 export function reloadTab(runtime: WindowRuntime, tabId: string): void {
-  runtime.tabs.find((item) => item.id === tabId)?.view?.webContents.reload()
+  const tab = runtime.tabs.find((item) => item.id === tabId)
+  if (!tab) return
+  if (tab.view) {
+    tab.view.webContents.reload()
+    return
+  }
+  runtime.win.webContents.send('builtin-reload', tab.id)
 }
 
 export function muteTab(runtime: WindowRuntime, tabId: string): void {
@@ -498,7 +512,7 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
   const sync = (): void => {
     tab.loading = wc.isLoading()
     if (tab.kind === 'market' || tab.kind === 'settings') {
-      tab.title = tab.kind === 'market' ? '工作流市场' : '设置'
+      tab.title = tab.kind === 'market' ? '工作流' : '设置'
       tab.url = tab.kind === 'market' ? MARKET_PAGE : SETTINGS_PAGE
     } else {
       tab.title = wc.getTitle() || tab.title
@@ -625,7 +639,7 @@ function bindShortcuts(wc: Electron.WebContents, envId: string): void {
       return
     }
     if (key === 'f5' || (ctrl && key === 'r')) {
-      activePage(runtime)?.view?.webContents.reload()
+      if (runtime.activeTabId) reloadTab(runtime, runtime.activeTabId)
       handled()
       return
     }

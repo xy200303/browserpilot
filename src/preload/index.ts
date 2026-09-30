@@ -23,6 +23,11 @@ const api = {
     ipcRenderer.on('close-find', listener)
     return () => ipcRenderer.removeListener('close-find', listener)
   },
+  onBuiltinReload: (callback: (tabId: string) => void): (() => void) => {
+    const listener = (_event: unknown, tabId: string): void => callback(tabId)
+    ipcRenderer.on('builtin-reload', listener)
+    return () => ipcRenderer.removeListener('builtin-reload', listener)
+  },
   setBounds: (bounds: { x: number; y: number; width: number; height: number }): Promise<void> => ipcRenderer.invoke('bounds:set', bounds),
   navigate: (url: string): Promise<void> => ipcRenderer.invoke('chrome:navigate', url),
   back: (): Promise<void> => ipcRenderer.invoke('chrome:back'),
@@ -55,9 +60,10 @@ const api = {
   updateSettings: (patch: Partial<Settings>): Promise<void> => ipcRenderer.invoke('settings:update', patch),
   exportWorkflow: (id: string): Promise<{ canceled: boolean; path?: string; name?: string }> => ipcRenderer.invoke('workflow:export', id),
   importWorkflow: (): Promise<{ canceled: boolean; workflow?: string; name?: string }> => ipcRenderer.invoke('workflow:import'),
+  deleteWorkflow: (id: string): Promise<{ id: string; name: string }> => ipcRenderer.invoke('workflow:delete', id),
   openWorkflow: (id: string): Promise<void> => ipcRenderer.invoke('workflow:open', id),
   openMarket: (): Promise<void> => ipcRenderer.invoke('market:open'),
-  listMarket: (): Promise<{ items: { slug: string; name: string; description: string; author: string; file: string }[]; source: string }> => ipcRenderer.invoke('market:list'),
+  listMarket: (): Promise<{ items: { slug: string; name: string; description: string; author: string; category: string; site: string; icon: string; file: string }[]; source: string }> => ipcRenderer.invoke('market:list'),
   installMarket: (input: { file?: string; url?: string }): Promise<{ workflow: string; name: string }> => ipcRenderer.invoke('market:install', input),
   runWorkflow: (input: { workflow: string; inputs?: Record<string, string> }): Promise<{ ok?: boolean; error?: string; outputs?: Record<string, unknown> }> => ipcRenderer.invoke('workflow:run', input),
   copyAgentPrompt: (id: string): Promise<{ copied: boolean }> => ipcRenderer.invoke('workflow:agent', id),

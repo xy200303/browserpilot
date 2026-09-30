@@ -1,12 +1,12 @@
 import { clipboard, dialog, ipcMain, session, app } from 'electron'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
-import type { LayerPayload, Settings, UiState, WorkflowEdge, WorkflowNode } from '@shared/types'
+import type { LayerPayload, Settings, UiState, WorkflowEdge, WorkflowNode, WorkflowParam } from '@shared/types'
 import { DEFAULT_ENV, searchEngines } from '@shared/types'
 import { workflowPage } from '@shared/market'
 import type { StoredEnv } from './services/StorageService'
 import { storage } from './services/store'
-import { exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate } from './services/RecordService'
+import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate } from './services/RecordService'
 import { installMarketFile, installMarketUrl, listMarket } from './services/MarketService'
 import { windows, type WindowRuntime } from './runtime'
 import { bridge } from './runtime'
@@ -15,6 +15,7 @@ import {
   addTab,
   closeOtherTabs,
   closeTab,
+  closeWorkflowPages,
   closeTabsBelow,
   duplicateTab,
   layoutWindow,
@@ -70,7 +71,7 @@ export async function buildState(runtime: WindowRuntime): Promise<UiState> {
       envId: tab.envId,
       groupId: tab.groupId,
       kind: tab.kind,
-      title: tab.kind === 'settings' ? '设置' : tab.kind === 'market' ? '工作流市场' : tab.kind === 'workflow' ? (storage.workflows.find((item) => tab.url === workflowPage(item.id))?.app.name ?? tab.title) : tab.title || '新标签页',
+      title: tab.kind === 'settings' ? '设置' : tab.kind === 'market' ? '工作流' : tab.kind === 'workflow' ? (storage.workflows.find((item) => tab.url === workflowPage(item.id))?.app.name ?? tab.title) : tab.title || '新标签页',
       url: tab.url,
       favicon: tab.favicon || '',
       loading: tab.loading,
@@ -90,6 +91,7 @@ export async function buildState(runtime: WindowRuntime): Promise<UiState> {
       id: item.id,
       name: item.app.name,
       remark: item.app.description,
+      icon: item.app.icon || '',
       params: workflowParams(item),
       graph: item.workflow.graph
     })),
@@ -103,6 +105,15 @@ export async function buildState(runtime: WindowRuntime): Promise<UiState> {
     maximized: runtime.win.isMaximized(),
     railPinned: runtime.railPinned
   }
+}
+
+function paramHint(param: WorkflowParam): string {
+  if (param.type === 'number') return '数字'
+  if (param.type === 'time') return '时间，写成 2026-09-30 11:58'
+  if (param.type === 'time-range') return '时间范围，写成 2026-09-30 11:58 ~ 2026-09-30 18:00'
+  if (param.type === 'select') return param.options.length ? `单选：${param.options.join('、')}` : '单选'
+  if (param.type === 'checkbox') return param.options.length ? `复选，多项用逗号分开：${param.options.join('、')}` : '复选，多项用逗号分开'
+  return '文本'
 }
 
 export function broadcast(envId?: string): void {
@@ -214,7 +225,7 @@ export function wireIpc(): void {
 
   ipcMain.handle('chrome:reload', (event) => {
     const runtime = windowFromSender(event.sender)
-    runtime?.tabs.find((item) => item.id === runtime.activeTabId)?.view?.webContents.reload()
+    if (runtime?.activeTabId) reloadTab(runtime, runtime.activeTabId)
   })
 
   ipcMain.handle('chrome:stop', (event) => {
@@ -346,6 +357,13 @@ export function wireIpc(): void {
     return { canceled: false, workflow: saved.id, name: saved.app.name }
   })
 
+  ipcMain.handle('workflow:delete', (_event, id: string) => {
+    const removed = deleteWorkflow(id)
+    closeWorkflowPages(removed.id)
+    broadcast()
+    return removed
+  })
+
   ipcMain.handle('workflow:open', (event, id: string) => {
     const runtime = windowFromSender(event.sender)
     if (runtime) openWorkflowPage(runtime, id)
@@ -385,7 +403,7 @@ export function wireIpc(): void {
       `请用 BrowserPilot 执行已经装好的工作流「${appItem.app.name}」。`,
       `调用 workflow_run，name 为「${appItem.app.name}」。`,
       params.length
-        ? `inputs 使用下面这些值。空着的先问我，不要自己编：\n${params.map((item) => `${item.name}: `).join('\n')}`
+        ? `inputs 使用下面这些值。空着的先问我，不要自己编：\n${params.map((item) => `${item.name} (${paramHint(item)}): `).join('\n')}`
         : '这次没有输入参数。',
       '跑完后调用 page_unlock。'
     ]

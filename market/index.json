@@ -5,6 +5,7 @@
       "name": "打开网页",
       "description": "打开参数里的地址，停在这一页。",
       "author": "BrowserPilot",
+      "category": "效率工具",
       "file": "open-page.json"
     },
     {
@@ -12,6 +13,7 @@
       "name": "读取页面标题",
       "description": "读取当前标签的标题和地址。",
       "author": "BrowserPilot",
+      "category": "效率工具",
       "file": "page-title.json"
     }
   ]

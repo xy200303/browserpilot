@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import vm from 'vm'
-import type { ActVia, GestureVia, Locator, WorkflowApp, WorkflowEdge, WorkflowNode } from '@shared/types'
+import type { ActVia, GestureVia, Locator, WorkflowApp, WorkflowEdge, WorkflowNode, WorkflowParam, WorkflowParamType } from '@shared/types'
 import { createId } from '../ids'
 import { enterRun, leaveRun, type TabRuntime } from '../runtime'
 import { storage } from './store'
@@ -32,7 +32,7 @@ const template = /\{\{#([\w\u4e00-\u9fff.-]+)#\}\}/g
 type Pool = Record<string, Record<string, unknown>>
 type Data = Record<string, unknown> & { type: string; title?: string }
 
-export function workflowParams(app: WorkflowApp): { name: string; description?: string }[] {
+export function workflowParams(app: WorkflowApp): WorkflowParam[] {
   const start = app.workflow.graph.nodes.find((node) => node.data.type === 'start')
   const variables = start?.data.variables
   if (!Array.isArray(variables)) return []
@@ -41,12 +41,31 @@ export function workflowParams(app: WorkflowApp): { name: string; description?: 
     const variable = (item as { variable?: unknown }).variable
     if (typeof variable !== 'string' || !variable) return []
     const label = (item as { label?: unknown }).label
-    return [{ name: variable, description: typeof label === 'string' ? label : undefined }]
+    const description = typeof label === 'string' ? label : undefined
+    const options = Array.isArray((item as { options?: unknown }).options)
+      ? (item as { options: unknown[] }).options.filter((option): option is string => typeof option === 'string' && option.trim() !== '').map((option) => option.trim())
+      : []
+    return [{
+      name: variable,
+      description,
+      type: paramType((item as { type?: unknown }).type, variable, description || ''),
+      options
+    }]
   })
 }
 
+function paramType(raw: unknown, name: string, label: string): WorkflowParamType {
+  if (raw === 'number') return 'number'
+  if (raw === 'time' || raw === 'datetime') return 'time'
+  if (raw === 'time-range') return 'time-range'
+  if (raw === 'select' || raw === 'radio') return 'select'
+  if (raw === 'checkbox' || raw === 'multi-select') return 'checkbox'
+  if ((raw === 'text-input' || raw === 'string' || raw === 'paragraph' || raw == null || raw === '') && /时间|日期/.test(`${name}${label}`)) return 'time'
+  return 'text'
+}
+
 export function workflowWrite(raw: {
-  app: { name: string; description?: string }
+  app: { name: string; description?: string; icon?: string }
   workflow: WorkflowApp['workflow']
 }): WorkflowApp {
   const graph = normalizeLevel(raw.workflow.graph.nodes, raw.workflow.graph.edges)
@@ -54,11 +73,12 @@ export function workflowWrite(raw: {
   const name = raw.app.name.trim()
   if (!name) throw new Error('工作流需要名称')
   const existing = storage.workflows.find((item) => item.app.name === name)
+  const icon = raw.app.icon?.trim() || existing?.app.icon || ''
   const saved: WorkflowApp = {
     id: existing?.id ?? createId('wf'),
     kind: 'app',
     version: '0.3.0',
-    app: { name, mode: 'workflow', description: raw.app.description?.trim() ?? '' },
+    app: { name, mode: 'workflow', description: raw.app.description?.trim() ?? '', ...(icon ? { icon } : {}) },
     workflow: {
       environment_variables: raw.workflow.environment_variables ?? [],
       conversation_variables: [],
@@ -79,6 +99,14 @@ export function findWorkflow(nameOrId: string): WorkflowApp {
   const found = storage.workflows.find((item) => item.id === nameOrId || item.app.name === nameOrId)
   if (!found) throw new Error(`没有这个工作流 ${nameOrId}`)
   return found
+}
+
+export function deleteWorkflow(nameOrId: string): { id: string; name: string } {
+  const app = findWorkflow(nameOrId)
+  const index = storage.workflows.findIndex((item) => item.id === app.id)
+  storage.workflows.splice(index, 1)
+  storage.saveWorkflows()
+  return { id: app.id, name: app.app.name }
 }
 
 export function exportWorkflow(nameOrId: string, dest?: string): string {
@@ -111,7 +139,7 @@ export function importWorkflowText(text: string): WorkflowApp {
   }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('这个文件不是工作流')
   const doc = raw as {
-    app?: { name?: unknown; description?: unknown; mode?: unknown }
+    app?: { name?: unknown; description?: unknown; mode?: unknown; icon?: unknown }
     workflow?: { graph?: { nodes?: unknown; edges?: unknown }; environment_variables?: { name: string; value: string }[] }
   }
   const name = typeof doc.app?.name === 'string' ? doc.app.name : ''
@@ -120,7 +148,11 @@ export function importWorkflowText(text: string): WorkflowApp {
   if (!name || !Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('这个文件里没有工作流图')
   if (doc.app?.mode && doc.app.mode !== 'workflow') throw new Error('只导入工作流')
   return workflowWrite({
-    app: { name, description: typeof doc.app?.description === 'string' ? doc.app.description : '' },
+    app: {
+      name,
+      description: typeof doc.app?.description === 'string' ? doc.app.description : '',
+      icon: typeof doc.app?.icon === 'string' ? doc.app.icon : ''
+    },
     workflow: {
       environment_variables: doc.workflow?.environment_variables ?? [],
       conversation_variables: [],

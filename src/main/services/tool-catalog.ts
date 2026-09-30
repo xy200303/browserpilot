@@ -14,6 +14,7 @@ import {
   beginAgentAction,
   beginHandoff,
   closeTab,
+  closeWorkflowPages,
   openEnvironment,
   openSettingsPage,
   resolveTab,
@@ -40,7 +41,7 @@ import {
   uploadFiles,
   waitForLoad
 } from '../page'
-import { exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate, workflowWrite } from './RecordService'
+import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate, workflowWrite } from './RecordService'
 import { netExport, netGet, netList, netStart, netStop } from './NetService'
 
 const tab = z.string().optional()
@@ -567,6 +568,7 @@ const workflowBody = z.object({
   app: z.object({
     name: z.string(),
     description: z.string().optional(),
+    icon: z.string().optional(),
     mode: z.literal('workflow').optional()
   }),
   workflow: z.object({
@@ -578,14 +580,18 @@ const workflowBody = z.object({
 
 tool('workflow_write', '新建或整份覆盖一份工作流。图用 nodes 和 edges。script 在当前网页里跑，code 在主进程里独立跑。填写用 fill，entry 为 type 或 paste。循环用 loop。同名再次写入覆盖整张图，编号不变。只改其中几个节点用 workflow_update。', workflowBody, async (args) => {
   const body = args as {
-    app: { name: string; description?: string }
+    app: { name: string; description?: string; icon?: string }
     workflow: {
       environment_variables?: { name: string; value: string }[]
       graph: WorkflowApp['workflow']['graph']
     }
   }
   const saved = workflowWrite({
-    app: { name: String(body.app.name), description: body.app.description ? String(body.app.description) : '' },
+    app: {
+      name: String(body.app.name),
+      description: body.app.description ? String(body.app.description) : '',
+      icon: body.app.icon ? String(body.app.icon) : ''
+    },
     workflow: {
       environment_variables: body.workflow.environment_variables ?? [],
       conversation_variables: [],
@@ -693,6 +699,18 @@ tool('workflow_export', '把工作流导出成 JSON 文件，返回本机路径�
   const key = String(args.name || args.workflow || '')
   if (!key) throw new Error('需要工作流名称或编号')
   return { path: exportWorkflow(key) }
+})
+
+tool('workflow_delete', '从本机删掉一个工作流。目录里的还可以再安装。', z.object({
+  name: z.string().optional(),
+  workflow: z.string().optional()
+}), async (args) => {
+  const key = String(args.name || args.workflow || '')
+  if (!key) throw new Error('需要工作流名称或编号')
+  const removed = deleteWorkflow(key)
+  closeWorkflowPages(removed.id)
+  bridge.broadcast()
+  return removed
 })
 
 tool('workflow_import', '从本机 JSON 文件导入工作流。同名覆盖，编号不变。', z.object({

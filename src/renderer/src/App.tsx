@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { ArrowLeft, ArrowRight, Minus, MoreVertical, Plus, RotateCw, Square, Store, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Minus, MoreVertical, Plus, RotateCw, Square, Workflow, X } from 'lucide-react'
 import { searchEngineOf, type TabInfo, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { MarketPage } from './MarketPage'
@@ -26,7 +26,11 @@ export function App() {
   const [findText, setFindText] = useState('')
   const contentRef = useRef<HTMLDivElement>(null)
   const addressRef = useRef<HTMLInputElement>(null)
+  const [reloads, setReloads] = useState<Record<string, number>>({})
   const active = state?.tabs.find((tab) => tab.active)
+  const bumpReload = (tabId: string): void => {
+    setReloads((current) => ({ ...current, [tabId]: (current[tabId] ?? 0) + 1 }))
+  }
 
   useEffect(() => {
     void window.browser.getState().then(setState)
@@ -34,6 +38,9 @@ export function App() {
     const offFocus = window.browser.onFocusAddress(() => addressRef.current?.focus())
     const offFind = window.browser.onOpenFind(() => setFindOpen(true))
     const offClose = window.browser.onCloseFind(() => setFindOpen(false))
+    const offReload = window.browser.onBuiltinReload?.((tabId) => {
+      setReloads((current) => ({ ...current, [tabId]: (current[tabId] ?? 0) + 1 }))
+    }) ?? (() => undefined)
     const offStart = window.browser.onScreenStart(async () => {
       try {
         const mime = pickMime()
@@ -87,6 +94,7 @@ export function App() {
       offFocus()
       offFind()
       offClose()
+      offReload()
       offStart()
       offStop()
     }
@@ -119,10 +127,10 @@ export function App() {
   return (
     <div className="flex h-full flex-col">
       <TitleRow state={state} />
-      <AddressBar state={state} active={active} address={address} setAddress={setAddress} addressRef={addressRef} />
+      <AddressBar state={state} active={active} address={address} setAddress={setAddress} addressRef={addressRef} onReloadBuiltin={bumpReload} />
       {state.handoffMessage && <div className="bg-amber-50 px-4 py-2 text-sm text-amber-900">{state.handoffMessage}</div>}
       {findOpen && <FindBar findText={findText} setFindText={setFindText} setFindOpen={setFindOpen} />}
-      <PageSurface state={state} active={active} contentRef={contentRef} />
+      <PageSurface state={state} active={active} contentRef={contentRef} reloadKey={active ? reloads[active.id] ?? 0 : 0} />
     </div>
   )
 }
@@ -205,7 +213,7 @@ function TitleRow({ state }: { state: UiState }) {
 }
 
 function addressPlaceholder(active: TabInfo | undefined, engineName: string): string {
-  if (active?.kind === 'market') return '工作流市场'
+  if (active?.kind === 'market') return '工作流'
   if (active?.kind === 'settings') return '设置'
   if (active?.kind === 'workflow') return active.title
   return `在${engineName}中搜索，或输入网址`
@@ -216,21 +224,29 @@ function AddressBar({
   active,
   address,
   setAddress,
-  addressRef
+  addressRef,
+  onReloadBuiltin
 }: {
   state: UiState
   active: TabInfo | undefined
   address: string
   setAddress: (value: string) => void
   addressRef: RefObject<HTMLInputElement | null>
+  onReloadBuiltin: (tabId: string) => void
 }) {
   const builtin = active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow'
   return (
     <div className="flex h-12 items-center gap-1 bg-[#f3f3f3] px-2">
       <Button variant="ghost" size="icon" className="no-drag" title="后退" disabled={!state.canBack} onClick={() => void window.browser.back()}><ArrowLeft /></Button>
       <Button variant="ghost" size="icon" className="no-drag" title="前进" disabled={!state.canForward} onClick={() => void window.browser.forward()}><ArrowRight /></Button>
-      <Button variant="ghost" size="icon" className="no-drag" title="刷新" onClick={() => void (active?.loading ? window.browser.stop() : window.browser.reload())}><RotateCw className={active?.loading ? 'animate-spin' : ''} /></Button>
-      <Button variant="ghost" className="no-drag" title="工作流市场" onClick={() => void window.browser.openMarket()}><Store />市场</Button>
+      <Button variant="ghost" size="icon" className="no-drag" title="刷新" onClick={() => {
+        if (active?.loading) {
+          void window.browser.stop()
+          return
+        }
+        if (active && active.kind !== 'page') onReloadBuiltin(active.id)
+        else void window.browser.reload()
+      }}><RotateCw className={active?.loading ? 'animate-spin' : ''} /></Button>
       <form
         className="mx-1 flex min-w-0 flex-1 items-center gap-2"
         onSubmit={(event) => {
@@ -247,6 +263,7 @@ function AddressBar({
           readOnly={builtin}
         />
       </form>
+      <Button variant="ghost" className="no-drag" title="工作流" onClick={() => void window.browser.openMarket()}><Workflow />工作流</Button>
       {state.screenRecording && <span className="rounded-md bg-destructive px-1.5 py-0.5 text-xs text-white">录屏</span>}
       <Button
         variant="ghost"
@@ -288,7 +305,7 @@ function FindBar({
   )
 }
 
-function PageSurface({ state, active, contentRef }: { state: UiState; active: TabInfo | undefined; contentRef: RefObject<HTMLDivElement | null> }) {
+function PageSurface({ state, active, contentRef, reloadKey }: { state: UiState; active: TabInfo | undefined; contentRef: RefObject<HTMLDivElement | null>; reloadKey: number }) {
   return (
     <div className="flex min-h-0 flex-1">
       {state.layout === 'left' && <div className={`shrink-0 bg-[#f3f3f3] ${state.railPinned ? 'w-64' : 'w-12'}`} />}
@@ -296,18 +313,18 @@ function PageSurface({ state, active, contentRef }: { state: UiState; active: Ta
         <div ref={contentRef} className="absolute inset-0" />
         {active?.kind === 'market' && (
           <div className="absolute inset-0 overflow-hidden bg-white">
-            <MarketPage state={state} />
+            <MarketPage key={reloadKey} state={state} />
           </div>
         )}
         {active?.kind === 'settings' && (
           <div className="absolute inset-0 overflow-hidden bg-white">
-            <SettingsPage state={state} />
+            <SettingsPage key={reloadKey} state={state} />
           </div>
         )}
         {active?.kind === 'workflow' && (
           <div className="absolute inset-0 flex overflow-hidden bg-white p-4">
             <div className="min-h-0 min-w-0 flex-1">
-              <WorkflowPage state={state} tab={active} />
+              <WorkflowPage key={reloadKey} state={state} tab={active} />
             </div>
           </div>
         )}

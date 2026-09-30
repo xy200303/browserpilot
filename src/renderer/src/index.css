@@ -151,6 +151,17 @@ html.rail ::-webkit-scrollbar-thumb {
   box-shadow: none;
 }
 
+[data-slot='input'].search-field,
+[data-slot='input'].solid-field {
+  background-color: var(--background);
+  border-color: var(--border);
+}
+
+[data-slot='input'].search-field:focus-visible,
+[data-slot='input'].solid-field:focus-visible {
+  border-color: var(--foreground);
+}
+
 .react-flow svg {
   display: block;
   max-width: none;

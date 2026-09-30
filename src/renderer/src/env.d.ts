@@ -6,6 +6,7 @@ export type BrowserApi = {
   onFocusAddress: (callback: () => void) => () => void
   onOpenFind: (callback: () => void) => () => void
   onCloseFind: (callback: () => void) => () => void
+  onBuiltinReload: (callback: (tabId: string) => void) => () => void
   setBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
   navigate: (url: string) => Promise<void>
   back: () => Promise<void>
@@ -38,9 +39,10 @@ export type BrowserApi = {
   updateSettings: (patch: Partial<Settings>) => Promise<void>
   exportWorkflow: (id: string) => Promise<{ canceled: boolean; path?: string; name?: string }>
   importWorkflow: () => Promise<{ canceled: boolean; workflow?: string; name?: string }>
+  deleteWorkflow: (id: string) => Promise<{ id: string; name: string }>
   openWorkflow: (id: string) => Promise<void>
   openMarket: () => Promise<void>
-  listMarket: () => Promise<{ items: { slug: string; name: string; description: string; author: string; file: string }[]; source: string }>
+  listMarket: () => Promise<{ items: { slug: string; name: string; description: string; author: string; category: string; site: string; icon: string; file: string }[]; source: string }>
   installMarket: (input: { file?: string; url?: string }) => Promise<{ workflow: string; name: string }>
   runWorkflow: (input: { workflow: string; inputs?: Record<string, string> }) => Promise<{ ok?: boolean; error?: string; outputs?: Record<string, unknown> }>
   copyAgentPrompt: (id: string) => Promise<{ copied: boolean }>

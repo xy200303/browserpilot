@@ -55,7 +55,7 @@ MCP 不可用时，在 Windows 上运行本机命令 `browserpilot`。窗口未�
 - 一个进程，多套环境。每套环境一扇窗口，标签是窗口里的页面，不是再开一个应用。
 - 地址栏、标签和设置用同一套界面组件。设置从窗口菜单打开。
 - 工作流是一张图。点一条在单独的窗口里编辑。Agent 用 `workflow_run` 一次跑完，中间的点击不再逐次向 Agent 要下一步。
-- 地址栏左边的「市场」在网页区域打开。目录每次从 [browserpilot-market](https://github.com/xy200303/browserpilot-market) 读取。下载后保存在本机。可以填参数后自己执行，也可以点「交给 Agent」，把执行说明复制出去，由 Agent 调用 `workflow_run`。也可以粘贴任意 GitHub 上的工作流 JSON 地址。
+- 地址栏右边的「工作流」在网页区域打开。顶部可以搜索，右边点「已安装」看本机已有的，点「导入」从 GitHub 地址或本机 JSON 安装。目录从 [browserpilot-market](https://github.com/xy200303/browserpilot-market) 读取还没安装的。下载后保存在本机。可以填参数后自己执行，也可以点「交给 Agent」，把执行说明复制出去，由 Agent 调用 `workflow_run`。
 - 点击按 XPath 或 CSS 选择器定位，必须恰好命中一个元素。画布这类没有稳定节点的目标用坐标。
 - 可以录下这扇窗口的画面，保存为本机 MP4。
 

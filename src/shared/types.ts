@@ -88,11 +88,21 @@ export type WorkflowEdge = {
   targetHandle?: string
 }
 
+export type WorkflowParamType = 'text' | 'number' | 'time' | 'time-range' | 'select' | 'checkbox'
+
+export type WorkflowParam = {
+  name: string
+  description?: string
+  type: WorkflowParamType
+  options: string[]
+}
+
 export type WorkflowInfo = {
   id: string
   name: string
   remark: string
-  params: { name: string; description?: string }[]
+  icon: string
+  params: WorkflowParam[]
   graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }
 }
 
@@ -120,7 +130,7 @@ export type LayerPayload =
   | { kind: 'menu'; x: number; y: number }
   | { kind: 'context'; x: number; y: number; tab: TabInfo }
   | { kind: 'about' }
-  | { kind: 'settings'; section: '环境' | '工作流' | '抓包' | '通用' | '关于' }
+  | { kind: 'settings'; section: '环境' | '抓包' | '通用' | '关于' }
   | { kind: 'workflow'; id: string }
 
 export type Locator = { selector?: string; xpath?: string }
@@ -132,7 +142,7 @@ export type WorkflowApp = {
   id: string
   kind: 'app'
   version: '0.3.0'
-  app: { name: string; mode: 'workflow'; description: string }
+  app: { name: string; mode: 'workflow'; description: string; icon?: string }
   workflow: {
     environment_variables: { name: string; value: string }[]
     conversation_variables: []

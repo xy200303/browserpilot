@@ -42,4 +42,4 @@ browserpilot call workflow_run --json-file args.json
 
 一次任务用已经打开的环境和标签。做完调用 `page_unlock`，遮罩不要留着。需要人接手时用 `page_handoff`。
 
-工作流用 `workflow_list` 查看，用 `workflow_run` 一次跑完。`name` 是工作流名称，`inputs` 的键是开始节点里的参数名。不要把图拆成逐步点击，除非用户明确要改这张图。市场里的工作流要先在设置的「市场」下载到本机，之后仍然用 `workflow_run` 按名称执行。
+工作流用 `workflow_list` 查看，用 `workflow_run` 一次跑完。`name` 是工作流名称，`inputs` 的键是开始节点里的参数名。不要把图拆成逐步点击，除非用户明确要改这张图。目录里的工作流要先在「工作流」页安装到本机，之后仍然用 `workflow_run` 按名称执行。

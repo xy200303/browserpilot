@@ -10,6 +10,9 @@ export type MarketEntry = {
   name: string
   description: string
   author: string
+  category: string
+  site: string
+  icon: string
   file: string
 }
 
@@ -34,13 +37,16 @@ function parseCatalog(raw: unknown): MarketEntry[] {
       name,
       description: typeof row.description === 'string' ? row.description : '',
       author: typeof row.author === 'string' ? row.author : '',
+      category: typeof row.category === 'string' && row.category.trim() ? row.category.trim() : '其他',
+      site: typeof row.site === 'string' ? row.site.trim() : '',
+      icon: typeof row.icon === 'string' ? row.icon.trim() : '',
       file
     }]
   })
 }
 
 async function readGithub(apiUrl: string): Promise<string> {
-  const response = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(12000) })
+  const response = await fetch(apiUrl, { headers, cache: 'no-store', signal: AbortSignal.timeout(12000) })
   if (!response.ok) throw new Error(`GitHub 返回 ${response.status}`)
   const body = await response.json() as { content?: string }
   if (typeof body.content !== 'string' || !body.content) throw new Error('GitHub 没有返回文件')

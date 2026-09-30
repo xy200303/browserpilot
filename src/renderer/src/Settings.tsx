@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Info, Layers, Radio, SlidersHorizontal, Workflow } from 'lucide-react'
-import { WorkflowRun } from './Market'
+import { Info, Layers, Plus, Radio, Search, SlidersHorizontal, X } from 'lucide-react'
+import { Dialog } from 'radix-ui'
 import { searchEngines, type SearchEngineId, type TabLayout, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { Button } from '@/components/ui/button'
@@ -10,12 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { cn } from 'cn'
 
-const sections = ['环境', '工作流', '抓包', '通用', '关于'] as const
+const sections = ['环境', '抓包', '通用', '关于'] as const
 type Section = (typeof sections)[number]
+type Env = UiState['envs'][number]
 
 const icons = {
   环境: Layers,
-  工作流: Workflow,
   抓包: Radio,
   通用: SlidersHorizontal,
   关于: Info
@@ -60,97 +60,129 @@ function SettingsDialog({ state, initial }: { state: UiState; initial: Section }
           )
         })}
       </nav>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {section === '环境' && <Envs state={state} />}
-        {section === '工作流' && <Workflows state={state} />}
-        {section === '抓包' && <Captures state={state} />}
-        {section === '通用' && <General state={state} />}
-        {section === '关于' && <About state={state} />}
+      <div className="min-h-0 min-w-0 flex-1">
+        {section === '环境' && <EnvPage state={state} />}
+        {section === '抓包' && <div className="h-full overflow-y-auto"><Captures state={state} /></div>}
+        {section === '通用' && <div className="h-full overflow-y-auto"><General state={state} /></div>}
+        {section === '关于' && <div className="h-full overflow-y-auto"><About state={state} /></div>}
       </div>
     </div>
   )
 }
 
-function Heading({ title, detail, action }: { title: string; detail: string; action?: ReactNode }) {
+function EnvPage({ state }: { state: UiState }) {
+  const pageRef = useRef<HTMLDivElement>(null)
+  const [query, setQuery] = useState('')
+  const [picked, setPicked] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const env = state.envs.find((item) => item.id === picked)
+
+  if (env) return <EnvDetail env={env} onBack={() => setPicked(null)} />
+
+  const envs = state.envs.filter((item) => hit(query, `${item.name} ${item.remark} ${item.id} ${item.sites.map((site) => site.domain).join(' ')}`))
+
   return (
-    <div className="flex items-center justify-between gap-4 border-b px-4 py-4">
-      <div className="min-w-0">
-        <h2 className="text-base font-medium">{title}</h2>
-        <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+    <div ref={pageRef} className="relative flex h-full flex-col bg-white">
+      <div className="flex items-center gap-2 px-5 pt-4">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索环境或网站" className="search-field bg-background pl-8" />
+        </div>
+        <Button type="button" variant="outline" className="bg-white" onClick={() => setCreateOpen(true)}>
+          <Plus />新建
+        </Button>
       </div>
-      {action}
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+        <h2 className="pt-5 text-lg font-semibold">环境</h2>
+        <p className="pt-1 text-xs text-muted-foreground">一套环境里可以登录多个网站。新建的窗口都是有头的，关掉窗口不会清掉登录。</p>
+        {envs.length === 0 && (
+          <p className="pt-4 text-sm text-muted-foreground">{query.trim() ? '没有匹配的环境' : '还没有环境'}</p>
+        )}
+        <div className="grid grid-cols-1 gap-3 pt-4 md:grid-cols-2 xl:grid-cols-3">
+          {envs.map((item) => (
+            <article key={item.id} className="rounded-xl border bg-white p-4">
+              <div className="flex items-start gap-3">
+                <button type="button" className="border-0 bg-transparent p-0" onClick={() => setPicked(item.id)} aria-label={item.name}>
+                  <Mark>{item.name.slice(0, 1) || '环'}</Mark>
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <button type="button" className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-left text-sm font-medium" onClick={() => setPicked(item.id)}>
+                      {item.name}
+                    </button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => void window.browser.openEnv(item.id)}>
+                      {item.windowOpen ? '显示' : '打开'}
+                    </Button>
+                  </div>
+                  <button type="button" className="mt-1 line-clamp-2 w-full border-0 bg-transparent p-0 text-left text-xs leading-5 text-muted-foreground" onClick={() => setPicked(item.id)}>
+                    {envText(item)}
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+      {pageRef.current && (
+        <CreateEnvDialog container={pageRef.current} open={createOpen} onOpenChange={setCreateOpen} />
+      )}
     </div>
   )
 }
 
-function Card({ children }: { children: ReactNode }) {
-  return <div className="divide-y border-b bg-white">{children}</div>
+function envText(env: Env): string {
+  const status = env.windowOpen ? (env.headless ? '无头窗口开着' : '有头窗口开着') : '窗口没打开'
+  const sites = env.sites.length ? `${env.sites.length} 个网站` : '还没有打开过的网站'
+  return [env.remark, status, sites].filter(Boolean).join(' · ')
 }
 
-function Envs({ state }: { state: UiState }) {
-  const [name, setName] = useState('新环境')
-  const [remark, setRemark] = useState('')
-  return (
-    <section>
-      <Heading title="环境" detail="一套环境里可以登录多个网站。新建的窗口都是有头的，关掉窗口不会清掉登录。" />
-      <Card>
-        <form
-          className="flex items-center gap-2 px-4 py-3"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void window.browser.createEnv({ name, remark })
-            setRemark('')
-          }}
-        >
-          <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="名称" className="w-36" />
-          <Input value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="备注" className="min-w-0 flex-1" />
-          <Button type="submit">新建</Button>
-        </form>
-      </Card>
-      {state.envs.map((env) => (
-        <EnvCard key={env.id} env={env} />
-      ))}
-    </section>
-  )
+function hit(query: string, text: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  return text.toLowerCase().includes(needle)
 }
 
-function EnvCard({ env }: { env: UiState['envs'][number] }) {
-  const name = useRef<HTMLInputElement>(null)
-  const remark = useRef<HTMLInputElement>(null)
+function EnvDetail({ env, onBack }: { env: Env; onBack: () => void }) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [name, setName] = useState(env.name)
+  const [remark, setRemark] = useState(env.remark)
+  const [ask, setAsk] = useState(false)
+  useEffect(() => {
+    setName(env.name)
+    setRemark(env.remark)
+  }, [env.id, env.name, env.remark])
   return (
-    <Card>
-      <div className="grid gap-3 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Input key={env.name} ref={name} defaultValue={env.name} className="w-36" />
-          <Input key={env.remark} ref={remark} defaultValue={env.remark} placeholder="备注" className="min-w-0 flex-1" />
-          <Button
-            type="button"
-            onClick={() => void window.browser.updateEnv({
-              env: env.id,
-              name: name.current?.value ?? env.name,
-              remark: remark.current?.value ?? env.remark
-            })}
-          >
-            保存
-          </Button>
+    <div ref={rootRef} className="relative h-full overflow-y-auto bg-white">
+      <div className="border-b px-4 py-3">
+        <Button type="button" variant="ghost" size="sm" onClick={onBack}>返回</Button>
+      </div>
+      <div className="grid max-w-xl gap-4 px-4 py-4">
+        <div className="flex items-start gap-3">
+          <Mark large>{env.name.slice(0, 1) || '环'}</Mark>
+          <div className="min-w-0">
+            <h1 className="text-base font-medium">{env.name}</h1>
+            <p className="mt-1 text-xs text-muted-foreground">{env.id} · {env.windowOpen ? (env.headless ? '无头' : '有头') : '未打开'}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="min-w-0 truncate">{env.id}</span>
-          <span>{env.windowOpen ? (env.headless ? '无头' : '有头') : '未打开'}</span>
-          <Button type="button" size="sm" variant="outline" onClick={() => void window.browser.openEnv(env.id)}>
-            {env.windowOpen ? '显示' : '打开'}
-          </Button>
-          {!env.isDefault && (
-            <Button type="button" size="sm" variant="destructive" onClick={() => void window.browser.deleteEnv(env.id)}>
-              删除
-            </Button>
-          )}
+        <Label className="grid gap-1 text-xs text-muted-foreground">
+          名称
+          <Input className="solid-field" value={name} onChange={(event) => setName(event.target.value)} />
+        </Label>
+        <Label className="grid gap-1 text-xs text-muted-foreground">
+          备注
+          <Input className="solid-field" value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="备注" />
+        </Label>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" onClick={() => void window.browser.updateEnv({ env: env.id, name, remark })}>保存</Button>
+          <Button type="button" variant="outline" onClick={() => void window.browser.openEnv(env.id)}>{env.windowOpen ? '显示' : '打开'}</Button>
+          {!env.isDefault && <Button type="button" variant="outline" onClick={() => setAsk(true)}>删除</Button>}
         </div>
-        <div className="grid gap-1 border-t pt-3">
-          {env.sites.length === 0 && <div className="text-xs text-muted-foreground">还没有打开过的网站。</div>}
+        <div className="grid gap-2">
+          <h2 className="text-sm font-medium">网站</h2>
+          {env.sites.length === 0 && <p className="text-xs text-muted-foreground">还没有打开过的网站。</p>}
           {env.sites.map((site) => (
-            <div key={site.domain} className="flex justify-between gap-4 text-sm">
-              <span className="truncate">{site.domain}</span>
+            <div key={site.domain} className="flex items-start justify-between gap-4 rounded-xl border p-3">
+              <span className="min-w-0 truncate text-sm">{site.domain}</span>
               <span className="shrink-0 text-xs text-muted-foreground">
                 {site.cookiePresent ? 'Cookie 还在' : '没有 Cookie'} · {new Date(site.lastOpenedAt).toLocaleString()}
               </span>
@@ -158,67 +190,77 @@ function EnvCard({ env }: { env: UiState['envs'][number] }) {
           ))}
         </div>
       </div>
-    </Card>
+      {rootRef.current && (
+        <ConfirmDialog
+          container={rootRef.current}
+          open={ask}
+          title="删除环境"
+          detail={`从本机删除「${env.name}」。这套里的登录会一起去掉。`}
+          onOpenChange={setAsk}
+          onConfirm={() => {
+            void window.browser.deleteEnv(env.id)
+            onBack()
+          }}
+        />
+      )}
+    </div>
   )
 }
 
-function Workflows({ state }: { state: UiState }) {
-  const [notice, setNotice] = useState('')
+function CreateEnvDialog({ container, open, onOpenChange }: { container: HTMLElement; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [name, setName] = useState('新环境')
+  const [remark, setRemark] = useState('')
   return (
-    <section>
-      <Heading
-        title="工作流"
-        detail="点一条在内容区打开画布。右侧端点是下一步，判断的每个分支各有一个端点。"
-        action={
-          <Button
-            type="button"
-            onClick={() => {
-              void window.browser.importWorkflow().then((result) => {
-                if (!result.canceled && result.name) setNotice(`已导入 ${result.name}`)
-              }).catch((error: unknown) => {
-                setNotice(error instanceof Error ? error.message : '导入失败')
-              })
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal container={container}>
+        <Dialog.Overlay className="absolute inset-0 z-20 bg-black/30" />
+        <Dialog.Content className="absolute top-1/2 left-1/2 z-20 w-[min(24rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-white p-4 shadow-lg">
+          <div className="flex items-center justify-between gap-3">
+            <Dialog.Title className="text-base font-medium">新建环境</Dialog.Title>
+            <Dialog.Close className="grid size-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="关闭">
+              <X className="size-4" />
+            </Dialog.Close>
+          </div>
+          <Dialog.Description className="mt-1 text-xs text-muted-foreground">新建的窗口是有头的。关掉窗口不会清掉登录。</Dialog.Description>
+          <form
+            className="mt-4 grid gap-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void window.browser.createEnv({ name, remark })
+              setRemark('')
+              onOpenChange(false)
             }}
           >
-            导入
-          </Button>
-        }
-      />
-      {notice && <p className="border-b px-4 py-2 text-xs text-muted-foreground">{notice}</p>}
-      {state.workflows.length === 0 && <p className="border-b px-4 py-3 text-xs text-muted-foreground">还没有保存的工作流。</p>}
-      {state.workflows.map((item) => (
-        <Card key={item.id}>
-          <div className="flex items-center gap-3 px-4 py-3">
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-auto min-w-0 flex-1 flex-col items-start gap-1 px-0 py-0 text-left"
-              onClick={() => void window.browser.openWorkflow(item.id)}
-            >
-              <span className="text-sm font-normal">{item.name}</span>
-              <span className="text-xs font-normal text-muted-foreground">{item.id}</span>
-              <span className="text-sm font-normal text-muted-foreground">{item.params.map((param) => param.name).join('、') || '没有参数'}</span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                void window.browser.exportWorkflow(item.id).then((result) => {
-                  if (!result.canceled && result.path) setNotice(`已导出 ${result.name}`)
-                }).catch((error: unknown) => {
-                  setNotice(error instanceof Error ? error.message : '导出失败')
-                })
-              }}
-            >
-              导出
-            </Button>
-          </div>
-          <WorkflowRun workflow={item} />
-        </Card>
-      ))}
-    </section>
+            <Label className="grid gap-1 text-xs text-muted-foreground">
+              名称
+              <Input className="solid-field" value={name} onChange={(event) => setName(event.target.value)} />
+            </Label>
+            <Label className="grid gap-1 text-xs text-muted-foreground">
+              备注
+              <Input className="solid-field" value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="备注" />
+            </Label>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+              <Button type="submit">新建</Button>
+            </div>
+          </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
+}
+
+function Heading({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="border-b px-4 py-4">
+      <h2 className="text-base font-medium">{title}</h2>
+      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+    </div>
+  )
+}
+
+function Card({ children }: { children: ReactNode }) {
+  return <div className="divide-y border-b bg-white">{children}</div>
 }
 
 function Captures({ state }: { state: UiState }) {
@@ -245,13 +287,8 @@ function General({ state }: { state: UiState }) {
       <Heading title="通用" detail="这些选项保存在本机，改完即生效。" />
       <Card>
         <Row title="搜索引擎" detail="新标签页打开这个搜索引擎的首页。地址栏里输入文字时，也用它来搜索。">
-          <Select
-            value={settings.searchEngine}
-            onValueChange={(value) => void window.browser.updateSettings({ searchEngine: value as SearchEngineId })}
-          >
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
+          <Select value={settings.searchEngine} onValueChange={(value) => void window.browser.updateSettings({ searchEngine: value as SearchEngineId })}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
               {searchEngines.map((engine) => (
                 <SelectItem key={engine.id} value={engine.id}>
@@ -263,13 +300,8 @@ function General({ state }: { state: UiState }) {
           </Select>
         </Row>
         <Row title="标签栏" detail="顶部是横条。左侧是竖排，靠近时盖住网页展开，点顶部固定后网页才让开。">
-          <Select
-            value={settings.tabLayout}
-            onValueChange={(value) => void window.browser.updateSettings({ tabLayout: value as TabLayout })}
-          >
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
+          <Select value={settings.tabLayout} onValueChange={(value) => void window.browser.updateSettings({ tabLayout: value as TabLayout })}>
+            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="top">顶部</SelectItem>
               <SelectItem value="left">左侧</SelectItem>
@@ -287,11 +319,7 @@ function General({ state }: { state: UiState }) {
               <Input value="127.0.0.1" readOnly />
             </Field>
             <Field label="端口">
-              <Input
-                type="number"
-                value={settings.port}
-                onChange={(event) => void window.browser.updateSettings({ port: Number(event.target.value) })}
-              />
+              <Input type="number" value={settings.port} onChange={(event) => void window.browser.updateSettings({ port: Number(event.target.value) })} />
             </Field>
           </div>
           <Field label="端点">
@@ -351,9 +379,7 @@ function Row({ title, detail, children }: { title: string; detail: string; child
     <div className="flex items-center justify-between gap-4 px-4 py-3">
       <div className="min-w-0">
         <div className="text-sm">{title}</div>
-        <div className="truncate text-xs text-muted-foreground" title={detail}>
-          {detail}
-        </div>
+        <div className="truncate text-xs text-muted-foreground" title={detail}>{detail}</div>
       </div>
       <div className="shrink-0">{children}</div>
     </div>
@@ -366,5 +392,45 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {label}
       {children}
     </Label>
+  )
+}
+
+function Mark({ children, large }: { children: ReactNode; large?: boolean }) {
+  return (
+    <span className={cn('grid shrink-0 place-items-center rounded-lg bg-muted text-sm font-medium', large ? 'size-10' : 'size-9')}>
+      {children}
+    </span>
+  )
+}
+
+function ConfirmDialog({
+  container,
+  open,
+  title,
+  detail,
+  onOpenChange,
+  onConfirm
+}: {
+  container: HTMLElement
+  open: boolean
+  title: string
+  detail: string
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+}) {
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal container={container}>
+        <Dialog.Overlay className="absolute inset-0 z-20 bg-black/30" />
+        <Dialog.Content className="absolute top-1/2 left-1/2 z-20 w-[min(24rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-white p-4 shadow-lg">
+          <Dialog.Title className="text-base font-medium">{title}</Dialog.Title>
+          <Dialog.Description className="mt-2 text-sm text-muted-foreground">{detail}</Dialog.Description>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+            <Button type="button" variant="destructive" onClick={onConfirm}>删除</Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
