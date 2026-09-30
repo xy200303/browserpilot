@@ -3,9 +3,11 @@ import { writeFileSync } from 'fs'
 import { join } from 'path'
 import type { LayerPayload, Settings, UiState, WorkflowEdge, WorkflowNode } from '@shared/types'
 import { DEFAULT_ENV, searchEngines } from '@shared/types'
+import { workflowPage } from '@shared/market'
 import type { StoredEnv } from './services/StorageService'
 import { storage } from './services/store'
-import { exportWorkflow, importWorkflow, workflowParams, workflowUpdate } from './services/RecordService'
+import { exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate } from './services/RecordService'
+import { installMarketFile, installMarketUrl, listMarket } from './services/MarketService'
 import { windows, type WindowRuntime } from './runtime'
 import { bridge } from './runtime'
 import {
@@ -18,9 +20,14 @@ import {
   layoutWindow,
   muteTab,
   reloadTab,
+  resolveTab,
   restoreTab,
   openEnvironment,
+  openMarket,
+  openSettingsPage,
+  openWorkflowPage,
   setBounds,
+  shareControl,
   takeoverActive,
   windowFromSender
 } from './windows'
@@ -63,7 +70,7 @@ export async function buildState(runtime: WindowRuntime): Promise<UiState> {
       envId: tab.envId,
       groupId: tab.groupId,
       kind: tab.kind,
-      title: tab.kind === 'settings' ? '设置' : tab.title || '新标签页',
+      title: tab.kind === 'settings' ? '设置' : tab.kind === 'market' ? '工作流市场' : tab.kind === 'workflow' ? (storage.workflows.find((item) => tab.url === workflowPage(item.id))?.app.name ?? tab.title) : tab.title || '新标签页',
       url: tab.url,
       favicon: tab.favicon || '',
       loading: tab.loading,
@@ -339,6 +346,53 @@ export function wireIpc(): void {
     return { canceled: false, workflow: saved.id, name: saved.app.name }
   })
 
+  ipcMain.handle('workflow:open', (event, id: string) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) openWorkflowPage(runtime, id)
+  })
+
+  ipcMain.handle('market:open', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) openMarket(runtime)
+  })
+
+  ipcMain.handle('market:list', () => listMarket())
+
+  ipcMain.handle('market:install', async (_event, input: { file?: string; url?: string }) => {
+    const saved = input.url?.trim() ? await installMarketUrl(input.url) : await installMarketFile(String(input.file || ''))
+    broadcast()
+    return saved
+  })
+
+  ipcMain.handle('workflow:run', async (event, input: { workflow: string; inputs?: Record<string, string> }) => {
+    const runtime = windowFromSender(event.sender)
+    const resolved = resolveTab({ env: runtime?.envId }, true)
+    if (runtime && resolved.win.envId === runtime.envId) activateTab(runtime, resolved.tab.id)
+    try {
+      const result = await runWorkflow(resolved.tab, findWorkflow(input.workflow), input.inputs ?? {})
+      if (resolved.tab.control === 'agent') shareControl(resolved.tab, false)
+      return result
+    } catch (error) {
+      if (resolved.tab.control === 'agent') shareControl(resolved.tab, false)
+      throw error
+    }
+  })
+
+  ipcMain.handle('workflow:agent', (_event, id: string) => {
+    const appItem = findWorkflow(id)
+    const params = workflowParams(appItem)
+    const lines = [
+      `请用 BrowserPilot 执行已经装好的工作流「${appItem.app.name}」。`,
+      `调用 workflow_run，name 为「${appItem.app.name}」。`,
+      params.length
+        ? `inputs 使用下面这些值。空着的先问我，不要自己编：\n${params.map((item) => `${item.name}: `).join('\n')}`
+        : '这次没有输入参数。',
+      '跑完后调用 page_unlock。'
+    ]
+    clipboard.writeText(lines.join('\n'))
+    return { copied: true }
+  })
+
   ipcMain.handle('workflow:update', (_event, input: {
     workflow: string
     nodes?: (WorkflowNode & { parent?: string })[]
@@ -365,12 +419,7 @@ export function wireIpc(): void {
 
   ipcMain.handle('menu:settings', (event) => {
     const runtime = windowFromSender(event.sender)
-    if (!runtime?.popupView) return
-    const payload = { kind: 'settings' as const, section: '环境' as const }
-    runtime.popupPayload = payload
-    runtime.popupOpen = true
-    layoutWindow(runtime.envId)
-    runtime.popupView.webContents.send('layer:show', payload)
+    if (runtime) openSettingsPage(runtime, '环境')
   })
 
   ipcMain.handle('group:create', async (event, input: { name: string; color?: string }) => {

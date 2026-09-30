@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Background,
   Controls,
@@ -392,7 +392,11 @@ const nodeTypes = { card: CardNode }
 
 function TextField({ label, value, multiline, onCommit }: { label: string; value: string; multiline?: boolean; onCommit: (value: string) => void }) {
   const [text, setText] = useState(value)
-  useEffect(() => setText(value), [value])
+  const [source, setSource] = useState(value)
+  if (source !== value) {
+    setSource(value)
+    setText(value)
+  }
   const commit = () => {
     if (text !== value) onCommit(text)
   }
@@ -442,7 +446,7 @@ function StartInputs({ variables, onChange }: { variables: Record<string, unknow
     <div className="grid gap-2">
       <div className="text-xs">输入</div>
       {variables.map((item, index) => (
-        <div key={`${index}-${String(item.variable || '')}`} className="grid gap-2 rounded-lg border p-2">
+        <div key={String(item.variable || item.label || '参数')} className="grid gap-2 rounded-lg border p-2">
           <TextField label="参数名" value={String(item.variable || '')} onCommit={(variable) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, variable } : candidate))} />
           <TextField label="显示名" value={String(item.label || '')} onCommit={(label) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, label } : candidate))} />
           <Label className="grid gap-1 text-xs text-muted-foreground">
@@ -472,7 +476,7 @@ function EndOutputs({ outputs, choices, onChange }: { outputs: Record<string, un
     <div className="grid gap-2">
       <div className="text-xs">输出</div>
       {outputs.map((item, index) => (
-        <div key={`${index}-${String(item.variable || '')}`} className="grid gap-2 rounded-lg border p-2">
+        <div key={String(item.variable || '结果')} className="grid gap-2 rounded-lg border p-2">
           <TextField label="名称" value={String(item.variable || '')} onCommit={(variable) => onChange(outputs.map((candidate, cursor) => cursor === index ? { ...candidate, variable } : candidate))} />
           <SelectorField label="取值" value={item.value_selector} choices={choices} onChange={(value_selector) => onChange(outputs.map((candidate, cursor) => cursor === index ? { ...candidate, value_selector } : candidate))} />
           <Button type="button" variant="ghost" size="xs" onClick={() => onChange(outputs.filter((_candidate, cursor) => cursor !== index))}>删除</Button>
@@ -499,7 +503,7 @@ function CodePorts({
     <div className="grid gap-2">
       <div className="text-xs">输入</div>
       {variables.map((item, index) => (
-        <div key={`${index}-${String(item.variable || '')}`} className="grid gap-2 rounded-lg border p-2">
+        <div key={String(item.variable || '输入')} className="grid gap-2 rounded-lg border p-2">
           <TextField label="名称" value={String(item.variable || '')} onCommit={(variable) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, variable } : candidate), outputs)} />
           <SelectorField label="取值" value={item.value_selector} choices={choices} onChange={(value_selector) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, value_selector } : candidate), outputs)} />
           <Button type="button" variant="ghost" size="xs" onClick={() => onChange(variables.filter((_candidate, cursor) => cursor !== index), outputs)}>删除</Button>
@@ -554,6 +558,368 @@ function CodePorts({
   )
 }
 
+function showFor(node: WorkflowNode, types: string[], view: ReactNode): ReactNode {
+  if (!types.includes(node.data.type)) return null
+  return view
+}
+
+function ExportSelectors({ node, choices, patch }: { node: WorkflowNode; choices: Choice[]; patch: (data: WorkflowNode['data']) => void }) {
+  if (node.data.type !== 'export') return null
+  if (Array.isArray(node.data.rows_selector) && !Array.isArray(node.data.data_selector)) {
+    return (
+      <>
+        <SelectorField label="表头" value={node.data.headers_selector} choices={choices} onChange={(headers_selector) => patch({ ...node.data, headers_selector })} />
+        <SelectorField label="行" value={node.data.rows_selector} choices={choices} onChange={(rows_selector) => patch({ ...node.data, rows_selector })} />
+      </>
+    )
+  }
+  return <SelectorField label="输入" value={node.data.data_selector} choices={choices} onChange={(data_selector) => patch({ ...node.data, data_selector })} />
+}
+
+function LoopSelectors({ node, choices, until, patch }: { node: WorkflowNode; choices: Choice[]; until: Record<string, unknown>; patch: (data: WorkflowNode['data']) => void }) {
+  if (node.data.type !== 'loop') return null
+  if (node.data.mode === 'list') {
+    return <SelectorField label="输入" value={node.data.items_selector} choices={choices} onChange={(items_selector) => patch({ ...node.data, items_selector })} />
+  }
+  return (
+    <>
+      <SelectorField label="直到" value={until.variable_selector} choices={choices} onChange={(variable_selector) => patch({ ...node.data, until: { ...until, variable_selector } })} />
+      <TextField label="比较值" value={String(until.value || '')} onCommit={(value) => patch({ ...node.data, until: { ...until, value } })} />
+    </>
+  )
+}
+
+function FillFields({ node, patch }: { node: WorkflowNode; patch: (data: WorkflowNode['data']) => void }) {
+  if (node.data.type !== 'fill') return null
+  return (
+    <>
+      <Label className="grid gap-1 text-xs text-muted-foreground">
+        写入方式
+        <Select value={node.data.entry === 'paste' ? 'paste' : 'type'} onValueChange={(entry) => patch({ ...node.data, entry })}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="type">逐字输入</SelectItem>
+            <SelectItem value="paste">粘贴</SelectItem>
+          </SelectContent>
+        </Select>
+      </Label>
+      <TextField label="内容" value={String(node.data.text || '')} onCommit={(text) => patch({ ...node.data, text })} />
+    </>
+  )
+}
+
+function DirectionField({ node, patch }: { node: WorkflowNode; patch: (data: WorkflowNode['data']) => void }) {
+  if (node.data.type !== 'scroll' && node.data.type !== 'swipe') return null
+  return (
+    <Label className="grid gap-1 text-xs text-muted-foreground">
+      方向
+      <Select value={String(node.data.direction || 'down')} onValueChange={(direction) => patch({ ...node.data, direction })}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="up">上</SelectItem>
+          <SelectItem value="down">下</SelectItem>
+          {node.data.type === 'swipe' && <SelectItem value="left">左</SelectItem>}
+          {node.data.type === 'swipe' && <SelectItem value="right">右</SelectItem>}
+        </SelectContent>
+      </Select>
+    </Label>
+  )
+}
+
+function LocatorFields({ node, locator, patch }: { node: WorkflowNode; locator: Record<string, unknown> | null; patch: (data: WorkflowNode['data']) => void }) {
+  if (!locator) return null
+  return (
+    <div className="grid gap-2">
+      {(['xpath', 'selector'] as const).map((key) => (
+        <TextField
+          key={key}
+          label={key === 'selector' ? 'CSS' : 'XPath'}
+          value={String(locator[key] || '')}
+          onCommit={(value) => {
+            const next = { ...locator, [key]: value }
+            delete next.role
+            delete next.name
+            for (const name of Object.keys(next)) if (!String(next[name] || '').trim()) delete next[name]
+            patch({ ...node.data, locator: next })
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ConditionEditor({
+  condition,
+  conditionIndex,
+  caseId,
+  choices,
+  onChange
+}: {
+  condition: Record<string, unknown>
+  conditionIndex: number
+  caseId: string
+  choices: Choice[]
+  onChange: (condition: Record<string, unknown>) => void
+}) {
+  const operator = String(condition.comparison_operator || 'not empty')
+  const selected = selectorKey(condition.variable_selector)
+  const known = choices.some((choice) => choice.key === selected)
+  return (
+    <div key={`${caseId}-${operator}-${selected}`} className="grid gap-2">
+      {operator !== 'locator' && (
+        <Select
+          value={selected || '__empty'}
+          onValueChange={(key) => {
+            if (key === '__empty') return
+            const choice = choices.find((item) => item.key === key)
+            if (!choice) return
+            onChange({ ...condition, variable_selector: choice.selector })
+          }}
+        >
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {!selected && <SelectItem value="__empty">选择上游产出</SelectItem>}
+            {!known && selected && <SelectItem value={selected}>{Array.isArray(condition.variable_selector) ? condition.variable_selector.join(' / ') : '当前变量'}</SelectItem>}
+            {choices.map((choice) => <SelectItem key={choice.key} value={choice.key}>{choice.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+      <Select value={operator} onValueChange={(comparison_operator) => onChange({ ...condition, comparison_operator })}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {operators.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      {(operator === 'contains' || operator === 'is') && (
+        <TextField label="比较值" value={String(condition.value || '')} onCommit={(value) => onChange({ ...condition, value })} />
+      )}
+    </div>
+  )
+}
+
+function CaseFields({
+  node,
+  cases,
+  edges,
+  choices,
+  patch
+}: {
+  node: WorkflowNode
+  cases: Record<string, unknown>[]
+  edges: WorkflowEdge[]
+  choices: Choice[]
+  patch: (data: WorkflowNode['data'], removeEdges?: string[]) => void
+}) {
+  if (node.data.type !== 'if-else') return null
+  return (
+    <div className="grid gap-2">
+      {cases.map((item, index) => {
+        const caseId = String(item.case_id || '')
+        const conditions = Array.isArray(item.conditions) ? item.conditions.filter((condition) => condition && typeof condition === 'object') as Record<string, unknown>[] : []
+        return (
+          <div key={caseId || 'branch'} className="grid gap-2 rounded-lg border p-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs">{index === 0 ? 'IF' : 'ELIF'}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                disabled={cases.length <= 1}
+                onClick={() => {
+                  if (cases.length <= 1) return
+                  const next = cases.filter((candidate) => candidate !== item)
+                  const dropped = edges.filter((edge) => edge.source === node.id && (edge.sourceHandle || 'source') === caseId).map((edge) => edge.id)
+                  patch({ ...node.data, cases: next }, dropped)
+                }}
+              >
+                删除
+              </Button>
+            </div>
+            {conditions.map((condition, conditionIndex) => (
+              <ConditionEditor
+                key={`${caseId}-${selectorKey(condition.variable_selector)}-${String(condition.comparison_operator || '')}`}
+                condition={condition}
+                conditionIndex={conditionIndex}
+                caseId={caseId}
+                choices={choices}
+                onChange={(next) => {
+                  const replaced = conditions.map((candidate, cursor) => cursor === conditionIndex ? next : candidate)
+                  patch({ ...node.data, cases: cases.map((candidate) => candidate === item ? { ...item, conditions: replaced } : candidate) })
+                }}
+              />
+            ))}
+          </div>
+        )
+      })}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          const caseId = `case-${crypto.randomUUID().slice(0, 8)}`
+          patch({
+            ...node.data,
+            cases: [...cases, { case_id: caseId, conditions: [{ comparison_operator: 'not empty', variable_selector: ['sys', 'url'] }] }]
+          })
+        }}
+      >
+        添加分支
+      </Button>
+      <p className="text-xs text-muted-foreground">都不成立时走 ELSE。</p>
+    </div>
+  )
+}
+
+function readNodeBits(node: WorkflowNode): {
+  cases: Record<string, unknown>[]
+  locator: Record<string, unknown> | null
+  codeOutputs: Record<string, { type?: string }>
+  until: Record<string, unknown>
+} {
+  const cases = Array.isArray(node.data.cases) ? node.data.cases.filter((item) => item && typeof item === 'object') as Record<string, unknown>[] : []
+  const locator = node.data.locator && typeof node.data.locator === 'object' ? node.data.locator as Record<string, unknown> : null
+  const outputs = node.data.outputs
+  const codeOutputs = outputs && typeof outputs === 'object' && !Array.isArray(outputs) ? outputs as Record<string, { type?: string }> : {}
+  const until = node.data.until && typeof node.data.until === 'object' ? node.data.until as Record<string, unknown> : {}
+  return { cases, locator, codeOutputs, until }
+}
+
+function RemoveNode({ node, onRemove }: { node: WorkflowNode; onRemove: () => void }) {
+  if (node.data.type === 'start') return null
+  return <Button type="button" variant="destructive" size="sm" onClick={onRemove}>删除节点</Button>
+}
+
+function NextLink({
+  sources,
+  handle,
+  addType,
+  onPick,
+  onAddType,
+  onAdd
+}: {
+  sources: { id: string; label?: string }[]
+  handle: string
+  addType: string
+  onPick: (handle: string) => void
+  onAddType: (type: string) => void
+  onAdd: (type: string, handle: string) => void
+}) {
+  if (sources.length === 0) return null
+  return (
+    <div className="grid gap-2 border-t pt-3">
+      {sources.length > 1 && (
+        <Label className="grid gap-1 text-xs text-muted-foreground">
+          从哪个端点连出
+          <Select value={handle} onValueChange={onPick}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {sources.map((source) => <SelectItem key={source.id} value={source.id}>{source.label || '输出'}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Label>
+      )}
+      <Label className="grid gap-1 text-xs text-muted-foreground">
+        添加下一步
+        <Select value={addType} onValueChange={onAddType}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {addable.map((type) => <SelectItem key={type} value={type}>{kindText[type]}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </Label>
+      <Button type="button" size="sm" onClick={() => onAdd(addType, handle)}>接到这个端点</Button>
+    </div>
+  )
+}
+
+type NodePatch = (data: WorkflowNode['data'], removeEdges?: string[]) => void
+
+function chosenHandle(sources: { id: string }[], nodeId: string, picked: { nodeId: string; handle: string } | null): string {
+  const fallback = sources[0]?.id || 'source'
+  const pickedHandle = picked?.nodeId === nodeId ? picked.handle : ''
+  return sources.some((item) => item.id === pickedHandle) ? pickedHandle : fallback
+}
+
+function NodeHeading({ node, patch }: { node: WorkflowNode; patch: NodePatch }) {
+  return (
+    <>
+      <div>
+        <div className="text-[10px] text-muted-foreground">{kindText[node.data.type] || node.data.type}</div>
+        <div className="truncate text-xs text-muted-foreground">{node.id}</div>
+      </div>
+      <TextField label="标题" value={String(node.data.title || '')} onCommit={(title) => patch({ ...node.data, title })} />
+    </>
+  )
+}
+
+function NodePorts({
+  node,
+  choices,
+  codeOutputs,
+  until,
+  patch
+}: {
+  node: WorkflowNode
+  choices: Choice[]
+  codeOutputs: Record<string, { type?: string }>
+  until: Record<string, unknown>
+  patch: NodePatch
+}) {
+  return (
+    <>
+      {showFor(node, ['start'], <StartInputs variables={records(node.data.variables)} onChange={(variables) => patch({ ...node.data, variables })} />)}
+      {showFor(node, ['code', 'script'], <CodePorts variables={records(node.data.variables)} outputs={codeOutputs} choices={choices} onChange={(variables, outputs) => patch({ ...node.data, variables, outputs })} />)}
+      {showFor(node, ['end'], <EndOutputs outputs={records(node.data.outputs)} choices={choices} onChange={(outputs) => patch({ ...node.data, outputs })} />)}
+      {showFor(node, ['extract'], <SelectorField label="输入" value={node.data.variable_selector} choices={choices} onChange={(variable_selector) => patch({ ...node.data, variable_selector })} />)}
+      <ExportSelectors node={node} choices={choices} patch={patch} />
+      <LoopSelectors node={node} choices={choices} until={until} patch={patch} />
+      {showFor(node, ['http-request', 'extract', 'export', 'loop'], <p className="text-xs text-muted-foreground">输出 {portSummary(node).outputs.join('、')}</p>)}
+    </>
+  )
+}
+
+function NodePageFields({ node, patch }: { node: WorkflowNode; patch: NodePatch }) {
+  return (
+    <>
+      {showFor(node, ['goto'], <TextField label="地址" value={String(node.data.url || '')} onCommit={(url) => patch({ ...node.data, url })} />)}
+      <FillFields node={node} patch={patch} />
+      {showFor(node, ['select'], <TextField label="选项" value={String(node.data.option || '')} onCommit={(option) => patch({ ...node.data, option })} />)}
+      {showFor(node, ['press'], <TextField label="按键" value={String(node.data.shortcut || '')} onCommit={(shortcut) => patch({ ...node.data, shortcut })} />)}
+      <DirectionField node={node} patch={patch} />
+      {showFor(node, ['handoff'], <TextField label="提示" value={String(node.data.message || '')} onCommit={(message) => patch({ ...node.data, message })} />)}
+    </>
+  )
+}
+
+function HttpFields({ node, patch }: { node: WorkflowNode; patch: NodePatch }) {
+  if (node.data.type !== 'http-request') return null
+  return (
+    <>
+      <TextField label="方法" value={String(node.data.method || 'GET')} onCommit={(method) => patch({ ...node.data, method })} />
+      <TextField label="地址" value={String(node.data.url || '')} onCommit={(url) => patch({ ...node.data, url })} />
+      <TextField label="请求正文" multiline value={typeof node.data.body === 'string' ? node.data.body : ''} onCommit={(body) => patch({ ...node.data, body })} />
+    </>
+  )
+}
+
+function NodeCodeFields({ node, patch }: { node: WorkflowNode; patch: NodePatch }) {
+  return (
+    <>
+      <HttpFields node={node} patch={patch} />
+      {showFor(node, ['script'], <TextField label="页面脚本" multiline value={String(node.data.source || '')} onCommit={(source) => patch({ ...node.data, source })} />)}
+      {showFor(node, ['code'], <TextField label="代码" multiline value={String(node.data.code || '')} onCommit={(code) => patch({ ...node.data, code })} />)}
+      {showFor(node, ['extract'], <TextField label="正则" value={String(node.data.pattern || '')} onCommit={(pattern) => patch({ ...node.data, pattern })} />)}
+      {showFor(node, ['export'], <TextField label="文件名" value={String(node.data.filename || '')} onCommit={(filename) => patch({ ...node.data, filename })} />)}
+      {showFor(node, ['click'], (
+        <div className="grid gap-2">
+          <TextField label="画布 X" value={node.data.x == null ? '' : String(node.data.x)} onCommit={(x) => patch(withPoint(node.data, 'x', x))} />
+          <TextField label="画布 Y" value={node.data.y == null ? '' : String(node.data.y)} onCommit={(y) => patch(withPoint(node.data, 'y', y))} />
+        </div>
+      ))}
+    </>
+  )
+}
+
 function NodePanel({
   node,
   graph,
@@ -576,242 +942,31 @@ function NodePanel({
   onAdd: (type: string, handle: string) => void
 }) {
   const sources = sourceHandles(node)
-  const [handle, setHandle] = useState(sources[0]?.id || 'source')
+  const [picked, setPicked] = useState<{ nodeId: string; handle: string } | null>(null)
+  const handle = chosenHandle(sources, node.id, picked)
   const [addType, setAddType] = useState<string>('goto')
-  useEffect(() => setHandle(sources[0]?.id || 'source'), [node.id, sources.map((item) => item.id).join('|')])
   const choices = useMemo(() => choiceList(graph, stack, node.id, insideLoop), [graph, stack, node.id, insideLoop])
-
-  const patch = (data: WorkflowNode['data'], removeEdges?: string[]) => onChange({ ...node, data }, removeEdges)
-  const cases = Array.isArray(node.data.cases) ? node.data.cases.filter((item) => item && typeof item === 'object') as Record<string, unknown>[] : []
-  const locator = node.data.locator && typeof node.data.locator === 'object' ? (node.data.locator as Record<string, unknown>) : null
-  const codeOutputs = node.data.outputs && typeof node.data.outputs === 'object' && !Array.isArray(node.data.outputs) ? node.data.outputs as Record<string, { type?: string }> : {}
-  const until = node.data.until && typeof node.data.until === 'object' ? node.data.until as Record<string, unknown> : {}
+  const patch: NodePatch = (data, removeEdges) => onChange({ ...node, data }, removeEdges)
+  const { cases, locator, codeOutputs, until } = readNodeBits(node)
 
   return (
     <div className="grid gap-3 p-3">
-      <div>
-        <div className="text-[10px] text-muted-foreground">{kindText[node.data.type] || node.data.type}</div>
-        <div className="truncate text-xs text-muted-foreground">{node.id}</div>
-      </div>
-      <TextField label="标题" value={String(node.data.title || '')} onCommit={(title) => patch({ ...node.data, title })} />
-      {node.data.type === 'start' && <StartInputs variables={records(node.data.variables)} onChange={(variables) => patch({ ...node.data, variables })} />}
-      {(node.data.type === 'code' || node.data.type === 'script') && (
-        <CodePorts variables={records(node.data.variables)} outputs={codeOutputs} choices={choices} onChange={(variables, outputs) => patch({ ...node.data, variables, outputs })} />
-      )}
-      {node.data.type === 'end' && <EndOutputs outputs={records(node.data.outputs)} choices={choices} onChange={(outputs) => patch({ ...node.data, outputs })} />}
-      {node.data.type === 'extract' && <SelectorField label="输入" value={node.data.variable_selector} choices={choices} onChange={(variable_selector) => patch({ ...node.data, variable_selector })} />}
-      {node.data.type === 'export' && (Array.isArray(node.data.rows_selector) && !Array.isArray(node.data.data_selector) ? (
-        <>
-          <SelectorField label="表头" value={node.data.headers_selector} choices={choices} onChange={(headers_selector) => patch({ ...node.data, headers_selector })} />
-          <SelectorField label="行" value={node.data.rows_selector} choices={choices} onChange={(rows_selector) => patch({ ...node.data, rows_selector })} />
-        </>
-      ) : (
-        <SelectorField label="输入" value={node.data.data_selector} choices={choices} onChange={(data_selector) => patch({ ...node.data, data_selector })} />
-      ))}
-      {node.data.type === 'loop' && (node.data.mode === 'list' ? (
-        <SelectorField label="输入" value={node.data.items_selector} choices={choices} onChange={(items_selector) => patch({ ...node.data, items_selector })} />
-      ) : (
-        <>
-          <SelectorField label="直到" value={until.variable_selector} choices={choices} onChange={(variable_selector) => patch({ ...node.data, until: { ...until, variable_selector } })} />
-          <TextField label="比较值" value={String(until.value || '')} onCommit={(value) => patch({ ...node.data, until: { ...until, value } })} />
-        </>
-      ))}
-      {(node.data.type === 'http-request' || node.data.type === 'extract' || node.data.type === 'export' || node.data.type === 'loop') && (
-        <p className="text-xs text-muted-foreground">输出 {portSummary(node).outputs.join('、')}</p>
-      )}
-      {node.data.type === 'goto' && <TextField label="地址" value={String(node.data.url || '')} onCommit={(url) => patch({ ...node.data, url })} />}
-      {node.data.type === 'fill' && (
-        <>
-          <Label className="grid gap-1 text-xs text-muted-foreground">
-            写入方式
-            <Select value={node.data.entry === 'paste' ? 'paste' : 'type'} onValueChange={(entry) => patch({ ...node.data, entry })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="type">逐字输入</SelectItem>
-                <SelectItem value="paste">粘贴</SelectItem>
-              </SelectContent>
-            </Select>
-          </Label>
-          <TextField label="内容" value={String(node.data.text || '')} onCommit={(text) => patch({ ...node.data, text })} />
-        </>
-      )}
-      {node.data.type === 'select' && <TextField label="选项" value={String(node.data.option || '')} onCommit={(option) => patch({ ...node.data, option })} />}
-      {node.data.type === 'press' && <TextField label="按键" value={String(node.data.shortcut || '')} onCommit={(shortcut) => patch({ ...node.data, shortcut })} />}
-      {(node.data.type === 'scroll' || node.data.type === 'swipe') && (
-        <Label className="grid gap-1 text-xs text-muted-foreground">
-          方向
-          <Select value={String(node.data.direction || 'down')} onValueChange={(direction) => patch({ ...node.data, direction })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="up">上</SelectItem>
-              <SelectItem value="down">下</SelectItem>
-              {node.data.type === 'swipe' && <SelectItem value="left">左</SelectItem>}
-              {node.data.type === 'swipe' && <SelectItem value="right">右</SelectItem>}
-            </SelectContent>
-          </Select>
-        </Label>
-      )}
-      {node.data.type === 'handoff' && <TextField label="提示" value={String(node.data.message || '')} onCommit={(message) => patch({ ...node.data, message })} />}
-      {node.data.type === 'http-request' && (
-        <>
-          <TextField label="方法" value={String(node.data.method || 'GET')} onCommit={(method) => patch({ ...node.data, method })} />
-          <TextField label="地址" value={String(node.data.url || '')} onCommit={(url) => patch({ ...node.data, url })} />
-          <TextField label="请求正文" multiline value={typeof node.data.body === 'string' ? node.data.body : ''} onCommit={(body) => patch({ ...node.data, body })} />
-        </>
-      )}
-      {node.data.type === 'script' && <TextField label="页面脚本" multiline value={String(node.data.source || '')} onCommit={(source) => patch({ ...node.data, source })} />}
-      {node.data.type === 'code' && <TextField label="代码" multiline value={String(node.data.code || '')} onCommit={(code) => patch({ ...node.data, code })} />}
-      {node.data.type === 'extract' && <TextField label="正则" value={String(node.data.pattern || '')} onCommit={(pattern) => patch({ ...node.data, pattern })} />}
-      {node.data.type === 'export' && <TextField label="文件名" value={String(node.data.filename || '')} onCommit={(filename) => patch({ ...node.data, filename })} />}
-      {node.data.type === 'click' && (
-        <div className="grid gap-2">
-          <TextField label="画布 X" value={node.data.x == null ? '' : String(node.data.x)} onCommit={(x) => patch(withPoint(node.data, 'x', x))} />
-          <TextField label="画布 Y" value={node.data.y == null ? '' : String(node.data.y)} onCommit={(y) => patch(withPoint(node.data, 'y', y))} />
-        </div>
-      )}
-      {locator && (
-        <div className="grid gap-2">
-          {(['xpath', 'selector'] as const).map((key) => (
-            <TextField
-              key={key}
-              label={key === 'selector' ? 'CSS' : 'XPath'}
-              value={String(locator[key] || '')}
-              onCommit={(value) => {
-                const next = { ...locator, [key]: value }
-                delete next.role
-                delete next.name
-                for (const name of Object.keys(next)) if (!String(next[name] || '').trim()) delete next[name]
-                patch({ ...node.data, locator: next })
-              }}
-            />
-          ))}
-        </div>
-      )}
-      {node.data.type === 'if-else' && (
-        <div className="grid gap-2">
-          {cases.map((item, index) => {
-            const caseId = String(item.case_id || '')
-            const conditions = Array.isArray(item.conditions) ? item.conditions.filter((condition) => condition && typeof condition === 'object') as Record<string, unknown>[] : []
-            return (
-              <div key={caseId || index} className="grid gap-2 rounded-lg border p-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs">{index === 0 ? 'IF' : 'ELIF'}</span>
-                    <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    disabled={cases.length <= 1}
-                    onClick={() => {
-                      if (cases.length <= 1) return
-                      const next = cases.filter((candidate) => candidate !== item)
-                      const dropped = edges.filter((edge) => edge.source === node.id && (edge.sourceHandle || 'source') === caseId).map((edge) => edge.id)
-                      patch({ ...node.data, cases: next }, dropped)
-                    }}
-                  >
-                    删除
-                  </Button>
-                </div>
-                {conditions.map((condition, conditionIndex) => {
-                  const operator = String(condition.comparison_operator || 'not empty')
-                  const selected = selectorKey(condition.variable_selector)
-                  const known = choices.some((choice) => choice.key === selected)
-                  return (
-                    <div key={`${caseId}-${conditionIndex}`} className="grid gap-2">
-                      {operator !== 'locator' && (
-                        <Select
-                          value={selected || '__empty'}
-                          onValueChange={(key) => {
-                            if (key === '__empty') return
-                            const choice = choices.find((item) => item.key === key)
-                            if (!choice) return
-                            const next = conditions.map((candidate, cursor) => cursor === conditionIndex ? { ...candidate, variable_selector: choice.selector } : candidate)
-                            patch({ ...node.data, cases: cases.map((candidate) => candidate === item ? { ...item, conditions: next } : candidate) })
-                          }}
-                        >
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {!selected && <SelectItem value="__empty">选择上游产出</SelectItem>}
-                            {!known && selected && <SelectItem value={selected}>{Array.isArray(condition.variable_selector) ? condition.variable_selector.join(' / ') : '当前变量'}</SelectItem>}
-                            {choices.map((choice) => <SelectItem key={choice.key} value={choice.key}>{choice.label}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      )}
-                      <Select
-                        value={operator}
-                        onValueChange={(comparison_operator) => {
-                          const next = conditions.map((candidate, cursor) => cursor === conditionIndex ? { ...candidate, comparison_operator } : candidate)
-                          patch({ ...node.data, cases: cases.map((candidate) => candidate === item ? { ...item, conditions: next } : candidate) })
-                        }}
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {operators.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      {(operator === 'contains' || operator === 'is') && (
-                        <TextField
-                          label="比较值"
-                          value={String(condition.value || '')}
-                          onCommit={(value) => {
-                            const next = conditions.map((candidate, cursor) => cursor === conditionIndex ? { ...candidate, value } : candidate)
-                            patch({ ...node.data, cases: cases.map((candidate) => candidate === item ? { ...item, conditions: next } : candidate) })
-                          }}
-                        />
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          })}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const caseId = `case-${crypto.randomUUID().slice(0, 8)}`
-              patch({
-                ...node.data,
-                cases: [...cases, { case_id: caseId, conditions: [{ comparison_operator: 'not empty', variable_selector: ['sys', 'url'] }] }]
-              })
-            }}
-          >
-            添加分支
-          </Button>
-          <p className="text-xs text-muted-foreground">都不成立时走 ELSE。</p>
-        </div>
-      )}
-      {node.data.type === 'loop' && (
-        <Button type="button" variant="outline" size="sm" onClick={onEnter}>进入循环</Button>
-      )}
-      {sources.length > 0 && (
-        <div className="grid gap-2 border-t pt-3">
-          {sources.length > 1 && (
-            <Label className="grid gap-1 text-xs text-muted-foreground">
-              从哪个端点连出
-              <Select value={handle} onValueChange={setHandle}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {sources.map((source) => <SelectItem key={source.id} value={source.id}>{source.label || '输出'}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </Label>
-          )}
-          <Label className="grid gap-1 text-xs text-muted-foreground">
-            添加下一步
-            <Select value={addType} onValueChange={setAddType}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {addable.map((type) => <SelectItem key={type} value={type}>{kindText[type]}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </Label>
-          <Button type="button" size="sm" onClick={() => onAdd(addType, handle)}>接到这个端点</Button>
-        </div>
-      )}
-      {node.data.type !== 'start' && (
-        <Button type="button" variant="destructive" size="sm" onClick={onRemove}>删除节点</Button>
-      )}
+      <NodeHeading node={node} patch={patch} />
+      <NodePorts node={node} choices={choices} codeOutputs={codeOutputs} until={until} patch={patch} />
+      <NodePageFields node={node} patch={patch} />
+      <NodeCodeFields node={node} patch={patch} />
+      <LocatorFields node={node} locator={locator} patch={patch} />
+      <CaseFields node={node} cases={cases} edges={edges} choices={choices} patch={patch} />
+      {showFor(node, ['loop'], <Button type="button" variant="outline" size="sm" onClick={onEnter}>进入循环</Button>)}
+      <NextLink
+        sources={sources}
+        handle={handle}
+        addType={addType}
+        onPick={(value) => setPicked({ nodeId: node.id, handle: value })}
+        onAddType={setAddType}
+        onAdd={onAdd}
+      />
+      <RemoveNode node={node} onRemove={onRemove} />
     </div>
   )
 }
@@ -821,15 +976,15 @@ function EditorCanvas({ workflow, onBack }: { workflow: WorkflowInfo; onBack: ()
   const [selectedId, setSelectedId] = useState('')
   const [error, setError] = useState('')
   const level = useMemo(() => levelAt(workflow.graph, stack), [workflow.graph, stack])
+  if (level.missing && stack.length > 0) setStack([])
   const flow = useMemo(() => toFlow(level.nodes, level.edges), [level.nodes, level.edges])
   const [nodes, setNodes] = useState<FlowNode[]>(flow.nodes)
   const [edges, setEdges] = useState<Edge[]>(flow.edges)
   const { fitView } = useReactFlow()
   const signature = JSON.stringify(flow)
-
-  useEffect(() => {
-    if (level.missing) setStack([])
-  }, [level.missing])
+  const stackKey = stack.join('/')
+  const nodeCount = level.nodes.length
+  const edgeCount = level.edges.length
 
   useEffect(() => {
     setNodes(flow.nodes)
@@ -839,7 +994,7 @@ function EditorCanvas({ workflow, onBack }: { workflow: WorkflowInfo; onBack: ()
   useEffect(() => {
     const timer = window.setTimeout(() => fitView({ padding: 0.2 }), 30)
     return () => window.clearTimeout(timer)
-  }, [workflow.id, stack.join('/'), level.nodes.length, level.edges.length, fitView])
+  }, [workflow.id, stackKey, nodeCount, edgeCount, fitView])
 
   const save = useCallback(async (patch: Patch) => {
     setError('')

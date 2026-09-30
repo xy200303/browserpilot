@@ -3,6 +3,7 @@ import { join } from 'path'
 import { DEFAULT_ENV } from '@shared/types'
 import { chromeUserAgent } from './ua'
 import { createId } from './ids'
+import { MARKET_PAGE, SETTINGS_PAGE, workflowPage } from '@shared/market'
 import { storage } from './services/store'
 import {
   activePage,
@@ -149,11 +150,12 @@ function loadPopup(view: WebContentsView): void {
   loadLayer(view, 'popup')
 }
 
-function loadLayer(view: WebContentsView, layer: string): void {
+function loadLayer(view: WebContentsView, layer: string, extra?: Record<string, string>): void {
+  const query = { layer, ...extra }
   if (process.env.ELECTRON_RENDERER_URL) {
-    void view.webContents.loadURL(`${process.env.ELECTRON_RENDERER_URL}?layer=${layer}`)
+    void view.webContents.loadURL(`${process.env.ELECTRON_RENDERER_URL}?${new URLSearchParams(query)}`)
   } else {
-    void view.webContents.loadFile(join(__dirname, '../renderer/index.html'), { query: { layer } })
+    void view.webContents.loadFile(join(__dirname, '../renderer/index.html'), { query })
   }
 }
 
@@ -227,8 +229,8 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
   return tab
 }
 
-export function openSettingsTab(runtime: WindowRuntime): TabRuntime {
-  const existing = runtime.tabs.find((tab) => tab.kind === 'settings')
+function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings', title: string, url: string): TabRuntime {
+  const existing = runtime.tabs.find((tab) => tab.kind === kind)
   if (existing) {
     activateTab(runtime, existing.id)
     return existing
@@ -237,9 +239,46 @@ export function openSettingsTab(runtime: WindowRuntime): TabRuntime {
     id: createId('tab'),
     envId: runtime.envId,
     groupId: null,
-    kind: 'settings',
-    title: '设置',
-    url: '',
+    kind,
+    title,
+    url,
+    loading: false,
+    control: 'free',
+    handoffMessage: '',
+    userTookOver: false,
+    refs: new Map(),
+    documentHtml: ''
+  }
+  runtime.tabs.push(tab)
+  activateTab(runtime, tab.id)
+  return tab
+}
+
+export function openMarket(runtime: WindowRuntime): TabRuntime {
+  return openBuiltin(runtime, 'market', '工作流市场', MARKET_PAGE)
+}
+
+export function openSettingsPage(runtime: WindowRuntime, _section = '环境'): TabRuntime {
+  return openBuiltin(runtime, 'settings', '设置', SETTINGS_PAGE)
+}
+
+export function openWorkflowPage(runtime: WindowRuntime, workflowId: string): TabRuntime {
+  const app = storage.workflows.find((item) => item.id === workflowId)
+  if (!app) throw new Error(`没有这个工作流 ${workflowId}`)
+  const url = workflowPage(workflowId)
+  const existing = runtime.tabs.find((tab) => tab.kind === 'workflow' && tab.url === url)
+  if (existing) {
+    existing.title = app.app.name
+    activateTab(runtime, existing.id)
+    return existing
+  }
+  const tab: TabRuntime = {
+    id: createId('tab'),
+    envId: runtime.envId,
+    groupId: null,
+    kind: 'workflow',
+    title: app.app.name,
+    url,
     loading: false,
     control: 'free',
     handoffMessage: '',
@@ -457,10 +496,15 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
     return { action: 'deny' }
   })
   const sync = (): void => {
-    tab.title = wc.getTitle() || tab.title
-    tab.url = wc.getURL() || tab.url
     tab.loading = wc.isLoading()
-    rememberSite(runtime.envId, tab.url)
+    if (tab.kind === 'market' || tab.kind === 'settings') {
+      tab.title = tab.kind === 'market' ? '工作流市场' : '设置'
+      tab.url = tab.kind === 'market' ? MARKET_PAGE : SETTINGS_PAGE
+    } else {
+      tab.title = wc.getTitle() || tab.title
+      tab.url = wc.getURL() || tab.url
+      rememberSite(runtime.envId, tab.url)
+    }
     bridge.broadcast(runtime.envId)
   }
   wc.on('page-title-updated', sync)

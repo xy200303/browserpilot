@@ -53,7 +53,7 @@ export type TabInfo = {
   id: string
   envId: string
   groupId: string | null
-  kind: 'page' | 'settings'
+  kind: 'page' | 'settings' | 'market' | 'workflow'
   title: string
   url: string
   favicon?: string

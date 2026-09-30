@@ -115,13 +115,11 @@ const NODE_BOX = `function () {
 }`
 
 async function backendIdsOf(dbg: Electron.Debugger, nodeIds: number[]): Promise<number[]> {
-  const ids: number[] = []
-  for (const nodeId of nodeIds) {
-    if (!nodeId) continue
+  const present = nodeIds.filter((nodeId) => nodeId)
+  return Promise.all(present.map(async (nodeId) => {
     const described = (await dbg.sendCommand('DOM.describeNode', { nodeId })) as { node: { backendNodeId: number } }
-    ids.push(described.node.backendNodeId)
-  }
-  return ids
+    return described.node.backendNodeId
+  }))
 }
 
 async function collectMatches(dbg: Electron.Debugger, locator: Locator): Promise<{ total: number; backendNodeIds: number[] }> {
@@ -171,15 +169,13 @@ export type LocatorMatch = { index: number; text: string; hittable: boolean }
 export async function queryLocator(tab: TabRuntime, locator: Locator): Promise<{ total: number; matches: LocatorMatch[] }> {
   return withDebugger(wcOf(tab), async (dbg) => {
     const found = await collectMatches(dbg, locator)
-    const matches: LocatorMatch[] = []
-    for (let index = 0; index < found.backendNodeIds.length; index += 1) {
-      const backendNodeId = found.backendNodeIds[index]
-      matches.push({
-        index,
-        text: await nodeText(dbg, backendNodeId),
-        hittable: await nodeHittable(dbg, tab, backendNodeId)
-      })
-    }
+    const matches = await Promise.all(found.backendNodeIds.map(async (backendNodeId, index) => {
+      const [text, hittable] = await Promise.all([
+        nodeText(dbg, backendNodeId),
+        nodeHittable(dbg, tab, backendNodeId)
+      ])
+      return { index, text, hittable }
+    }))
     return { total: found.total, matches }
   })
 }
@@ -698,34 +694,67 @@ function keyEventOf(key: string): { key: string; code: string; vk: number } {
   return { key, code: key, vk: 0 }
 }
 
-async function typeByCdp(tab: TabRuntime, text: string): Promise<void> {
-  await withDebugger(wcOf(tab), async (dbg) => {
-    for (const ch of text) {
-      const spec = keySpec(ch)
-      if (!spec) {
-        await dbg.sendCommand('Input.insertText', { text: ch })
-        continue
-      }
-      await dbg.sendCommand('Input.dispatchKeyEvent', {
-        type: 'keyDown',
-        modifiers: spec.modifiers,
-        key: spec.key,
-        code: spec.code,
-        text: ch,
-        unmodifiedText: spec.unmodified,
-        windowsVirtualKeyCode: spec.vk,
-        nativeVirtualKeyCode: spec.vk
-      })
-      await dbg.sendCommand('Input.dispatchKeyEvent', {
-        type: 'keyUp',
-        modifiers: spec.modifiers,
-        key: spec.key,
-        code: spec.code,
-        windowsVirtualKeyCode: spec.vk,
-        nativeVirtualKeyCode: spec.vk
-      })
+type TypeStep =
+  | { kind: 'text'; text: string }
+  | { kind: 'key'; ch: string; spec: NonNullable<ReturnType<typeof keySpec>> }
+
+function typeSteps(text: string): TypeStep[] {
+  const steps: TypeStep[] = []
+  let plain = ''
+  const flush = (): void => {
+    if (!plain) return
+    steps.push({ kind: 'text', text: plain })
+    plain = ''
+  }
+  for (const ch of text) {
+    const spec = keySpec(ch)
+    if (!spec) {
+      plain += ch
+      continue
     }
+    flush()
+    steps.push({ kind: 'key', ch, spec })
+  }
+  flush()
+  return steps
+}
+
+async function typeStep(dbg: Electron.Debugger, step: TypeStep): Promise<void> {
+  if (step.kind === 'text') {
+    await dbg.sendCommand('Input.insertText', { text: step.text })
+    return
+  }
+  const { ch, spec } = step
+  await dbg.sendCommand('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    modifiers: spec.modifiers,
+    key: spec.key,
+    code: spec.code,
+    text: ch,
+    unmodifiedText: spec.unmodified,
+    windowsVirtualKeyCode: spec.vk,
+    nativeVirtualKeyCode: spec.vk
   })
+  await dbg.sendCommand('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    modifiers: spec.modifiers,
+    key: spec.key,
+    code: spec.code,
+    windowsVirtualKeyCode: spec.vk,
+    nativeVirtualKeyCode: spec.vk
+  })
+}
+
+async function typeStepsFrom(dbg: Electron.Debugger, steps: TypeStep[], index: number): Promise<void> {
+  const step = steps[index]
+  if (!step) return
+  await typeStep(dbg, step)
+  await typeStepsFrom(dbg, steps, index + 1)
+}
+
+async function typeByCdp(tab: TabRuntime, text: string): Promise<void> {
+  const steps = typeSteps(text)
+  await withDebugger(wcOf(tab), (dbg) => typeStepsFrom(dbg, steps, 0))
 }
 
 function keySpec(ch: string): { key: string; code: string; vk: number; modifiers: number; unmodified: string } | undefined {

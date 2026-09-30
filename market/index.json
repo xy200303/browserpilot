@@ -1,0 +1,18 @@
+{
+  "workflows": [
+    {
+      "slug": "open-page",
+      "name": "打开网页",
+      "description": "打开参数里的地址，停在这一页。",
+      "author": "BrowserPilot",
+      "file": "open-page.json"
+    },
+    {
+      "slug": "page-title",
+      "name": "读取页面标题",
+      "description": "读取当前标签的标题和地址。",
+      "author": "BrowserPilot",
+      "file": "page-title.json"
+    }
+  ]
+}

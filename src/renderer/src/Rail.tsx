@@ -10,8 +10,11 @@ export function RailApp() {
   const [menu, setMenu] = useState(false)
   const pinned = useRef(false)
   const timer = useRef<number | null>(null)
-  pinned.current = Boolean(state?.railPinned)
   const expanded = open || Boolean(state?.railPinned)
+
+  useEffect(() => {
+    pinned.current = Boolean(state?.railPinned)
+  }, [state?.railPinned])
 
   useEffect(() => {
     void window.browser.getState().then(setState)
@@ -142,16 +145,17 @@ export function RailApp() {
 }
 
 function RailTab({ tab, expanded }: { tab: TabInfo; expanded: boolean }) {
-  const openMenu = (event: MouseEvent<HTMLDivElement>): void => {
+  const openMenu = (event: MouseEvent<HTMLElement>): void => {
     event.preventDefault()
     void window.browser.openLayer({ kind: 'context', x: event.clientX, y: event.clientY, tab })
   }
   if (!expanded) {
     return (
-      <div
+      <button
+        type="button"
         title={tab.title || '新标签页'}
         draggable
-        className="grid h-9 place-items-center"
+        className="grid h-9 w-full place-items-center border-0 bg-transparent p-0"
         onDragStart={(event) => {
           event.dataTransfer.setData('text/plain', tab.id)
           event.dataTransfer.effectAllowed = 'move'
@@ -168,7 +172,7 @@ function RailTab({ tab, expanded }: { tab: TabInfo; expanded: boolean }) {
         <span className={`grid h-8 w-8 place-items-center rounded-lg ${tab.active ? 'bg-white' : 'hover:bg-black/[0.06]'}`}>
           <TabIcon tab={tab} />
         </span>
-      </div>
+      </button>
     )
   }
   return (
@@ -186,11 +190,11 @@ function RailTab({ tab, expanded }: { tab: TabInfo; expanded: boolean }) {
         const tabId = event.dataTransfer.getData('text/plain')
         if (tabId && tabId !== tab.id) void window.browser.assignGroup({ tabId, groupId: tab.groupId })
       }}
-      onClick={() => void window.browser.activateTab(tab.id)}
-      onContextMenu={openMenu}
     >
-      <TabIcon tab={tab} />
-      <span className="min-w-0 flex-1 truncate text-[13px] text-[#1f1f1f]">{tab.title || '新标签页'}</span>
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left" onClick={() => void window.browser.activateTab(tab.id)} onContextMenu={openMenu}>
+        <TabIcon tab={tab} />
+        <span className="min-w-0 flex-1 truncate text-[13px] text-[#1f1f1f]">{tab.title || '新标签页'}</span>
+      </button>
       <Button
         variant="ghost"
         size="icon-xs"

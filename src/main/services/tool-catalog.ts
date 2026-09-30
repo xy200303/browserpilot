@@ -15,6 +15,7 @@ import {
   beginHandoff,
   closeTab,
   openEnvironment,
+  openSettingsPage,
   resolveTab,
   shareControl,
   showAgentMask
@@ -758,10 +759,5 @@ export async function callTool(name: string, raw: unknown): Promise<ToolResult> 
 
 export function openSettings(envId: string): void {
   const runtime = windows.get(envId)
-  if (!runtime?.popupView) return
-  const payload = { kind: 'settings' as const, section: '环境' as const }
-  runtime.popupPayload = payload
-  runtime.popupOpen = true
-  bridge.layout(envId)
-  runtime.popupView.webContents.send('layer:show', payload)
+  if (runtime) openSettingsPage(runtime, '环境')
 }

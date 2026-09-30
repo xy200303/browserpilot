@@ -97,11 +97,15 @@ export function exportWorkflow(nameOrId: string, dest?: string): string {
 }
 
 export function importWorkflow(filePath: string): WorkflowApp {
-  const text = readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '').trim()
-  if (!text) throw new Error('这个文件是空的')
+  return importWorkflowText(readFileSync(filePath, 'utf8'))
+}
+
+export function importWorkflowText(text: string): WorkflowApp {
+  const cleaned = text.replace(/^\uFEFF/, '').trim()
+  if (!cleaned) throw new Error('这个文件是空的')
   let raw: unknown
   try {
-    raw = JSON.parse(text)
+    raw = JSON.parse(cleaned)
   } catch {
     throw new Error('这个文件不是 JSON')
   }
@@ -459,18 +463,27 @@ async function walk(
 
 async function chooseCase(tab: TabRuntime, data: Data, pool: Pool): Promise<string> {
   const cases = Array.isArray(data.cases) ? data.cases : []
-  for (const item of cases) {
-    if (!item || typeof item !== 'object') continue
-    const caseId = (item as { case_id?: unknown }).case_id
-    const conditions = (item as { conditions?: unknown }).conditions
-    if (typeof caseId !== 'string' || !Array.isArray(conditions)) continue
-    let matched = conditions.length > 0
-    for (const condition of conditions) {
-      if (!(await conditionMatches(tab, condition, pool))) matched = false
-    }
-    if (matched) return caseId
+  return matchCase(tab, pool, cases, 0)
+}
+
+async function matchCase(tab: TabRuntime, pool: Pool, cases: unknown[], index: number): Promise<string> {
+  const item = cases[index]
+  if (!item) return 'false'
+  if (typeof item !== 'object') return matchCase(tab, pool, cases, index + 1)
+  const caseId = (item as { case_id?: unknown }).case_id
+  const conditions = (item as { conditions?: unknown }).conditions
+  if (typeof caseId !== 'string' || !Array.isArray(conditions) || conditions.length === 0) {
+    return matchCase(tab, pool, cases, index + 1)
   }
-  return 'false'
+  if (await matchConditions(tab, pool, conditions, 0)) return caseId
+  return matchCase(tab, pool, cases, index + 1)
+}
+
+async function matchConditions(tab: TabRuntime, pool: Pool, conditions: unknown[], index: number): Promise<boolean> {
+  const condition = conditions[index]
+  if (condition === undefined) return true
+  if (!(await conditionMatches(tab, condition, pool))) return false
+  return matchConditions(tab, pool, conditions, index + 1)
 }
 
 async function conditionMatches(tab: TabRuntime, condition: unknown, pool: Pool): Promise<boolean> {

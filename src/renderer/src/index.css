@@ -112,6 +112,12 @@ html.rail #root {
   background: #f3f3f3;
 }
 
+html.page,
+html.page body,
+html.page #root {
+  background: #fff;
+}
+
 html.rail ::-webkit-scrollbar {
   width: 8px;
 }

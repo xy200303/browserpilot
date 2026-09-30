@@ -55,6 +55,12 @@ const api = {
   updateSettings: (patch: Partial<Settings>): Promise<void> => ipcRenderer.invoke('settings:update', patch),
   exportWorkflow: (id: string): Promise<{ canceled: boolean; path?: string; name?: string }> => ipcRenderer.invoke('workflow:export', id),
   importWorkflow: (): Promise<{ canceled: boolean; workflow?: string; name?: string }> => ipcRenderer.invoke('workflow:import'),
+  openWorkflow: (id: string): Promise<void> => ipcRenderer.invoke('workflow:open', id),
+  openMarket: (): Promise<void> => ipcRenderer.invoke('market:open'),
+  listMarket: (): Promise<{ items: { slug: string; name: string; description: string; author: string; file: string }[]; source: string }> => ipcRenderer.invoke('market:list'),
+  installMarket: (input: { file?: string; url?: string }): Promise<{ workflow: string; name: string }> => ipcRenderer.invoke('market:install', input),
+  runWorkflow: (input: { workflow: string; inputs?: Record<string, string> }): Promise<{ ok?: boolean; error?: string; outputs?: Record<string, unknown> }> => ipcRenderer.invoke('workflow:run', input),
+  copyAgentPrompt: (id: string): Promise<{ copied: boolean }> => ipcRenderer.invoke('workflow:agent', id),
   updateWorkflow: (input: {
     workflow: string
     nodes?: (WorkflowNode & { parent?: string })[]

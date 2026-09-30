@@ -1,0 +1,49 @@
+{
+  "kind": "app",
+  "version": "0.3.0",
+  "app": {
+    "name": "打开网页",
+    "mode": "workflow",
+    "description": "打开参数里的地址，停在这一页。"
+  },
+  "workflow": {
+    "environment_variables": [],
+    "conversation_variables": [],
+    "graph": {
+      "nodes": [
+        {
+          "id": "start",
+          "data": {
+            "type": "start",
+            "title": "开始",
+            "variables": [
+              { "variable": "地址", "label": "要打开的网址", "type": "string", "required": true }
+            ]
+          }
+        },
+        {
+          "id": "open",
+          "data": {
+            "type": "goto",
+            "title": "打开",
+            "url": "{{#input.地址#}}"
+          }
+        },
+        {
+          "id": "end",
+          "data": {
+            "type": "end",
+            "title": "结束",
+            "outputs": [
+              { "variable": "地址", "value_selector": ["input", "地址"] }
+            ]
+          }
+        }
+      ],
+      "edges": [
+        { "id": "start-open", "source": "start", "target": "open" },
+        { "id": "open-end", "source": "open", "target": "end" }
+      ]
+    }
+  }
+}

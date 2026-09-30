@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
-import { ArrowLeft, ArrowRight, Minus, MoreVertical, Plus, RotateCw, Square, X } from 'lucide-react'
+import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
+import { ArrowLeft, ArrowRight, Minus, MoreVertical, Plus, RotateCw, Square, Store, X } from 'lucide-react'
 import { searchEngineOf, type TabInfo, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
+import { MarketPage } from './MarketPage'
+import { SettingsPage } from './Settings'
+import { WorkflowEditor } from './Workflow'
+import { workflowPage } from '../../shared/market'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -90,6 +94,7 @@ export function App() {
 
   useEffect(() => {
     if (active?.kind === 'page') setAddress(active.url.startsWith('data:') ? '' : active.url)
+    if (active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow') setAddress('')
   }, [active?.id, active?.url, active?.kind])
 
   useEffect(() => {
@@ -111,11 +116,21 @@ export function App() {
 
   if (!state) return <div className="h-full bg-white" />
 
-  const vertical = state.layout === 'left'
+  return (
+    <div className="flex h-full flex-col">
+      <TitleRow state={state} />
+      <AddressBar state={state} active={active} address={address} setAddress={setAddress} addressRef={addressRef} />
+      {state.handoffMessage && <div className="bg-amber-50 px-4 py-2 text-sm text-amber-900">{state.handoffMessage}</div>}
+      {findOpen && <FindBar findText={findText} setFindText={setFindText} setFindOpen={setFindOpen} />}
+      <PageSurface state={state} active={active} contentRef={contentRef} />
+    </div>
+  )
+}
 
+function TabStrip({ state }: { state: UiState }) {
   const pinnedTabs = state.tabs.filter((tab) => tab.pinned)
   const looseTabs = state.tabs.filter((tab) => !tab.pinned && !tab.groupId)
-  const tabs = (
+  return (
     <div
       className="drag flex min-w-0 flex-1 items-end gap-1 overflow-x-auto"
       onDragOver={(event) => event.preventDefault()}
@@ -156,20 +171,66 @@ export function App() {
       </Button>
     </div>
   )
+}
 
-  const caption = (
+function WindowButtons({ maximized }: { maximized: boolean }) {
+  return (
     <div className="no-drag flex shrink-0">
       <Button variant="ghost" className="h-10 w-12 rounded-none" title="最小化" onClick={() => void window.browser.minimize()}><Minus /></Button>
-      <Button variant="ghost" className="h-10 w-12 rounded-none" title={state.maximized ? '还原' : '最大化'} onClick={() => void window.browser.toggleMaximize()}><Square /></Button>
+      <Button variant="ghost" className="h-10 w-12 rounded-none" title={maximized ? '还原' : '最大化'} onClick={() => void window.browser.toggleMaximize()}><Square /></Button>
       <Button variant="ghost" className="h-10 w-12 rounded-none hover:bg-destructive hover:text-white" title="关闭" onClick={() => void window.browser.closeWindow()}><X /></Button>
     </div>
   )
+}
 
-  const toolbar = (
+function TitleRow({ state }: { state: UiState }) {
+  const buttons = <WindowButtons maximized={state.maximized} />
+  if (state.layout === 'left') {
+    return (
+      <div className="drag flex h-10 items-center bg-[#f3f3f3] pl-3" onDoubleClick={() => void window.browser.toggleMaximize()}>
+        <span className="drag pointer-events-none truncate text-sm text-neutral-600">{state.envName}</span>
+        <div className="drag h-full min-w-8 flex-1" />
+        {buttons}
+      </div>
+    )
+  }
+  return (
+    <div className="drag flex h-10 items-end bg-[#f3f3f3] pl-2" onDoubleClick={() => void window.browser.toggleMaximize()}>
+      <TabStrip state={state} />
+      <div className="drag h-full w-3 shrink-0" />
+      <span className="drag pointer-events-none max-w-32 self-center truncate px-2 text-sm text-neutral-500">{state.envName}</span>
+      {buttons}
+    </div>
+  )
+}
+
+function addressPlaceholder(active: TabInfo | undefined, engineName: string): string {
+  if (active?.kind === 'market') return '工作流市场'
+  if (active?.kind === 'settings') return '设置'
+  if (active?.kind === 'workflow') return active.title
+  return `在${engineName}中搜索，或输入网址`
+}
+
+function AddressBar({
+  state,
+  active,
+  address,
+  setAddress,
+  addressRef
+}: {
+  state: UiState
+  active: TabInfo | undefined
+  address: string
+  setAddress: (value: string) => void
+  addressRef: RefObject<HTMLInputElement | null>
+}) {
+  const builtin = active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow'
+  return (
     <div className="flex h-12 items-center gap-1 bg-[#f3f3f3] px-2">
       <Button variant="ghost" size="icon" className="no-drag" title="后退" disabled={!state.canBack} onClick={() => void window.browser.back()}><ArrowLeft /></Button>
       <Button variant="ghost" size="icon" className="no-drag" title="前进" disabled={!state.canForward} onClick={() => void window.browser.forward()}><ArrowRight /></Button>
       <Button variant="ghost" size="icon" className="no-drag" title="刷新" onClick={() => void (active?.loading ? window.browser.stop() : window.browser.reload())}><RotateCw className={active?.loading ? 'animate-spin' : ''} /></Button>
+      <Button variant="ghost" className="no-drag" title="工作流市场" onClick={() => void window.browser.openMarket()}><Store />市场</Button>
       <form
         className="mx-1 flex min-w-0 flex-1 items-center gap-2"
         onSubmit={(event) => {
@@ -177,12 +238,13 @@ export function App() {
           void window.browser.navigate(address)
         }}
       >
-        <SearchEngineIcon id={state.settings.searchEngine} />
+        {!builtin && <SearchEngineIcon id={state.settings.searchEngine} />}
         <Input
           ref={addressRef}
           value={address}
           onChange={(event) => setAddress(event.target.value)}
-          placeholder={`在${searchEngineOf(state.settings.searchEngine).name}中搜索，或输入网址`}
+          placeholder={addressPlaceholder(active, searchEngineOf(state.settings.searchEngine).name)}
+          readOnly={builtin}
         />
       </form>
       {state.screenRecording && <span className="rounded-md bg-destructive px-1.5 py-0.5 text-xs text-white">录屏</span>}
@@ -200,48 +262,77 @@ export function App() {
       </Button>
     </div>
   )
+}
 
+function FindBar({
+  findText,
+  setFindText,
+  setFindOpen
+}: {
+  findText: string
+  setFindText: (value: string) => void
+  setFindOpen: (open: boolean) => void
+}) {
   return (
-    <div className="flex h-full flex-col">
-      {vertical ? (
-        <div className="drag flex h-10 items-center bg-[#f3f3f3] pl-3" onDoubleClick={() => void window.browser.toggleMaximize()}>
-          <span className="drag pointer-events-none truncate text-sm text-neutral-600">{state.envName}</span>
-          <div className="drag h-full min-w-8 flex-1" />
-          {caption}
-        </div>
-      ) : (
-        <div className="drag flex h-10 items-end bg-[#f3f3f3] pl-2" onDoubleClick={() => void window.browser.toggleMaximize()}>
-          {tabs}
-          <div className="drag h-full w-3 shrink-0" />
-          <span className="drag pointer-events-none max-w-32 self-center truncate px-2 text-sm text-neutral-500">{state.envName}</span>
-          {caption}
-        </div>
-      )}
-      {toolbar}
-      {state.handoffMessage && <div className="bg-amber-50 px-4 py-2 text-sm text-amber-900">{state.handoffMessage}</div>}
-      {findOpen && (
-        <form
-          className="flex items-center gap-2 bg-white px-3 py-1"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void window.browser.find(findText)
-          }}
-        >
-          <Input value={findText} onChange={(event) => setFindText(event.target.value)} placeholder="在当前页查找" />
-          <Button type="submit" size="sm">查找</Button>
-          <Button type="button" variant="ghost" size="icon-sm" title="关闭查找" onClick={() => { setFindOpen(false); void window.browser.stopFind() }}><X /></Button>
-        </form>
-      )}
-      <div className="flex min-h-0 flex-1">
-        {vertical && <div className={`shrink-0 bg-[#f3f3f3] ${state.railPinned ? 'w-64' : 'w-12'}`} />}
-        <div ref={contentRef} className="relative min-w-0 flex-1 bg-[#f3f3f3]" />
+    <form
+      className="flex items-center gap-2 bg-white px-3 py-1"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void window.browser.find(findText)
+      }}
+    >
+      <Input value={findText} onChange={(event) => setFindText(event.target.value)} placeholder="在当前页查找" />
+      <Button type="submit" size="sm">查找</Button>
+      <Button type="button" variant="ghost" size="icon-sm" title="关闭查找" onClick={() => { setFindOpen(false); void window.browser.stopFind() }}><X /></Button>
+    </form>
+  )
+}
+
+function PageSurface({ state, active, contentRef }: { state: UiState; active: TabInfo | undefined; contentRef: RefObject<HTMLDivElement | null> }) {
+  return (
+    <div className="flex min-h-0 flex-1">
+      {state.layout === 'left' && <div className={`shrink-0 bg-[#f3f3f3] ${state.railPinned ? 'w-64' : 'w-12'}`} />}
+      <div className="relative min-w-0 flex-1 bg-white">
+        <div ref={contentRef} className="absolute inset-0" />
+        {active?.kind === 'market' && (
+          <div className="absolute inset-0 overflow-hidden bg-white">
+            <MarketPage state={state} />
+          </div>
+        )}
+        {active?.kind === 'settings' && (
+          <div className="absolute inset-0 overflow-hidden bg-white">
+            <SettingsPage state={state} />
+          </div>
+        )}
+        {active?.kind === 'workflow' && (
+          <div className="absolute inset-0 flex overflow-hidden bg-white p-4">
+            <div className="min-h-0 min-w-0 flex-1">
+              <WorkflowPage state={state} tab={active} />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
+function WorkflowPage({ state, tab }: { state: UiState; tab: TabInfo }) {
+  const workflow = state.workflows.find((item) => workflowPage(item.id) === tab.url)
+  if (!workflow) {
+    return (
+      <div className="grid content-start gap-3">
+        <p className="text-sm">没有这个工作流。</p>
+        <div>
+          <Button type="button" onClick={() => void window.browser.closeTab(tab.id)}>关闭</Button>
+        </div>
+      </div>
+    )
+  }
+  return <WorkflowEditor workflow={workflow} onBack={() => void window.browser.closeTab(tab.id)} />
+}
+
 function TabButton({ tab }: { tab: TabInfo }) {
-  const openMenu = (event: MouseEvent<HTMLDivElement>): void => {
+  const openMenu = (event: MouseEvent<HTMLElement>): void => {
     event.preventDefault()
     void window.browser.openLayer({ kind: 'context', x: event.clientX, y: event.clientY, tab })
   }
@@ -253,11 +344,11 @@ function TabButton({ tab }: { tab: TabInfo }) {
         event.dataTransfer.setData('text/plain', tab.id)
         event.dataTransfer.effectAllowed = 'move'
       }}
-      onClick={() => void window.browser.activateTab(tab.id)}
       onDoubleClick={(event) => event.stopPropagation()}
-      onContextMenu={openMenu}
     >
-      <span className="min-w-0 flex-1 truncate text-sm">{tab.title || '新标签页'}</span>
+      <button type="button" className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-left text-sm" onClick={() => void window.browser.activateTab(tab.id)} onContextMenu={openMenu}>
+        {tab.title || '新标签页'}
+      </button>
       <Button
         variant="ghost"
         size="icon-xs"

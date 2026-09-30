@@ -38,6 +38,12 @@ export type BrowserApi = {
   updateSettings: (patch: Partial<Settings>) => Promise<void>
   exportWorkflow: (id: string) => Promise<{ canceled: boolean; path?: string; name?: string }>
   importWorkflow: () => Promise<{ canceled: boolean; workflow?: string; name?: string }>
+  openWorkflow: (id: string) => Promise<void>
+  openMarket: () => Promise<void>
+  listMarket: () => Promise<{ items: { slug: string; name: string; description: string; author: string; file: string }[]; source: string }>
+  installMarket: (input: { file?: string; url?: string }) => Promise<{ workflow: string; name: string }>
+  runWorkflow: (input: { workflow: string; inputs?: Record<string, string> }) => Promise<{ ok?: boolean; error?: string; outputs?: Record<string, unknown> }>
+  copyAgentPrompt: (id: string) => Promise<{ copied: boolean }>
   updateWorkflow: (input: {
     workflow: string
     nodes?: (WorkflowNode & { parent?: string })[]

@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from 'react'
-import { Info, Layers, Radio, SlidersHorizontal, Workflow, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Info, Layers, Radio, SlidersHorizontal, Workflow } from 'lucide-react'
+import { WorkflowRun } from './Market'
 import { searchEngines, type SearchEngineId, type TabLayout, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { Button } from '@/components/ui/button'
@@ -20,72 +21,77 @@ const icons = {
   关于: Info
 }
 
-export function SettingsDialog({ state, initial, onClose }: { state: UiState; initial: Section; onClose: () => void }) {
+export function SettingsPage({ state: external }: { state?: UiState }) {
+  const requested = new URLSearchParams(window.location.search).get('section')
+  const initial = sections.find((item) => item === requested) ?? '环境'
+  const [local, setLocal] = useState<UiState | null>(null)
+  useEffect(() => {
+    if (external) return
+    void window.browser.getState().then(setLocal)
+    return window.browser.onState(setLocal)
+  }, [external])
+  const state = external ?? local
+  if (!state) return <div className="h-full bg-white" />
+  return <SettingsDialog state={state} initial={initial} />
+}
+
+function SettingsDialog({ state, initial }: { state: UiState; initial: Section }) {
   const [section, setSection] = useState<Section>(initial)
   return (
-    <div
-      className="flex h-[min(640px,85vh)] w-[min(880px,calc(100%-2rem))] flex-col overflow-hidden rounded-xl bg-popover text-sm text-popover-foreground ring-1 ring-foreground/10"
-      onMouseDown={(event) => event.stopPropagation()}
-    >
-      <div className="flex min-h-0 flex-1">
-        <nav className="flex w-44 shrink-0 flex-col gap-1 border-r bg-muted/40 p-3">
-          <div className="px-2 py-1.5 text-sm font-medium">设置</div>
-          {sections.map((item) => {
-            const Icon = icons[item]
-            return (
-              <Button
-                key={item}
-                type="button"
-                variant="ghost"
-                className={cn(
-                  'h-auto w-full justify-start px-2.5 py-2',
-                  section === item ? 'bg-background font-medium shadow-sm hover:bg-background' : 'hover:bg-background/70'
-                )}
-                onClick={() => setSection(item)}
-              >
-                <Icon />
-                {item}
-              </Button>
-            )
-          })}
-        </nav>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex justify-end px-3 pt-3">
-            <Button variant="ghost" size="icon-sm" title="关闭" onClick={onClose}>
-              <X />
+    <div className="flex h-full bg-white text-sm text-foreground">
+      <nav className="flex w-44 shrink-0 flex-col gap-1 border-r p-3">
+        <div className="px-2 py-1.5 text-sm font-medium">设置</div>
+        {sections.map((item) => {
+          const Icon = icons[item]
+          return (
+            <Button
+              key={item}
+              type="button"
+              variant="ghost"
+              className={cn(
+                'h-auto w-full justify-start px-2.5 py-2',
+                section === item ? 'bg-muted font-medium hover:bg-muted' : 'hover:bg-muted/70'
+              )}
+              onClick={() => setSection(item)}
+            >
+              <Icon />
+              {item}
             </Button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-5">
-            {section === '环境' && <Envs state={state} />}
-            {section === '工作流' && <Workflows state={state} />}
-            {section === '抓包' && <Captures state={state} />}
-            {section === '通用' && <General state={state} />}
-            {section === '关于' && <About state={state} />}
-          </div>
-        </div>
+          )
+        })}
+      </nav>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {section === '环境' && <Envs state={state} />}
+        {section === '工作流' && <Workflows state={state} />}
+        {section === '抓包' && <Captures state={state} />}
+        {section === '通用' && <General state={state} />}
+        {section === '关于' && <About state={state} />}
       </div>
     </div>
   )
 }
 
-function Heading({ title, detail }: { title: string; detail: string }) {
+function Heading({ title, detail, action }: { title: string; detail: string; action?: ReactNode }) {
   return (
-    <div>
-      <h2 className="text-base font-medium">{title}</h2>
-      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+    <div className="flex items-center justify-between gap-4 border-b px-4 py-4">
+      <div className="min-w-0">
+        <h2 className="text-base font-medium">{title}</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+      </div>
+      {action}
     </div>
   )
 }
 
 function Card({ children }: { children: ReactNode }) {
-  return <div className="divide-y overflow-hidden rounded-xl border">{children}</div>
+  return <div className="divide-y border-b bg-white">{children}</div>
 }
 
 function Envs({ state }: { state: UiState }) {
   const [name, setName] = useState('新环境')
   const [remark, setRemark] = useState('')
   return (
-    <section className="grid gap-4">
+    <section>
       <Heading title="环境" detail="一套环境里可以登录多个网站。新建的窗口都是有头的，关掉窗口不会清掉登录。" />
       <Card>
         <form
@@ -109,15 +115,24 @@ function Envs({ state }: { state: UiState }) {
 }
 
 function EnvCard({ env }: { env: UiState['envs'][number] }) {
-  const [name, setName] = useState(env.name)
-  const [remark, setRemark] = useState(env.remark)
+  const name = useRef<HTMLInputElement>(null)
+  const remark = useRef<HTMLInputElement>(null)
   return (
     <Card>
       <div className="grid gap-3 px-4 py-3">
         <div className="flex items-center gap-2">
-          <Input value={name} onChange={(event) => setName(event.target.value)} className="w-36" />
-          <Input value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="备注" className="min-w-0 flex-1" />
-          <Button type="button" onClick={() => void window.browser.updateEnv({ env: env.id, name, remark })}>保存</Button>
+          <Input key={env.name} ref={name} defaultValue={env.name} className="w-36" />
+          <Input key={env.remark} ref={remark} defaultValue={env.remark} placeholder="备注" className="min-w-0 flex-1" />
+          <Button
+            type="button"
+            onClick={() => void window.browser.updateEnv({
+              env: env.id,
+              name: name.current?.value ?? env.name,
+              remark: remark.current?.value ?? env.remark
+            })}
+          >
+            保存
+          </Button>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="min-w-0 truncate">{env.id}</span>
@@ -150,32 +165,35 @@ function EnvCard({ env }: { env: UiState['envs'][number] }) {
 function Workflows({ state }: { state: UiState }) {
   const [notice, setNotice] = useState('')
   return (
-    <section className="grid gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <Heading title="工作流" detail="点一条会弹出画布。右侧端点是下一步，判断的每个分支各有一个端点。" />
-        <Button
-          type="button"
-          onClick={() => {
-            void window.browser.importWorkflow().then((result) => {
-              if (!result.canceled && result.name) setNotice(`已导入 ${result.name}`)
-            }).catch((error: unknown) => {
-              setNotice(error instanceof Error ? error.message : '导入失败')
-            })
-          }}
-        >
-          导入
-        </Button>
-      </div>
-      {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
-      {state.workflows.length === 0 && <p className="text-xs text-muted-foreground">还没有保存的工作流。</p>}
+    <section>
+      <Heading
+        title="工作流"
+        detail="点一条在内容区打开画布。右侧端点是下一步，判断的每个分支各有一个端点。"
+        action={
+          <Button
+            type="button"
+            onClick={() => {
+              void window.browser.importWorkflow().then((result) => {
+                if (!result.canceled && result.name) setNotice(`已导入 ${result.name}`)
+              }).catch((error: unknown) => {
+                setNotice(error instanceof Error ? error.message : '导入失败')
+              })
+            }}
+          >
+            导入
+          </Button>
+        }
+      />
+      {notice && <p className="border-b px-4 py-2 text-xs text-muted-foreground">{notice}</p>}
+      {state.workflows.length === 0 && <p className="border-b px-4 py-3 text-xs text-muted-foreground">还没有保存的工作流。</p>}
       {state.workflows.map((item) => (
         <Card key={item.id}>
-          <div className="flex items-start gap-2 pr-3">
+          <div className="flex items-center gap-3 px-4 py-3">
             <Button
               type="button"
               variant="ghost"
-              className="h-auto min-w-0 flex-1 flex-col items-start gap-1 rounded-none px-4 py-3 text-left"
-              onClick={() => void window.browser.openLayer({ kind: 'workflow', id: item.id })}
+              className="h-auto min-w-0 flex-1 flex-col items-start gap-1 px-0 py-0 text-left"
+              onClick={() => void window.browser.openWorkflow(item.id)}
             >
               <span className="text-sm font-normal">{item.name}</span>
               <span className="text-xs font-normal text-muted-foreground">{item.id}</span>
@@ -185,7 +203,6 @@ function Workflows({ state }: { state: UiState }) {
               type="button"
               variant="outline"
               size="sm"
-              className="mt-3"
               onClick={() => {
                 void window.browser.exportWorkflow(item.id).then((result) => {
                   if (!result.canceled && result.path) setNotice(`已导出 ${result.name}`)
@@ -197,6 +214,7 @@ function Workflows({ state }: { state: UiState }) {
               导出
             </Button>
           </div>
+          <WorkflowRun workflow={item} />
         </Card>
       ))}
     </section>
@@ -205,7 +223,7 @@ function Workflows({ state }: { state: UiState }) {
 
 function Captures({ state }: { state: UiState }) {
   return (
-    <section className="grid gap-4">
+    <section>
       <Heading title="抓包" detail="当前网页标签上的请求。正文里的 Cookie 只留在本机。" />
       <Card>
         {state.captures.length === 0 && <p className="px-4 py-3 text-xs text-muted-foreground">还没有记录。让 Agent 对这个标签调用 net_start。</p>}
@@ -223,7 +241,7 @@ function Captures({ state }: { state: UiState }) {
 function General({ state }: { state: UiState }) {
   const settings = state.settings
   return (
-    <section className="grid gap-4">
+    <section>
       <Heading title="通用" detail="这些选项保存在本机，改完即生效。" />
       <Card>
         <Row title="搜索引擎" detail="新标签页打开这个搜索引擎的首页。地址栏里输入文字时，也用它来搜索。">
@@ -306,8 +324,19 @@ function General({ state }: { state: UiState }) {
 
 function About({ state }: { state: UiState }) {
   return (
-    <section className="grid gap-4">
-      <Heading title="关于" detail="给 Agent 用的浏览器。同一个进程里可以开多套环境，一套环境一扇窗口。" />
+    <section>
+      <div className="flex items-center gap-3 border-b px-4 py-4">
+        <svg viewBox="0 0 64 64" className="size-10 shrink-0" aria-hidden="true">
+          <rect width="64" height="64" rx="16" fill="#243044" />
+          <circle cx="32" cy="32" r="14" fill="none" stroke="#E6EDF5" strokeWidth="2.4" />
+          <ellipse cx="32" cy="32" rx="6.4" ry="14" fill="none" stroke="#E6EDF5" strokeWidth="2.2" />
+          <path d="M18 32h28" fill="none" stroke="#C4A574" strokeWidth="2.4" strokeLinecap="round" />
+        </svg>
+        <div>
+          <h2 className="text-base font-medium">关于</h2>
+          <p className="mt-1 text-xs text-muted-foreground">给 Agent 用的浏览器。同一个进程里可以开多套环境，一套环境一扇窗口。</p>
+        </div>
+      </div>
       <Card>
         <Row title="当前版本" detail="安装包里的版本号">
           <span className="text-sm tabular-nums">{state.version ? `v${state.version}` : '…'}</span>

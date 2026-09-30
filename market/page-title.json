@@ -1,0 +1,52 @@
+{
+  "kind": "app",
+  "version": "0.3.0",
+  "app": {
+    "name": "读取页面标题",
+    "mode": "workflow",
+    "description": "读取当前标签的标题和地址。"
+  },
+  "workflow": {
+    "environment_variables": [],
+    "conversation_variables": [],
+    "graph": {
+      "nodes": [
+        {
+          "id": "start",
+          "data": {
+            "type": "start",
+            "title": "开始",
+            "variables": []
+          }
+        },
+        {
+          "id": "read",
+          "data": {
+            "type": "script",
+            "title": "读取",
+            "source": "return { title: document.title, url: location.href }",
+            "outputs": {
+              "title": { "type": "string" },
+              "url": { "type": "string" }
+            }
+          }
+        },
+        {
+          "id": "end",
+          "data": {
+            "type": "end",
+            "title": "结束",
+            "outputs": [
+              { "variable": "标题", "value_selector": ["read", "title"] },
+              { "variable": "地址", "value_selector": ["read", "url"] }
+            ]
+          }
+        }
+      ],
+      "edges": [
+        { "id": "start-read", "source": "start", "target": "read" },
+        { "id": "read-end", "source": "read", "target": "end" }
+      ]
+    }
+  }
+}
