@@ -1,6 +1,6 @@
 {
   "name": "browserpilot",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Browser for agents. One process, many environments.",
   "main": "./out/main/index.js",
@@ -68,6 +68,10 @@
           "browserpilot",
           "browserpilot.exe"
         ]
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
       }
     ],
     "npmRebuild": false,

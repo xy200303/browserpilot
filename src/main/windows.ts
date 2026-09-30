@@ -1,4 +1,5 @@
-import { BrowserWindow, WebContentsView, session, Menu } from 'electron'
+import { app, BrowserWindow, WebContentsView, session, Menu } from 'electron'
+import { existsSync } from 'fs'
 import { join } from 'path'
 import { DEFAULT_ENV } from '@shared/types'
 import { chromeUserAgent } from './ua'
@@ -27,6 +28,14 @@ export function headlessCount(): number {
   return count
 }
 
+function windowIcon(): string | undefined {
+  const packaged = join(process.resourcesPath, 'icon.png')
+  const dev = join(__dirname, '../../build/icon.png')
+  if (existsSync(packaged)) return packaged
+  if (existsSync(dev)) return dev
+  return undefined
+}
+
 export function createBrowserWindow(envId: string, headless: boolean): WindowRuntime {
   const existing = windows.get(envId)
   if (existing) {
@@ -45,6 +54,7 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
     minHeight: 560,
     show: false,
     title: `${env.name} · BrowserPilot`,
+    icon: windowIcon(),
     autoHideMenuBar: true,
     backgroundColor: '#f3f3f3',
     frame: false,
