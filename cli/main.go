@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -21,9 +20,7 @@ type endpoint struct {
 }
 
 func main() {
-	if runtime.GOOS == "windows" {
-		syscall.NewLazyDLL("kernel32.dll").NewProc("SetConsoleOutputCP").Call(65001)
-	}
+	enableUTF8Console()
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
