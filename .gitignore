@@ -1,0 +1,10 @@
+node_modules
+out
+dist
+*.log
+.DS_Store
+cli/browserpilot.exe
+cli/browserpilot
+cli/dist
+cli/tmp-*
+release

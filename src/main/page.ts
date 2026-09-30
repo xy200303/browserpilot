@@ -1,0 +1,1178 @@
+import { clipboard, type WebContents } from 'electron'
+import { mkdirSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import { searchEngineOf, type ActVia, type GestureVia, type Locator } from '@shared/types'
+import { storage } from './services/store'
+import { acquireDebugger, releaseDebugger, withDebugger } from './services/debugger'
+import type { AxRef, TabRuntime } from './runtime'
+import { bridge, windows } from './runtime'
+
+type AxNode = {
+  nodeId: string
+  role: string
+  name: string
+  value: string
+  backendNodeId?: number
+  childIds: string[]
+}
+
+export function startUrl(): string {
+  return searchEngineOf(storage.settings.searchEngine).home
+}
+
+export function normalizeUrl(input: string): string {
+  const text = input.trim()
+  if (!text) return startUrl()
+  if (/^[a-z][a-z0-9+.-]*:/i.test(text)) return text
+  if (text.includes(' ') || !text.includes('.')) {
+    return `${searchEngineOf(storage.settings.searchEngine).search}${encodeURIComponent(text)}`
+  }
+  return `https://${text}`
+}
+
+function wcOf(tab: TabRuntime): WebContents {
+  if (!tab.view) throw new Error('这个标签没有网页')
+  return tab.view.webContents
+}
+
+export async function readTree(tab: TabRuntime): Promise<{ text: string; nodes: AxNode[] }> {
+  const wc = wcOf(tab)
+  const flat = await withDebugger(wc, async (dbg) => {
+    await dbg.sendCommand('DOM.getDocument', { depth: 0 })
+    const result = (await dbg.sendCommand('Accessibility.getFullAXTree')) as {
+      nodes: Array<{
+        nodeId: string
+        role?: { value?: string }
+        name?: { value?: string }
+        value?: { value?: string }
+        backendDOMNodeId?: number
+        childIds?: string[]
+        ignored?: boolean
+      }>
+    }
+    return (result.nodes ?? [])
+      .filter((node) => !node.ignored && node.role?.value && node.role.value !== 'none' && node.role.value !== 'generic')
+      .map((node) => ({
+        nodeId: node.nodeId,
+        role: node.role?.value ?? '',
+        name: (node.name?.value ?? '').replace(/\s+/g, ' ').trim(),
+        value: node.value?.value ?? '',
+        backendNodeId: node.backendDOMNodeId,
+        childIds: node.childIds ?? []
+      }))
+  })
+  tab.refs = new Map()
+  const lines: string[] = []
+  flat.forEach((node, index) => {
+    const ref = `e${index + 1}`
+    tab.refs.set(ref, { role: node.role, name: node.name, backendNodeId: node.backendNodeId })
+    const bits = [`- ${node.role}`]
+    if (node.name) bits.push(JSON.stringify(node.name))
+    if (node.value) bits.push(`value=${JSON.stringify(node.value)}`)
+    lines.push(bits.join(' '))
+  })
+  return { text: lines.join('\n'), nodes: flat }
+}
+
+async function quadBox(tab: TabRuntime, target: AxRef): Promise<{ left: number; top: number; right: number; bottom: number }> {
+  const wc = wcOf(tab)
+  return withDebugger(wc, async (dbg) => {
+    await dbg.sendCommand('DOM.getDocument', { depth: 0 })
+    const backendNodeId = target.backendNodeId
+    if (!backendNodeId) throw new Error(`页面上还没有「${target.name || target.role}」`)
+    const quads = await viewportQuads(dbg, backendNodeId)
+    const quad = quads[0]
+    if (!quad) throw new Error(`页面上还没有「${target.name || target.role}」`)
+    return quadBounds(quad)
+  })
+}
+
+async function centerOf(tab: TabRuntime, target: AxRef): Promise<{ x: number; y: number }> {
+  const box = await quadBox(tab, target)
+  return { x: Math.round((box.left + box.right) / 2), y: Math.round((box.top + box.bottom) / 2) }
+}
+
+export function locatorLabel(locator: Locator): string {
+  if (locator.xpath) return locator.xpath
+  if (locator.selector) return locator.selector
+  return '未写定位'
+}
+
+export function isQueryLocator(locator: Locator): boolean {
+  return Boolean(locator.xpath || locator.selector)
+}
+
+const MATCH_CAP = 100
+
+const NODE_TEXT = `function () {
+  const raw = (this && (this.innerText || this.textContent || this.value || (this.getAttribute && this.getAttribute('aria-label')))) || ''
+  return String(raw).replace(/\\s+/g, ' ').trim().slice(0, 80)
+}`
+
+const NODE_BOX = `function () {
+  const rect = this.getBoundingClientRect()
+  return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+}`
+
+async function backendIdsOf(dbg: Electron.Debugger, nodeIds: number[]): Promise<number[]> {
+  const ids: number[] = []
+  for (const nodeId of nodeIds) {
+    if (!nodeId) continue
+    const described = (await dbg.sendCommand('DOM.describeNode', { nodeId })) as { node: { backendNodeId: number } }
+    ids.push(described.node.backendNodeId)
+  }
+  return ids
+}
+
+async function collectMatches(dbg: Electron.Debugger, locator: Locator): Promise<{ total: number; backendNodeIds: number[] }> {
+  if (locator.xpath) {
+    const query = locator.xpath.trim()
+    if (!query.startsWith('/')) throw new Error('XPath 要以 / 开头')
+    await dbg.sendCommand('DOM.getDocument', { depth: 0 })
+    const search = (await dbg.sendCommand('DOM.performSearch', { query })) as { searchId: string; resultCount: number }
+    try {
+      const total = search.resultCount
+      if (!total) return { total: 0, backendNodeIds: [] }
+      const results = (await dbg.sendCommand('DOM.getSearchResults', {
+        searchId: search.searchId,
+        fromIndex: 0,
+        toIndex: Math.min(total, MATCH_CAP)
+      })) as { nodeIds?: number[] }
+      return { total, backendNodeIds: await backendIdsOf(dbg, results.nodeIds ?? []) }
+    } finally {
+      await dbg.sendCommand('DOM.discardSearchResults', { searchId: search.searchId }).catch(() => undefined)
+    }
+  }
+  if (locator.selector) {
+    const doc = (await dbg.sendCommand('DOM.getDocument', { depth: 0 })) as { root: { nodeId: number } }
+    const found = (await dbg.sendCommand('DOM.querySelectorAll', { nodeId: doc.root.nodeId, selector: locator.selector })) as { nodeIds?: number[] }
+    const nodeIds = found.nodeIds ?? []
+    return { total: nodeIds.length, backendNodeIds: await backendIdsOf(dbg, nodeIds.slice(0, MATCH_CAP)) }
+  }
+  throw new Error('需要 xpath 或 selector')
+}
+
+function axOf(locator: Locator, backendNodeId: number): AxRef {
+  if (locator.xpath) return { role: 'xpath', name: locator.xpath, backendNodeId }
+  return { role: 'selector', name: locator.selector ?? '', backendNodeId }
+}
+
+export async function resolveLocator(tab: TabRuntime, locator: Locator): Promise<AxRef> {
+  return withDebugger(wcOf(tab), async (dbg) => {
+    const found = await collectMatches(dbg, locator)
+    if (found.total === 0 || !found.backendNodeIds[0]) throw new Error(`页面上还没有 ${locatorLabel(locator)}`)
+    if (found.total !== 1) throw new Error(`匹配到 ${found.total} 个 ${locatorLabel(locator)}，这一步只能对应一个`)
+    return axOf(locator, found.backendNodeIds[0])
+  })
+}
+
+export type LocatorMatch = { index: number; text: string; hittable: boolean }
+
+export async function queryLocator(tab: TabRuntime, locator: Locator): Promise<{ total: number; matches: LocatorMatch[] }> {
+  return withDebugger(wcOf(tab), async (dbg) => {
+    const found = await collectMatches(dbg, locator)
+    const matches: LocatorMatch[] = []
+    for (let index = 0; index < found.backendNodeIds.length; index += 1) {
+      const backendNodeId = found.backendNodeIds[index]
+      matches.push({
+        index,
+        text: await nodeText(dbg, backendNodeId),
+        hittable: await nodeHittable(dbg, tab, backendNodeId)
+      })
+    }
+    return { total: found.total, matches }
+  })
+}
+
+async function nodeText(dbg: Electron.Debugger, backendNodeId: number): Promise<string> {
+  try {
+    const value = await callOnBackend(dbg, backendNodeId, NODE_TEXT)
+    return typeof value === 'string' ? value : ''
+  } catch {
+    return ''
+  }
+}
+
+async function nodeHittable(dbg: Electron.Debugger, tab: TabRuntime, backendNodeId: number): Promise<boolean> {
+  return Boolean(await pointOnNode(dbg, tab, backendNodeId))
+}
+
+const POINT_ON_NODE = `function (viewW, viewH) {
+  const el = this
+  if (!(el instanceof Element)) return null
+  const rect = el.getBoundingClientRect()
+  if (rect.width < 1 || rect.height < 1) return null
+  const doc = el.ownerDocument
+  const width = Math.min(viewW, doc.defaultView ? doc.defaultView.innerWidth : viewW)
+  const height = Math.min(viewH, doc.defaultView ? doc.defaultView.innerHeight : viewH)
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
+  const points = []
+  for (let row = 0; row < 5; row += 1) {
+    for (let col = 0; col < 5; col += 1) {
+      const x = rect.left + ((col + 0.5) / 5) * rect.width
+      const y = rect.top + ((row + 0.5) / 5) * rect.height
+      points.push({ x: x, y: y, rank: (x - cx) * (x - cx) + (y - cy) * (y - cy) })
+    }
+  }
+  points.sort((a, b) => a.rank - b.rank)
+  for (const point of points) {
+    if (point.x < 1 || point.y < 1 || point.x >= width - 1 || point.y >= height - 1) continue
+    const hit = doc.elementFromPoint(point.x, point.y)
+    if (hit instanceof Element && (hit === el || el.contains(hit))) return { x: point.x, y: point.y }
+  }
+  return null
+}`
+
+async function pointOnNode(dbg: Electron.Debugger, tab: TabRuntime, backendNodeId: number): Promise<{ x: number; y: number } | undefined> {
+  const [viewW, viewH] = viewport(tab)
+  const value = await callOnBackend(dbg, backendNodeId, POINT_ON_NODE, [viewW, viewH]).catch(() => undefined) as { x?: number; y?: number } | null
+  if (!value || typeof value.x !== 'number' || typeof value.y !== 'number') return undefined
+  return { x: value.x, y: value.y }
+}
+
+function quadBounds(quad: number[]): { left: number; top: number; right: number; bottom: number } {
+  const xs = [quad[0], quad[2], quad[4], quad[6]]
+  const ys = [quad[1], quad[3], quad[5], quad[7]]
+  return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) }
+}
+
+function shiftQuad(quad: number[], dx: number, dy: number): number[] {
+  return quad.map((value, index) => (index % 2 === 0 ? value - dx : value - dy))
+}
+
+async function viewportQuads(dbg: Electron.Debugger, backendNodeId: number): Promise<number[][]> {
+  const listed = (await dbg.sendCommand('DOM.getContentQuads', { backendNodeId }).catch(() => ({ quads: [] }))) as { quads?: number[][] }
+  const raw = (listed.quads ?? []).filter((quad) => quad.length >= 8)
+  const box = await callOnBackend(dbg, backendNodeId, NODE_BOX).catch(() => undefined) as { left?: number; top?: number; right?: number; bottom?: number } | undefined
+  if (typeof box?.left !== 'number' || typeof box.top !== 'number' || typeof box.right !== 'number' || typeof box.bottom !== 'number') return raw
+  const rect = [box.left, box.top, box.right, box.top, box.right, box.bottom, box.left, box.bottom]
+  if (!raw.length) return [rect]
+  const metrics = (await dbg.sendCommand('Page.getLayoutMetrics').catch(() => ({}))) as {
+    cssVisualViewport?: { pageX?: number; pageY?: number }
+    visualViewport?: { pageX?: number; pageY?: number }
+  }
+  const scroll = metrics.cssVisualViewport ?? metrics.visualViewport
+  const pageX = scroll?.pageX ?? 0
+  const pageY = scroll?.pageY ?? 0
+  const bounds = quadBounds(raw[0])
+  const documentDistance = Math.abs(bounds.top - (box.top + pageY)) + Math.abs(bounds.left - (box.left + pageX))
+  const viewportDistance = Math.abs(bounds.top - box.top) + Math.abs(bounds.left - box.left)
+  const aligned = pageY > 1 && documentDistance < viewportDistance ? raw.map((quad) => shiftQuad(quad, pageX, pageY)) : raw
+  return [...aligned, rect]
+}
+
+async function sceneOf(tab: TabRuntime, locator: Locator): Promise<string> {
+  const found = await queryLocator(tab, locator)
+  const shown = found.matches.slice(0, 3).map((item) => `「${item.text || '空'}」${item.hittable ? '能点到' : '点不到'}`)
+  const count = found.total > shown.length ? `匹配 ${found.total} 个，前 ${shown.length} 个` : `匹配 ${found.total} 个`
+  return shown.length ? `${count}：${shown.join('、')}` : count
+}
+
+async function failWithScene(tab: TabRuntime, locator: Locator, message: string): Promise<never> {
+  const scene = await sceneOf(tab, locator).catch(() => '')
+  throw new Error(scene ? `${message}。${scene}` : message)
+}
+
+export async function clickLocator(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp', until?: Locator): Promise<void> {
+  const rounds = until ? 3 : 1
+  for (let round = 0; round < rounds; round += 1) {
+    try {
+      const target = await resolveLocator(tab, locator)
+      await clickKnown(tab, target, via)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!until || round === rounds - 1) await failWithScene(tab, locator, message)
+      await sleep(250)
+      continue
+    }
+    if (!until) return
+    if (await locatorSeen(tab, until, 1_200)) return
+    await sleep(200)
+  }
+  const waited = until ? await sceneOf(tab, until).catch(() => '') : ''
+  await failWithScene(
+    tab,
+    locator,
+    `点了 ${locatorLabel(locator)} 之后仍没有 ${until ? locatorLabel(until) : ''}${waited ? `。等待的目标 ${waited}` : ''}`
+  )
+}
+
+async function focusResolved(tab: TabRuntime, target: AxRef): Promise<void> {
+  if (!target.backendNodeId) throw new Error(`页面上还没有「${target.name || target.role}」`)
+  await withDebugger(wcOf(tab), async (dbg) => {
+    await dbg.sendCommand('DOM.focus', { backendNodeId: target.backendNodeId })
+  })
+}
+
+export async function typeLocator(tab: TabRuntime, locator: Locator, text: string, via: ActVia = 'cdp'): Promise<void> {
+  const target = await resolveLocator(tab, locator)
+  if (via === 'inject') {
+    const wrote = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, target.backendNodeId ?? 0, INJECT_TEXT, [text]))
+    if (wrote !== true) throw new Error(`写不进 ${locatorLabel(locator)}`)
+    return
+  }
+  if (via === 'cdp') {
+    await focusResolved(tab, target)
+    await typeByCdp(tab, text)
+    return
+  }
+  await clickKnown(tab, target, 'native')
+  const wc = wcOf(tab)
+  for (const ch of text) {
+    wc.sendInputEvent({ type: 'char', keyCode: ch })
+  }
+}
+
+export async function pasteLocator(tab: TabRuntime, locator: Locator, text: string, via: ActVia = 'cdp'): Promise<void> {
+  const target = await resolveLocator(tab, locator)
+  if (via === 'inject') {
+    const wrote = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, target.backendNodeId ?? 0, INJECT_TEXT, [text]))
+    if (wrote !== true) throw new Error(`写不进 ${locatorLabel(locator)}`)
+    return
+  }
+  if (via === 'cdp') {
+    await focusResolved(tab, target)
+    await withDebugger(wcOf(tab), async (dbg) => {
+      await dbg.sendCommand('Input.insertText', { text })
+    })
+    return
+  }
+  await clickKnown(tab, target, 'native')
+  clipboard.writeText(text)
+  await pressShortcut(tab, 'Ctrl+V', 'native')
+}
+
+export async function selectLocator(tab: TabRuntime, locator: Locator, option: string, via: ActVia = 'cdp'): Promise<void> {
+  const target = await resolveLocator(tab, locator)
+  if (via === 'inject') {
+    const picked = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, target.backendNodeId ?? 0, INJECT_SELECT, [option]))
+    if (picked === 'selected') return
+    if (picked === 'missing') throw new Error(`没有可选项「${option}」`)
+  }
+  await clickKnown(tab, target, via === 'inject' ? 'cdp' : via)
+  await sleep(300)
+  const { nodes } = await readTree(tab)
+  const node = nodes.find((item) => ['option', 'menuitem', 'listitem', 'treeitem'].includes(item.role) && item.name === option)
+    ?? nodes.find((item) => item.name === option)
+  if (!node) throw new Error(`没有可选项「${option}」`)
+  await clickKnown(tab, { role: node.role, name: node.name, backendNodeId: node.backendNodeId }, via === 'inject' ? 'cdp' : via)
+}
+
+async function matchCount(tab: TabRuntime, locator: Locator): Promise<number> {
+  return withDebugger(wcOf(tab), async (dbg) => (await collectMatches(dbg, locator)).total)
+}
+
+export async function locatorSeen(tab: TabRuntime, locator: Locator, timeoutMs = 3_000): Promise<boolean> {
+  const started = Date.now()
+  const limit = Math.max(0, timeoutMs)
+  for (;;) {
+    try {
+      if (await matchCount(tab, locator) >= 1) return true
+    } catch {
+      /* page still loading, or the node is not in the document yet */
+    }
+    if (Date.now() - started >= limit) return false
+    await sleep(250)
+  }
+}
+
+export async function waitForLocator(tab: TabRuntime, locator: Locator, timeoutMs = 10_000): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    try {
+      if (await matchCount(tab, locator) >= 1) return
+    } catch {
+      /* page still loading, or the node is not in the document yet */
+    }
+    await sleep(250)
+  }
+  await failWithScene(tab, locator, `超时还没出现 ${locatorLabel(locator)}`)
+}
+
+function toViewport(tab: TabRuntime, x: number, y: number, shot?: { width: number; height: number }): { x: number; y: number } {
+  const [viewW, viewH] = viewport(tab)
+  let px = x
+  let py = y
+  if (shot) {
+    if (!(shot.width > 0) || !(shot.height > 0)) throw new Error('截图宽高要是正数')
+    px = x * viewW / shot.width
+    py = y * viewH / shot.height
+  }
+  if (px < 0 || py < 0 || px >= viewW || py >= viewH) throw new Error('这个坐标不在当前画面里')
+  return { x: px, y: py }
+}
+
+export async function clickPoint(tab: TabRuntime, x: number, y: number, via: ActVia = 'cdp', shot?: { width: number; height: number }): Promise<void> {
+  const point = toViewport(tab, x, y, shot)
+  if (via === 'inject') {
+    const source = `(() => {
+      const x = ${point.x}
+      const y = ${point.y}
+      const el = document.elementFromPoint(x, y)
+      if (!(el instanceof Element)) return false
+      const view = document.defaultView
+      const down = { bubbles: true, cancelable: true, view, clientX: x, clientY: y, button: 0, buttons: 1 }
+      el.dispatchEvent(new PointerEvent('pointerdown', down))
+      el.dispatchEvent(new MouseEvent('mousedown', down))
+      const up = { bubbles: true, cancelable: true, view, clientX: x, clientY: y, button: 0, buttons: 0 }
+      el.dispatchEvent(new PointerEvent('pointerup', up))
+      el.dispatchEvent(new MouseEvent('mouseup', up))
+      el.dispatchEvent(new MouseEvent('click', up))
+      return true
+    })()`
+    const clicked = await evalSource(tab, source)
+    if (clicked !== true) throw new Error('这个坐标上没有元素')
+    return
+  }
+  if (via === 'cdp') await clickAtCdp(tab, point.x, point.y)
+  else await clickAt(tab, point.x, point.y)
+}
+
+export async function clickAt(tab: TabRuntime, x: number, y: number): Promise<void> {
+  const wc = wcOf(tab)
+  const ix = Math.round(x)
+  const iy = Math.round(y)
+  wc.sendInputEvent({ type: 'mouseMove', x: ix, y: iy })
+  await sleep(30)
+  wc.sendInputEvent({ type: 'mouseDown', x: ix, y: iy, button: 'left', clickCount: 1 })
+  wc.sendInputEvent({ type: 'mouseUp', x: ix, y: iy, button: 'left', clickCount: 1 })
+}
+
+async function clickAtCdp(tab: TabRuntime, x: number, y: number): Promise<void> {
+  const ix = Math.round(x)
+  const iy = Math.round(y)
+  await withDebugger(wcOf(tab), async (dbg) => {
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: ix, y: iy, button: 'none', buttons: 0, pointerType: 'mouse' })
+    await sleep(30)
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: ix, y: iy, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' })
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: ix, y: iy, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' })
+  })
+}
+
+const BRING_INTO_VIEW = `function () {
+  if (this && this.scrollIntoView) this.scrollIntoView({ block: 'center', inline: 'nearest' })
+}`
+
+async function scrollNodeIntoView(dbg: Electron.Debugger, backendNodeId: number): Promise<void> {
+  await dbg.sendCommand('DOM.getDocument', { depth: 0 })
+  const pushed = (await dbg.sendCommand('DOM.pushNodesByBackendIdsToFrontend', { backendNodeIds: [backendNodeId] }).catch(() => undefined)) as { nodeIds?: number[] } | undefined
+  const nodeId = pushed?.nodeIds?.[0]
+  if (!nodeId) return
+  await dbg.sendCommand('DOM.scrollIntoViewIfNeeded', { nodeId }).catch(() => undefined)
+}
+
+async function pointForClick(dbg: Electron.Debugger, tab: TabRuntime, backendNodeId: number): Promise<{ x: number; y: number } | undefined> {
+  let point = await pointOnNode(dbg, tab, backendNodeId)
+  if (point) return point
+  await scrollNodeIntoView(dbg, backendNodeId)
+  await sleep(80)
+  point = await pointOnNode(dbg, tab, backendNodeId)
+  if (point) return point
+  await callOnBackend(dbg, backendNodeId, BRING_INTO_VIEW).catch(() => undefined)
+  await sleep(80)
+  return pointOnNode(dbg, tab, backendNodeId)
+}
+
+async function clickKnown(tab: TabRuntime, target: AxRef, via: ActVia): Promise<void> {
+  const wc = wcOf(tab)
+  if (via === 'inject') {
+    const clicked = await withDebugger(wc, async (dbg) => {
+      const backendNodeId = await backendFor(dbg, target)
+      await scrollNodeIntoView(dbg, backendNodeId)
+      return callOnBackend(dbg, backendNodeId, INJECT_CLICK)
+    })
+    if (clicked !== true) throw new Error(`点不到「${target.name || target.role}」`)
+    return
+  }
+  const point = await withDebugger(wc, async (dbg) => {
+    const backendNodeId = await backendFor(dbg, target)
+    return pointForClick(dbg, tab, backendNodeId)
+  })
+  if (!point) throw new Error(`点不到「${target.name || target.role}」，这个位置被挡住了`)
+  if (via === 'cdp') await clickAtCdp(tab, point.x, point.y)
+  else await clickAt(tab, point.x, point.y)
+}
+
+async function backendFor(dbg: Electron.Debugger, target: AxRef): Promise<number> {
+  await dbg.sendCommand('DOM.getDocument', { depth: 0 })
+  if (!target.backendNodeId) throw new Error(`页面上还没有「${target.name || target.role}」`)
+  return target.backendNodeId
+}
+
+async function callOnBackend(dbg: Electron.Debugger, backendNodeId: number, source: string, args: unknown[] = []): Promise<unknown> {
+  const resolved = (await dbg.sendCommand('DOM.resolveNode', { backendNodeId })) as { object: { objectId: string } }
+  try {
+    const called = (await dbg.sendCommand('Runtime.callFunctionOn', {
+      objectId: resolved.object.objectId,
+      functionDeclaration: source,
+      arguments: args.map((value) => ({ value })),
+      returnByValue: true,
+      awaitPromise: true,
+      silent: true
+    })) as { result?: { value?: unknown } }
+    return called.result?.value
+  } finally {
+    await dbg.sendCommand('Runtime.releaseObject', { objectId: resolved.object.objectId }).catch(() => undefined)
+  }
+}
+
+const INJECT_CLICK = `function () {
+  const el = this
+  if (!(el instanceof Element)) return false
+  const rect = el.getBoundingClientRect()
+  if (rect.width >= 1 && rect.height >= 1) {
+    const x = rect.left + rect.width / 2
+    const y = rect.top + rect.height / 2
+    const doc = el.ownerDocument
+    const hit = doc.elementFromPoint(x, y)
+    const target = hit instanceof Element && (hit === el || el.contains(hit)) ? hit : el
+    const pointer = { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerType: 'mouse' }
+    const mouse = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }
+    target.dispatchEvent(new PointerEvent('pointerover', pointer))
+    target.dispatchEvent(new PointerEvent('pointerenter', Object.assign({}, pointer, { bubbles: false })))
+    target.dispatchEvent(new MouseEvent('mouseover', mouse))
+    target.dispatchEvent(new MouseEvent('mouseenter', Object.assign({}, mouse, { bubbles: false })))
+    target.dispatchEvent(new PointerEvent('pointerdown', pointer))
+    target.dispatchEvent(new MouseEvent('mousedown', mouse))
+    if (typeof el.focus === 'function') el.focus({ preventScroll: true })
+    target.dispatchEvent(new PointerEvent('pointerup', pointer))
+    target.dispatchEvent(new MouseEvent('mouseup', mouse))
+    if (typeof target.click === 'function') target.click()
+    return true
+  }
+  if (typeof el.focus === 'function') el.focus({ preventScroll: true })
+  if (typeof el.click === 'function') { el.click(); return true }
+  return false
+}`
+
+const INJECT_TEXT = `function (text, x, y) {
+  let el = this
+  for (let depth = 0; el instanceof HTMLIFrameElement && el.contentDocument && depth < 4; depth += 1) {
+    const rect = el.getBoundingClientRect()
+    const ix = typeof x === 'number' ? x - rect.left : rect.width / 2
+    const iy = typeof y === 'number' ? y - rect.top : rect.height / 2
+    const inner = el.contentDocument.elementFromPoint(ix, iy) || el.contentDocument.body
+    if (!inner) break
+    el = inner
+    x = ix
+    y = iy
+  }
+  while (el && el !== el.ownerDocument.body) {
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable) break
+    el = el.parentElement
+  }
+  if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement) && !(el && el.isContentEditable)) return false
+  if (typeof el.focus === 'function') el.focus({ preventScroll: true })
+  if (el.isContentEditable && !(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) {
+    const view = el.ownerDocument.defaultView
+    const host = view && view.parent && view.parent.CKEDITOR ? view.parent : view
+    const instances = host && host.CKEDITOR && host.CKEDITOR.instances
+    const editor = instances && (instances.editor || Object.values(instances)[0])
+    if (editor && typeof editor.setData === 'function') {
+      const html = String(text).split('\\n').map((line) => '<p>' + line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>').join('')
+      return new Promise((resolve) => editor.setData(html, () => resolve(true)))
+    }
+    const doc = el.ownerDocument
+    const selection = doc.getSelection()
+    const range = doc.createRange()
+    range.selectNodeContents(el)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    doc.execCommand('selectAll', false)
+    doc.execCommand('insertText', false, text)
+    if ((el.innerText || '').trim() !== String(text).trim()) el.innerText = text
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }))
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+    return true
+  }
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')
+  if (setter && setter.set) setter.set.call(el, text)
+  else el.value = text
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+  el.dispatchEvent(new Event('change', { bubbles: true }))
+  return true
+}`
+
+const INJECT_SELECT = `function (optionText) {
+  if (!(this instanceof HTMLSelectElement)) return 'open'
+  const wanted = String(optionText).trim()
+  const option = Array.from(this.options).find((item) => (item.textContent || '').trim() === wanted || item.value === wanted)
+  if (!option) return 'missing'
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')
+  if (setter && setter.set) setter.set.call(this, option.value)
+  else this.value = option.value
+  this.dispatchEvent(new Event('input', { bubbles: true }))
+  this.dispatchEvent(new Event('change', { bubbles: true }))
+  return 'selected'
+}`
+
+let sendingToPage = 0
+export function isSendingToPage(): boolean {
+  return sendingToPage > 0
+}
+
+export function parseShortcut(shortcut: string): { key: string; modifiers: Array<'shift' | 'control' | 'alt' | 'meta'> } {
+  const parts = shortcut.split('+').map((part) => part.trim()).filter(Boolean)
+  const modifiers: Array<'shift' | 'control' | 'alt' | 'meta'> = []
+  let key = parts[parts.length - 1] ?? ''
+  for (const part of parts.slice(0, -1)) {
+    const lower = part.toLowerCase()
+    if (lower === 'ctrl' || lower === 'control') modifiers.push('control')
+    else if (lower === 'shift') modifiers.push('shift')
+    else if (lower === 'alt') modifiers.push('alt')
+    else if (lower === 'meta' || lower === 'cmd' || lower === 'command') modifiers.push('meta')
+  }
+  const named: Record<string, string> = {
+    enter: 'Return',
+    esc: 'Escape',
+    escape: 'Escape',
+    tab: 'Tab',
+    space: 'Space'
+  }
+  key = named[key.toLowerCase()] ?? key
+  return { key, modifiers }
+}
+
+export async function pressShortcut(tab: TabRuntime, shortcut: string, via: GestureVia = 'cdp'): Promise<void> {
+  const wc = wcOf(tab)
+  const { key, modifiers } = parseShortcut(shortcut)
+  sendingToPage += 1
+  try {
+    if (via === 'native') {
+      wc.sendInputEvent({ type: 'keyDown', keyCode: key, modifiers })
+      wc.sendInputEvent({ type: 'keyUp', keyCode: key, modifiers })
+      return
+    }
+    const bits = modifierBits(modifiers)
+    const spec = keyEventOf(key)
+    await withDebugger(wc, async (dbg) => {
+      await dbg.sendCommand('Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        modifiers: bits,
+        key: spec.key,
+        code: spec.code,
+        windowsVirtualKeyCode: spec.vk,
+        nativeVirtualKeyCode: spec.vk
+      })
+      await dbg.sendCommand('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        modifiers: bits,
+        key: spec.key,
+        code: spec.code,
+        windowsVirtualKeyCode: spec.vk,
+        nativeVirtualKeyCode: spec.vk
+      })
+    })
+  } finally {
+    sendingToPage -= 1
+  }
+}
+
+function modifierBits(modifiers: Array<'shift' | 'control' | 'alt' | 'meta'>): number {
+  let bits = 0
+  if (modifiers.includes('alt')) bits |= 1
+  if (modifiers.includes('control')) bits |= 2
+  if (modifiers.includes('meta')) bits |= 4
+  if (modifiers.includes('shift')) bits |= 8
+  return bits
+}
+
+function keyEventOf(key: string): { key: string; code: string; vk: number } {
+  const named: Record<string, { key: string; code: string; vk: number }> = {
+    Return: { key: 'Enter', code: 'Enter', vk: 13 },
+    Escape: { key: 'Escape', code: 'Escape', vk: 27 },
+    Tab: { key: 'Tab', code: 'Tab', vk: 9 },
+    Space: { key: ' ', code: 'Space', vk: 32 },
+    Backspace: { key: 'Backspace', code: 'Backspace', vk: 8 },
+    Delete: { key: 'Delete', code: 'Delete', vk: 46 },
+    ArrowUp: { key: 'ArrowUp', code: 'ArrowUp', vk: 38 },
+    ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', vk: 40 },
+    ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft', vk: 37 },
+    ArrowRight: { key: 'ArrowRight', code: 'ArrowRight', vk: 39 }
+  }
+  if (named[key]) return named[key]
+  const letter = keySpec(key)
+  if (letter) return { key: letter.key, code: letter.code, vk: letter.vk }
+  return { key, code: key, vk: 0 }
+}
+
+async function typeByCdp(tab: TabRuntime, text: string): Promise<void> {
+  await withDebugger(wcOf(tab), async (dbg) => {
+    for (const ch of text) {
+      const spec = keySpec(ch)
+      if (!spec) {
+        await dbg.sendCommand('Input.insertText', { text: ch })
+        continue
+      }
+      await dbg.sendCommand('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        modifiers: spec.modifiers,
+        key: spec.key,
+        code: spec.code,
+        text: ch,
+        unmodifiedText: spec.unmodified,
+        windowsVirtualKeyCode: spec.vk,
+        nativeVirtualKeyCode: spec.vk
+      })
+      await dbg.sendCommand('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        modifiers: spec.modifiers,
+        key: spec.key,
+        code: spec.code,
+        windowsVirtualKeyCode: spec.vk,
+        nativeVirtualKeyCode: spec.vk
+      })
+    }
+  })
+}
+
+function keySpec(ch: string): { key: string; code: string; vk: number; modifiers: number; unmodified: string } | undefined {
+  if (ch.length !== 1) return undefined
+  if (ch >= 'a' && ch <= 'z') return { key: ch, code: `Key${ch.toUpperCase()}`, vk: ch.toUpperCase().charCodeAt(0), modifiers: 0, unmodified: ch }
+  if (ch >= 'A' && ch <= 'Z') return { key: ch, code: `Key${ch}`, vk: ch.charCodeAt(0), modifiers: 8, unmodified: ch.toLowerCase() }
+  if (ch >= '0' && ch <= '9') return { key: ch, code: `Digit${ch}`, vk: ch.charCodeAt(0), modifiers: 0, unmodified: ch }
+  if (ch === ' ') return { key: ' ', code: 'Space', vk: 32, modifiers: 0, unmodified: ' ' }
+  if (ch === '\n' || ch === '\r') return { key: 'Enter', code: 'Enter', vk: 13, modifiers: 0, unmodified: '\r' }
+  return undefined
+}
+
+function viewport(tab: TabRuntime): [number, number] {
+  const bounds = tab.view?.getBounds()
+  return [bounds?.width || 800, bounds?.height || 600]
+}
+
+async function wheelAt(tab: TabRuntime, via: GestureVia, x: number, y: number, deltaDown: number): Promise<void> {
+  const wc = wcOf(tab)
+  const ix = Math.round(x)
+  const iy = Math.round(y)
+  const delta = Math.round(deltaDown)
+  if (via === 'native') {
+    wc.sendInputEvent({ type: 'mouseWheel', x: ix, y: iy, deltaX: 0, deltaY: -delta })
+    return
+  }
+  await withDebugger(wc, async (dbg) => {
+    await dbg.sendCommand('Input.dispatchMouseEvent', {
+      type: 'mouseWheel',
+      x: ix,
+      y: iy,
+      deltaX: 0,
+      deltaY: delta,
+      pointerType: 'mouse'
+    })
+  })
+}
+
+async function nodeBox(tab: TabRuntime, backendNodeId: number): Promise<{ left: number; top: number; right: number; bottom: number } | undefined> {
+  const box = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, backendNodeId, NODE_BOX).catch(() => undefined)) as { left?: number; top?: number; right?: number; bottom?: number } | undefined
+  if (typeof box?.left !== 'number' || typeof box.top !== 'number' || typeof box.right !== 'number' || typeof box.bottom !== 'number') return undefined
+  return { left: box.left, top: box.top, right: box.right, bottom: box.bottom }
+}
+
+async function revealNode(tab: TabRuntime, backendNodeId: number): Promise<void> {
+  await withDebugger(wcOf(tab), (dbg) => scrollNodeIntoView(dbg, backendNodeId))
+}
+
+function wheelPoint(tab: TabRuntime, box?: { left: number; top: number; right: number; bottom: number }): { x: number; y: number } {
+  const [width, height] = viewport(tab)
+  if (!box) return { x: Math.round(width * 0.28), y: Math.round(height / 2) }
+  const x = Math.min(width - 20, Math.max(20, (box.left + box.right) / 2))
+  const y = box.top < 20 || box.bottom > height - 20 ? height / 2 : (box.top + box.bottom) / 2
+  return { x: Math.round(x), y: Math.round(Math.min(height - 20, Math.max(20, y))) }
+}
+
+async function scrollUntil(tab: TabRuntime, direction: 'up' | 'down', via: GestureVia, until: Locator): Promise<void> {
+  const rounds = 16
+  for (let round = 0; round < rounds; round += 1) {
+    try {
+      if (await locatorInView(tab, until)) return
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message.startsWith('匹配到')) await failWithScene(tab, until, message)
+      throw error
+    }
+    let target: AxRef | undefined
+    try {
+      target = await resolveLocator(tab, until)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message.startsWith('匹配到')) await failWithScene(tab, until, message)
+      target = undefined
+    }
+    if (!target?.backendNodeId) {
+      const [width, height] = viewport(tab)
+      await wheelAt(tab, via, Math.round(width * 0.28), Math.round(height / 2), direction === 'down' ? 480 : -480)
+      await sleep(180)
+      continue
+    }
+    await revealNode(tab, target.backendNodeId)
+    await sleep(80)
+    if (await locatorInView(tab, until)) return
+    const box = await nodeBox(tab, target.backendNodeId)
+    const [, height] = viewport(tab)
+    let delta = direction === 'down' ? 360 : -360
+    if (box) {
+      if (box.bottom < 80) delta = -Math.min(720, Math.max(240, Math.round(80 - box.bottom)))
+      else if (box.top > height - 40) delta = Math.min(720, Math.max(240, Math.round(box.top - height + 120)))
+      else if (box.top < height * 0.28) delta = -240
+      else delta = 240
+    }
+    const point = wheelPoint(tab, box)
+    await wheelAt(tab, via, point.x, point.y, delta)
+    await sleep(180)
+  }
+  if (await locatorInView(tab, until)) return
+  await failWithScene(tab, until, `滚动后仍点不到 ${locatorLabel(until)}`)
+}
+
+export async function scrollPage(
+  tab: TabRuntime,
+  direction: 'up' | 'down',
+  via: GestureVia = 'cdp',
+  locator?: Locator,
+  until?: Locator
+): Promise<void> {
+  if (until) {
+    await scrollUntil(tab, direction, via, until)
+    return
+  }
+  const [width, height] = viewport(tab)
+  const point = locator ? await centerOf(tab, await resolveLocator(tab, locator)) : undefined
+  await wheelAt(tab, via, point?.x ?? Math.round(width / 2), point?.y ?? Math.round(height / 2), direction === 'down' ? 240 : -240)
+}
+
+async function swipeGesture(tab: TabRuntime, via: GestureVia, sx: number, sy: number, ex: number, ey: number): Promise<void> {
+  const wc = wcOf(tab)
+  const steps = 12
+  if (via === 'native') {
+    wc.sendInputEvent({ type: 'mouseDown', x: sx, y: sy, button: 'left', clickCount: 1 })
+    for (let i = 1; i <= steps; i += 1) {
+      const px = Math.round(sx + ((ex - sx) * (i - 1)) / steps)
+      const py = Math.round(sy + ((ey - sy) * (i - 1)) / steps)
+      const nx = Math.round(sx + ((ex - sx) * i) / steps)
+      const ny = Math.round(sy + ((ey - sy) * i) / steps)
+      wc.sendInputEvent({ type: 'mouseMove', x: nx, y: ny, button: 'left', movementX: nx - px, movementY: ny - py })
+      await sleep(16)
+    }
+    wc.sendInputEvent({ type: 'mouseUp', x: ex, y: ey, button: 'left', clickCount: 1 })
+    return
+  }
+  await withDebugger(wc, async (dbg) => {
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: sx, y: sy, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' })
+    for (let i = 1; i <= steps; i += 1) {
+      const nx = Math.round(sx + ((ex - sx) * i) / steps)
+      const ny = Math.round(sy + ((ey - sy) * i) / steps)
+      await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: nx, y: ny, button: 'left', buttons: 1, pointerType: 'mouse' })
+      await sleep(16)
+    }
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: ex, y: ey, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' })
+  })
+}
+
+export async function swipePage(
+  tab: TabRuntime,
+  direction: 'up' | 'down' | 'left' | 'right',
+  locator?: Locator,
+  until?: Locator,
+  via: GestureVia = 'cdp'
+): Promise<void> {
+  const once = async (): Promise<void> => {
+    const [width, height] = viewport(tab)
+    let bounds: { left: number; top: number; right: number; bottom: number } | undefined
+    if (locator) {
+      const raw = await quadBox(tab, await resolveLocator(tab, locator))
+      const left = Math.max(raw.left, 1)
+      const top = Math.max(raw.top, 1)
+      const right = Math.min(raw.right, width - 1)
+      const bottom = Math.min(raw.bottom, height - 1)
+      if (right - left >= 16 && bottom - top >= 16) bounds = { left, top, right, bottom }
+    }
+    const inset = 12
+    let sx = Math.round(width / 2)
+    let sy = Math.round(height / 2)
+    let ex = sx
+    let ey = sy
+    if (bounds) {
+      sx = Math.round((bounds.left + bounds.right) / 2)
+      sy = Math.round((bounds.top + bounds.bottom) / 2)
+      const roomX = Math.max(24, (bounds.right - bounds.left) / 2 - inset)
+      const roomY = Math.max(24, (bounds.bottom - bounds.top) / 2 - inset)
+      ex = direction === 'left' ? Math.round(sx - roomX) : direction === 'right' ? Math.round(sx + roomX) : sx
+      ey = direction === 'up' ? Math.round(sy - roomY) : direction === 'down' ? Math.round(sy + roomY) : sy
+    } else {
+      const clamp = (value: number, max: number): number => Math.max(inset, Math.min(max - inset, Math.round(value)))
+      sx = clamp(sx, width)
+      sy = clamp(sy, height)
+      const distance = 280
+      const dx = direction === 'left' ? -distance : direction === 'right' ? distance : 0
+      const dy = direction === 'up' ? -distance : direction === 'down' ? distance : 0
+      ex = clamp(sx + dx, width)
+      ey = clamp(sy + dy, height)
+    }
+    await swipeGesture(tab, via, sx, sy, ex, ey)
+  }
+  if (!until) {
+    await once()
+    return
+  }
+  for (let i = 0; i < 20; i += 1) {
+    if (await locatorInView(tab, until)) return
+    await once()
+    await sleep(200)
+  }
+  if (await locatorInView(tab, until)) return
+  await failWithScene(tab, until, `滑动后仍没有 ${locatorLabel(until)}。翻长列表用滚动`)
+}
+
+async function locatorInView(tab: TabRuntime, locator: Locator): Promise<boolean> {
+  try {
+    const target = await resolveLocator(tab, locator)
+    if (!target.backendNodeId) return false
+    return await withDebugger(wcOf(tab), async (dbg) => Boolean(await pointOnNode(dbg, tab, target.backendNodeId ?? 0)))
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('匹配到')) throw error
+    return false
+  }
+}
+
+export async function uploadFiles(tab: TabRuntime, paths: string[], knownBackend?: number): Promise<number | undefined> {
+  const wc = wcOf(tab)
+  return withDebugger(wc, async (dbg) => {
+    const doc = (await dbg.sendCommand('DOM.getDocument', { depth: 1 })) as { root: { nodeId: number } }
+    let backendNodeId = knownBackend
+    if (!backendNodeId) {
+      const queried = (await dbg.sendCommand('DOM.querySelector', {
+        nodeId: doc.root.nodeId,
+        selector: 'input[type="file"]'
+      })) as { nodeId: number }
+      if (!queried.nodeId) throw new Error('页面上没有文件控件')
+      const described = (await dbg.sendCommand('DOM.describeNode', { nodeId: queried.nodeId })) as {
+        node: { backendNodeId: number }
+      }
+      backendNodeId = described.node.backendNodeId
+    }
+    await dbg.sendCommand('DOM.setFileInputFiles', { files: paths, backendNodeId })
+    return backendNodeId
+  })
+}
+
+export function waitForLoad(wc: WebContents, timeoutMs = 30_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!wc.isLoading()) {
+      resolve()
+      return
+    }
+    const timer = setTimeout(() => {
+      cleanup()
+      reject(new Error('加载超时'))
+    }, timeoutMs)
+    const done = (): void => {
+      cleanup()
+      resolve()
+    }
+    const fail = (_event: unknown, code: number, desc: string, _url: string, isMainFrame: boolean): void => {
+      if (!isMainFrame || code === -3) return
+      cleanup()
+      reject(new Error(desc || '加载失败'))
+    }
+    const cleanup = (): void => {
+      clearTimeout(timer)
+      wc.removeListener('did-stop-loading', done)
+      wc.removeListener('did-fail-load', fail)
+    }
+    wc.on('did-stop-loading', done)
+    wc.on('did-fail-load', fail)
+  })
+}
+
+function waitForNextLoad(wc: WebContents, timeoutMs = 30_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let started = wc.isLoading()
+    const timer = setTimeout(() => {
+      cleanup()
+      reject(new Error('加载超时'))
+    }, timeoutMs)
+    const onStart = (): void => {
+      started = true
+    }
+    const onStop = (): void => {
+      if (!started) return
+      cleanup()
+      resolve()
+    }
+    const onFail = (_event: unknown, code: number, desc: string, _url: string, isMainFrame: boolean): void => {
+      if (!isMainFrame || code === -3) return
+      if (!started) return
+      cleanup()
+      reject(new Error(desc || '加载失败'))
+    }
+    const cleanup = (): void => {
+      clearTimeout(timer)
+      wc.removeListener('did-start-loading', onStart)
+      wc.removeListener('did-stop-loading', onStop)
+      wc.removeListener('did-fail-load', onFail)
+    }
+    wc.on('did-start-loading', onStart)
+    wc.on('did-stop-loading', onStop)
+    wc.on('did-fail-load', onFail)
+  })
+}
+
+export function settleNavigation(tab: TabRuntime, quietMs = 500, timeoutMs = 15_000): Promise<void> {
+  const wc = wcOf(tab)
+  return new Promise((resolve) => {
+    let quiet: ReturnType<typeof setTimeout> | undefined
+    const cap = setTimeout(finish, timeoutMs)
+    const armQuiet = (): void => {
+      if (quiet) clearTimeout(quiet)
+      quiet = setTimeout(finish, quietMs)
+    }
+    const onStart = (): void => {
+      if (quiet) clearTimeout(quiet)
+      quiet = undefined
+    }
+    const onStop = (): void => {
+      armQuiet()
+    }
+    function finish(): void {
+      if (quiet) clearTimeout(quiet)
+      clearTimeout(cap)
+      wc.removeListener('did-start-loading', onStart)
+      wc.removeListener('did-stop-loading', onStop)
+      resolve()
+    }
+    wc.on('did-start-loading', onStart)
+    wc.on('did-stop-loading', onStop)
+    if (wc.isLoading()) onStart()
+    else armQuiet()
+  })
+}
+
+export async function navigate(tab: TabRuntime, url: string): Promise<void> {
+  const wc = wcOf(tab)
+  const target = normalizeUrl(url)
+  const pending = waitForNextLoad(wc)
+  await wc.loadURL(target).catch(() => undefined)
+  await pending
+}
+
+export async function screenshot(tab: TabRuntime, dir: string): Promise<{ path: string; width: number; height: number }> {
+  const wc = wcOf(tab)
+  const reveal = (): void => {
+    const runtime = windows.get(tab.envId)
+    if (!runtime || runtime.headless) return
+    if (runtime.win.isMinimized()) runtime.win.restore()
+    runtime.win.show()
+  }
+  reveal()
+  let image: Electron.NativeImage | undefined
+  let lastError: unknown
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      image = await wc.capturePage()
+      if (!image.isEmpty()) break
+      image = undefined
+    } catch (error) {
+      lastError = error
+      image = undefined
+    }
+    reveal()
+    await sleep(200)
+  }
+  if (!image) throw new Error(lastError instanceof Error ? lastError.message : '截不到当前网页')
+  const size = image.getSize()
+  mkdirSync(dir, { recursive: true })
+  const path = join(dir, `shot-${Date.now()}.png`)
+  writeFileSync(path, image.toPNG())
+  return { path, width: size.width, height: size.height }
+}
+
+export async function pageSource(tab: TabRuntime, kind: 'dom' | 'response'): Promise<string> {
+  if (kind === 'response') {
+    if (!tab.documentHtml) throw new Error('这次导航没有留下原始 HTML')
+    return tab.documentHtml
+  }
+  const wc = wcOf(tab)
+  return withDebugger(wc, async (dbg) => {
+    const doc = (await dbg.sendCommand('DOM.getDocument', { depth: 0 })) as { root: { nodeId: number } }
+    const html = (await dbg.sendCommand('DOM.getOuterHTML', { nodeId: doc.root.nodeId })) as { outerHTML: string }
+    return html.outerHTML
+  })
+}
+
+const documentRequests = new Map<number, string>()
+
+export function watchDocument(wc: WebContents, onHtml: (html: string) => void): void {
+  wc.on('did-start-navigation', (event, _url, isInPlace, isMainFrame) => {
+    if (!isMainFrame || isInPlace) return
+    void captureDocumentStart(wc)
+  })
+  wc.on('did-finish-load', () => {
+    void captureDocumentFinish(wc, onHtml)
+  })
+}
+
+async function captureDocumentStart(wc: WebContents): Promise<void> {
+  try {
+    const dbg = await acquireDebugger(wc)
+    await dbg.sendCommand('Network.enable')
+    const onMessage = (_event: unknown, method: string, params: { type?: string; requestId?: string }): void => {
+      if (method === 'Network.responseReceived' && params.type === 'Document' && params.requestId) {
+        documentRequests.set(wc.id, params.requestId)
+      }
+    }
+    wc.debugger.on('message', onMessage)
+    wc.once('did-finish-load', () => {
+      wc.debugger.removeListener('message', onMessage)
+    })
+  } catch {
+    /* snapshot can attach later */
+  }
+}
+
+async function captureDocumentFinish(wc: WebContents, onHtml: (html: string) => void): Promise<void> {
+  const requestId = documentRequests.get(wc.id)
+  documentRequests.delete(wc.id)
+  try {
+    if (requestId && wc.debugger.isAttached()) {
+      const body = (await wc.debugger.sendCommand('Network.getResponseBody', { requestId })) as { body: string; base64Encoded: boolean }
+      const html = body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body
+      onHtml(html)
+    }
+  } catch {
+    /* body already gone */
+  } finally {
+    releaseDebugger(wc)
+  }
+}
+
+export async function evalSource(tab: TabRuntime, source: string): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('页面脚本超时')), 120_000)
+  })
+  try {
+    return await Promise.race([wcOf(tab).executeJavaScript(source, true), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+export async function sendCdp(tab: TabRuntime, method: string, params?: Record<string, unknown>): Promise<unknown> {
+  return withDebugger(wcOf(tab), (dbg) => dbg.sendCommand(method, params))
+}
+
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export function noteNavigation(tab: TabRuntime, url: string): void {
+  tab.url = url
+  try {
+    const host = new URL(url).hostname
+    if (host) bridge.broadcast(tab.envId)
+  } catch {
+    /* data url */
+  }
+}
