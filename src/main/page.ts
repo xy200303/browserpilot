@@ -1,4 +1,4 @@
-import { clipboard, type WebContents } from 'electron'
+import { clipboard, nativeImage, type WebContents } from 'electron'
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { searchEngineOf, type ActVia, type GestureVia, type Locator } from '@shared/types'
@@ -164,20 +164,125 @@ export async function resolveLocator(tab: TabRuntime, locator: Locator): Promise
   })
 }
 
-export type LocatorMatch = { index: number; text: string; hittable: boolean }
+export type LocatorMatch = { index: number; text: string; hittable: boolean; rect?: { x: number; y: number; w: number; h: number } }
 
 export async function queryLocator(tab: TabRuntime, locator: Locator): Promise<{ total: number; matches: LocatorMatch[] }> {
   return withDebugger(wcOf(tab), async (dbg) => {
     const found = await collectMatches(dbg, locator)
     const matches = await Promise.all(found.backendNodeIds.map(async (backendNodeId, index) => {
-      const [text, hittable] = await Promise.all([
+      const [text, hittable, box] = await Promise.all([
         nodeText(dbg, backendNodeId),
-        nodeHittable(dbg, tab, backendNodeId)
+        nodeHittable(dbg, tab, backendNodeId),
+        callOnBackend(dbg, backendNodeId, NODE_BOX).catch(() => undefined) as Promise<{ left: number; top: number; right: number; bottom: number } | undefined>
       ])
-      return { index, text, hittable }
+      return {
+        index,
+        text,
+        hittable,
+        rect: box ? { x: Math.round(box.left * 10) / 10, y: Math.round(box.top * 10) / 10, w: Math.round((box.right - box.left) * 10) / 10, h: Math.round((box.bottom - box.top) * 10) / 10 } : undefined
+      }
     }))
     return { total: found.total, matches }
   })
+}
+
+const DEEP_QUERY = `(function (selector, xpath, doScroll) {
+  const out = []
+  const textOf = (el) => {
+    let t = el.innerText
+    if (!t && el.shadowRoot) {
+      t = [...el.shadowRoot.childNodes].map((n) => n.nodeType === 3 ? n.textContent : (/^(STYLE|SCRIPT)$/.test(n.tagName) ? '' : (n.innerText || n.textContent))).join(' ')
+    }
+    return String(t || el.textContent || el.value || (el.getAttribute && el.getAttribute('aria-label')) || '').replace(/\\s+/g, ' ').trim().slice(0, 80)
+  }
+  const walk = (root, ox, oy) => {
+    let hits = []
+    if (selector) {
+      try { hits = [...root.querySelectorAll(selector)] } catch (e) { hits = [] }
+    } else if (xpath) {
+      try {
+        const doc = root instanceof Document ? root : root.ownerDocument
+        const r = doc.evaluate(xpath, root, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null)
+        for (let i = 0; i < r.snapshotLength; i++) hits.push(r.snapshotItem(i))
+      } catch (e) { hits = [] }
+    }
+    for (const el of hits) {
+      if (!(el instanceof Element)) continue
+      const r = el.getBoundingClientRect()
+      out.push({ el, ox, oy, text: textOf(el), x: r.left + ox, y: r.top + oy, w: r.width, h: r.height })
+    }
+    for (const el of root.querySelectorAll('*')) {
+      if (el.shadowRoot) walk(el.shadowRoot, ox, oy)
+    }
+    for (const f of root.querySelectorAll('iframe')) {
+      try {
+        const d = f.contentDocument
+        if (d) {
+          const fr = f.getBoundingClientRect()
+          walk(d, ox + fr.left, oy + fr.top)
+        }
+      } catch (e) { /* 跨域 iframe 进不去 */ }
+    }
+  }
+  walk(document, 0, 0)
+  if (doScroll && out.length === 1) {
+    out[0].el.scrollIntoView({ block: 'center' })
+    const r = out[0].el.getBoundingClientRect()
+    out[0].x = r.left + out[0].ox
+    out[0].y = r.top + out[0].oy
+    out[0].w = r.width
+    out[0].h = r.height
+  }
+  return out.slice(0, 100).map(({ el, ox, oy, ...rest }) => rest)
+})`
+
+export type DeepMatch = { text: string; x: number; y: number; w: number; h: number }
+
+export async function deepQuery(tab: TabRuntime, locator: Locator, doScroll = false): Promise<{ total: number; matches: DeepMatch[] }> {
+  const source = `(${DEEP_QUERY})(${JSON.stringify(locator.selector || '')}, ${JSON.stringify(locator.xpath || '')}, ${doScroll ? 'true' : 'false'})`
+  const matches = (await evalSource(tab, source)) as DeepMatch[]
+  return { total: matches.length, matches }
+}
+
+async function deepOne(tab: TabRuntime, locator: Locator, doScroll = false): Promise<DeepMatch> {
+  const found = await deepQuery(tab, locator, doScroll)
+  if (found.total === 0) throw new Error(`穿透查找也没找到 ${locatorLabel(locator)}`)
+  if (found.total !== 1) throw new Error(`穿透查找到 ${found.total} 个 ${locatorLabel(locator)}，这一步只能对应一个。前 3 个：${found.matches.slice(0, 3).map((m) => `「${m.text}」`).join('、')}`)
+  return found.matches[0]
+}
+
+export async function clickDeep(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp'): Promise<void> {
+  const match = await deepOne(tab, locator, true)
+  await sleep(300)
+  await clickPoint(tab, match.x + match.w / 2, match.y + match.h / 2, via)
+}
+
+export async function typeDeep(tab: TabRuntime, locator: Locator, text: string, via: ActVia = 'cdp'): Promise<void> {
+  const match = await deepOne(tab, locator, true)
+  await sleep(300)
+  await clickPoint(tab, match.x + match.w / 2, match.y + match.h / 2, via === 'inject' ? 'cdp' : via)
+  await typeByCdp(tab, text)
+}
+
+export async function typeAtPoint(tab: TabRuntime, x: number, y: number, text: string, via: ActVia = 'cdp'): Promise<void> {
+  await clickPoint(tab, x, y, via === 'inject' ? 'cdp' : via)
+  await typeByCdp(tab, text)
+}
+
+export async function evalInFrame(tab: TabRuntime, source: string, frameMatch: string): Promise<unknown> {
+  const wc = wcOf(tab)
+  const frames = wc.mainFrame.frames ?? []
+  const target = frames.find((f) => f.url.includes(frameMatch))
+  if (!target) throw new Error(`没有 URL 包含「${frameMatch}」的框架，现有框架：${frames.map((f) => f.url.slice(0, 60)).join('、') || '（无子框架）'}`)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('页面脚本超时')), 120_000)
+  })
+  try {
+    return await Promise.race([target.executeJavaScript(source, true), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 async function nodeText(dbg: Electron.Debugger, backendNodeId: number): Promise<string> {
@@ -386,21 +491,42 @@ export async function waitForLocator(tab: TabRuntime, locator: Locator, timeoutM
   await failWithScene(tab, locator, `超时还没出现 ${locatorLabel(locator)}`)
 }
 
-function toViewport(tab: TabRuntime, x: number, y: number, shot?: { width: number; height: number }): { x: number; y: number } {
+export async function waitForGone(tab: TabRuntime, locator: Locator, timeoutMs = 10_000): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    try {
+      if ((await matchCount(tab, locator)) === 0) return
+    } catch {
+      /* page still loading */
+    }
+    await sleep(250)
+  }
+  throw new Error(`超时还没消失 ${locatorLabel(locator)}`)
+}
+
+export type ShotRef = { width: number; height: number; originX?: number; originY?: number; scale?: number }
+
+export function mapPoint(tab: TabRuntime, x: number, y: number, shot?: ShotRef): { x: number; y: number } {
   const [viewW, viewH] = viewport(tab)
   let px = x
   let py = y
   if (shot) {
-    if (!(shot.width > 0) || !(shot.height > 0)) throw new Error('截图宽高要是正数')
-    px = x * viewW / shot.width
-    py = y * viewH / shot.height
+    if (shot.scale !== undefined && shot.originX !== undefined && shot.originY !== undefined) {
+      if (!(shot.scale > 0)) throw new Error('截图比例要是正数')
+      px = shot.originX + x / shot.scale
+      py = shot.originY + y / shot.scale
+    } else {
+      if (!(shot.width > 0) || !(shot.height > 0)) throw new Error('截图宽高要是正数')
+      px = x * viewW / shot.width
+      py = y * viewH / shot.height
+    }
   }
   if (px < 0 || py < 0 || px >= viewW || py >= viewH) throw new Error('这个坐标不在当前画面里')
   return { x: px, y: py }
 }
 
-export async function clickPoint(tab: TabRuntime, x: number, y: number, via: ActVia = 'cdp', shot?: { width: number; height: number }): Promise<void> {
-  const point = toViewport(tab, x, y, shot)
+export async function clickPoint(tab: TabRuntime, x: number, y: number, via: ActVia = 'cdp', shot?: ShotRef): Promise<void> {
+  const point = mapPoint(tab, x, y, shot)
   if (via === 'inject') {
     const source = `(() => {
       const x = ${point.x}
@@ -619,7 +745,9 @@ export function parseShortcut(shortcut: string): { key: string; modifiers: Array
     else if (lower === 'shift') modifiers.push('shift')
     else if (lower === 'alt') modifiers.push('alt')
     else if (lower === 'meta' || lower === 'cmd' || lower === 'command') modifiers.push('meta')
+    else throw new Error(`不认识修饰键 ${part}，支持 ctrl、shift、alt、meta，快捷键用 + 连接，比如 ctrl+a`)
   }
+  if (!key) throw new Error('快捷键要有主键，比如 ctrl+a 里的 a')
   const named: Record<string, string> = {
     enter: 'Return',
     esc: 'Escape',
@@ -871,32 +999,91 @@ export async function scrollPage(
   await wheelAt(tab, via, point?.x ?? Math.round(width / 2), point?.y ?? Math.round(height / 2), direction === 'down' ? 240 : -240)
 }
 
-async function swipeGesture(tab: TabRuntime, via: GestureVia, sx: number, sy: number, ex: number, ey: number): Promise<void> {
+type TrackPoint = { x: number; y: number; delay: number }
+
+function humanTrack(sx: number, sy: number, ex: number, ey: number): TrackPoint[] {
+  const dist = Math.hypot(ex - sx, ey - sy)
+  const steps = Math.max(8, Math.min(64, Math.round(dist / 6)))
+  const ux = dist ? (ex - sx) / dist : 0
+  const uy = dist ? (ey - sy) / dist : 0
+  const px = -uy
+  const py = ux
+  const ease = (t: number): number => 1 - Math.pow(1 - t, 2.2)
+  const overshoot = dist > 60 ? Math.min(6, dist * 0.03) : 0
+  const points: TrackPoint[] = []
+  let wobble = (Math.random() - 0.5) * 2
+  for (let i = 1; i <= steps; i += 1) {
+    const t = i / steps
+    const along = dist * ease(t) + (overshoot ? overshoot * Math.sin(t * Math.PI) : 0)
+    wobble = Math.max(-2, Math.min(2, wobble + (Math.random() - 0.5) * 1.2))
+    const off = wobble * Math.sin(t * Math.PI)
+    points.push({
+      x: Math.round((sx + ux * along + px * off) * 10) / 10,
+      y: Math.round((sy + uy * along + py * off) * 10) / 10,
+      delay: 8 + Math.random() * 14
+    })
+  }
+  if (overshoot) {
+    points.push({ x: ex + (Math.random() - 0.5), y: ey + (Math.random() - 0.5), delay: 60 + Math.random() * 80 })
+  }
+  points.push({ x: ex, y: ey, delay: 20 + Math.random() * 40 })
+  return points
+}
+
+async function runTrack(tab: TabRuntime, via: GestureVia, sx: number, sy: number, track: TrackPoint[]): Promise<void> {
   const wc = wcOf(tab)
-  const steps = 12
+  const last = track[track.length - 1]
   if (via === 'native') {
-    wc.sendInputEvent({ type: 'mouseDown', x: sx, y: sy, button: 'left', clickCount: 1 })
-    for (let i = 1; i <= steps; i += 1) {
-      const px = Math.round(sx + ((ex - sx) * (i - 1)) / steps)
-      const py = Math.round(sy + ((ey - sy) * (i - 1)) / steps)
-      const nx = Math.round(sx + ((ex - sx) * i) / steps)
-      const ny = Math.round(sy + ((ey - sy) * i) / steps)
-      wc.sendInputEvent({ type: 'mouseMove', x: nx, y: ny, button: 'left', movementX: nx - px, movementY: ny - py })
-      await sleep(16)
+    wc.sendInputEvent({ type: 'mouseDown', x: Math.round(sx), y: Math.round(sy), button: 'left', clickCount: 1 })
+    let prevX = Math.round(sx)
+    let prevY = Math.round(sy)
+    for (const point of track) {
+      const nx = Math.round(point.x)
+      const ny = Math.round(point.y)
+      wc.sendInputEvent({ type: 'mouseMove', x: nx, y: ny, button: 'left', movementX: nx - prevX, movementY: ny - prevY })
+      prevX = nx
+      prevY = ny
+      await sleep(point.delay)
     }
-    wc.sendInputEvent({ type: 'mouseUp', x: ex, y: ey, button: 'left', clickCount: 1 })
+    wc.sendInputEvent({ type: 'mouseUp', x: Math.round(last.x), y: Math.round(last.y), button: 'left', clickCount: 1 })
     return
   }
   await withDebugger(wc, async (dbg) => {
     await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: sx, y: sy, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' })
-    for (let i = 1; i <= steps; i += 1) {
-      const nx = Math.round(sx + ((ex - sx) * i) / steps)
-      const ny = Math.round(sy + ((ey - sy) * i) / steps)
-      await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: nx, y: ny, button: 'left', buttons: 1, pointerType: 'mouse' })
-      await sleep(16)
+    for (const point of track) {
+      await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y, button: 'left', buttons: 1, pointerType: 'mouse' })
+      await sleep(point.delay)
     }
-    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: ex, y: ey, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' })
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: last.x, y: last.y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' })
   })
+}
+
+async function swipeGesture(tab: TabRuntime, via: GestureVia, sx: number, sy: number, ex: number, ey: number): Promise<void> {
+  await runTrack(tab, via, sx, sy, humanTrack(sx, sy, ex, ey))
+}
+
+export async function dragPage(
+  tab: TabRuntime,
+  via: GestureVia,
+  start: { x: number; y: number },
+  dx: number,
+  dy: number
+): Promise<{ from: { x: number; y: number }; to: { x: number; y: number } }> {
+  const [width, height] = viewport(tab)
+  if (start.x < 0 || start.y < 0 || start.x > width || start.y > height) {
+    throw new Error(`起点 (${Math.round(start.x)}, ${Math.round(start.y)}) 不在视口 ${width}x${height} 里，先把目标滚进视口再拖`)
+  }
+  const clamp = (value: number, max: number): number => Math.max(1, Math.min(max - 1, Math.round(value)))
+  const sx = Math.round(start.x)
+  const sy = Math.round(start.y)
+  const ex = clamp(start.x + dx, width)
+  const ey = clamp(start.y + dy, height)
+  await runTrack(tab, via, sx, sy, humanTrack(sx, sy, ex, ey))
+  return { from: { x: sx, y: sy }, to: { x: ex, y: ey } }
+}
+
+export async function locatorCenter(tab: TabRuntime, locator: Locator): Promise<{ x: number; y: number }> {
+  return centerOf(tab, await resolveLocator(tab, locator))
 }
 
 export async function swipePage(
@@ -1097,7 +1284,7 @@ export async function screenshot(tab: TabRuntime, dir: string): Promise<{ path: 
   reveal()
   let image: Electron.NativeImage | undefined
   let lastError: unknown
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
       image = await wc.capturePage()
       if (!image.isEmpty()) break
@@ -1107,7 +1294,20 @@ export async function screenshot(tab: TabRuntime, dir: string): Promise<{ path: 
       image = undefined
     }
     reveal()
-    await sleep(200)
+    await sleep(250)
+  }
+  if (!image) {
+    // 窗口被完全遮住时 capturePage 会一直失败，改走合成器截图
+    try {
+      image = await withDebugger(wc, async (dbg) => {
+        const shot = (await dbg.sendCommand('Page.captureScreenshot', { format: 'png' })) as { data: string }
+        return nativeImage.createFromBuffer(Buffer.from(shot.data, 'base64'))
+      })
+      if (image.isEmpty()) image = undefined
+    } catch (error) {
+      lastError = error
+      image = undefined
+    }
   }
   if (!image) throw new Error(lastError instanceof Error ? lastError.message : '截不到当前网页')
   const size = image.getSize()
@@ -1190,6 +1390,22 @@ export async function evalSource(tab: TabRuntime, source: string): Promise<unkno
 
 export async function sendCdp(tab: TabRuntime, method: string, params?: Record<string, unknown>): Promise<unknown> {
   return withDebugger(wcOf(tab), (dbg) => dbg.sendCommand(method, params))
+}
+
+export async function sendCdpBatch(
+  tab: TabRuntime,
+  commands: Array<{ method: string; params?: Record<string, unknown>; delayMs?: number }>
+): Promise<unknown[]> {
+  const wc = wcOf(tab)
+  return withDebugger(wc, async (dbg) => {
+    const results: unknown[] = []
+    for (const command of commands) {
+      results.push(await dbg.sendCommand(command.method, command.params))
+      const delay = Math.min(Math.max(command.delayMs ?? 0, 0), 5_000)
+      if (delay) await sleep(delay)
+    }
+    return results
+  })
 }
 
 export function sleep(ms: number): Promise<void> {

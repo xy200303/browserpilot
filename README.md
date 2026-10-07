@@ -56,7 +56,10 @@ MCP 不可用时，在 Windows 上运行本机命令 `browserpilot`。窗口未�
 - 地址栏、标签和设置用同一套界面组件。设置从窗口菜单打开。
 - 工作流是一张图。点一条在单独的窗口里编辑。Agent 用 `workflow_run` 一次跑完，中间的点击不再逐次向 Agent 要下一步。
 - 地址栏右边的「工作流」在网页区域打开。顶部可以搜索，右边点「已安装」看本机已有的，点「导入」从 GitHub 地址或本机 JSON 安装。目录从 [browserpilot-market](https://github.com/xy200303/browserpilot-market) 读取还没安装的。下载后保存在本机。可以填参数后自己执行，也可以点「交给 Agent」，把执行说明复制出去，由 Agent 调用 `workflow_run`。
-- 点击按 XPath 或 CSS 选择器定位，必须恰好命中一个元素。画布这类没有稳定节点的目标用坐标。
+- 点击按 XPath 或 CSS 选择器定位，必须恰好命中一个元素。画布这类没有稳定节点的目标用坐标。加 `pierce: true` 穿透 Shadow DOM 和同源 iframe；`page_script` 的 `frame` 参数可在跨域 iframe 里执行脚本。
+- `page_drag` 按住一点按 `dx`、`dy` 精确拖拽，轨迹带拟人的加减速、抖动和微过冲；`page_cdp_batch` 在同一个调试会话里连发一组 CDP。
+- 验证码识别：滑块用 `captcha_detect` / `captcha_solve` 全自动（识别引擎 cv / ddddocr / onnx 三选一，默认 auto 降级）。其它类型（图标点选、五子棋、交换消除……）用 `captcha_panel` 截出验证码区域图和坐标映射，由读图的 Agent 自己识别后点击——视觉模型路线，不限制验证码种类。新类型也可以在 `src/main/captcha.ts` 的 `detectors` 里注册内置检测器。
+- 本机部署：`npm run dist:win` 打完包后跑 `npm run deploy:win`，直接把 `release/win-unpacked` 覆盖到安装目录并重启，不走安装器。
 - 可以录下这扇窗口的画面，保存为本机 MP4。
 
 ## 下载

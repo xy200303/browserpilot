@@ -22,9 +22,16 @@ import {
   showAgentMask
 } from '../windows'
 import {
+  clickDeep,
   clickLocator,
   clickPoint,
+  deepQuery,
+  dragPage,
+  evalInFrame,
   evalSource,
+  locatorCenter,
+  locatorLabel,
+  mapPoint,
   navigate,
   pageSource,
   pasteLocator,
@@ -36,11 +43,17 @@ import {
   scrollPage,
   selectLocator,
   sendCdp,
+  sendCdpBatch,
   swipePage,
+  typeAtPoint,
+  typeDeep,
   typeLocator,
   uploadFiles,
-  waitForLoad
+  waitForGone,
+  waitForLoad,
+  waitForLocator
 } from '../page'
+import { captchaPanelShot, detectCaptcha, solveCaptcha } from '../captcha'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate, workflowWrite } from './RecordService'
 import { netExport, netGet, netList, netStart, netStop } from './NetService'
 
@@ -92,7 +105,7 @@ function numArg(value: unknown): number | undefined {
   return undefined
 }
 
-function pointArgs(args: { x?: unknown; y?: unknown; shotWidth?: unknown; shotHeight?: unknown }): { x: number; y: number; shot?: { width: number; height: number } } | undefined {
+function pointArgs(args: { x?: unknown; y?: unknown; shotWidth?: unknown; shotHeight?: unknown; shotX?: unknown; shotY?: unknown; shotScale?: unknown }): { x: number; y: number; shot?: { width: number; height: number; originX?: number; originY?: number; scale?: number } } | undefined {
   const hasX = args.x != null && args.x !== ''
   const hasY = args.y != null && args.y !== ''
   if (!hasX && !hasY) return undefined
@@ -106,6 +119,17 @@ function pointArgs(args: { x?: unknown; y?: unknown; shotWidth?: unknown; shotHe
   const width = numArg(args.shotWidth)
   const height = numArg(args.shotHeight)
   if (width === undefined || height === undefined) throw new Error('截图宽高要是数字')
+  const hasOX = args.shotX != null && args.shotX !== ''
+  const hasOY = args.shotY != null && args.shotY !== ''
+  const hasScale = args.shotScale != null && args.shotScale !== ''
+  if (hasOX || hasOY || hasScale) {
+    if (!(hasOX && hasOY && hasScale)) throw new Error('shotX、shotY、shotScale 要一起写')
+    const originX = numArg(args.shotX)
+    const originY = numArg(args.shotY)
+    const scale = numArg(args.shotScale)
+    if (originX === undefined || originY === undefined || scale === undefined) throw new Error('shotX、shotY、shotScale 要是数字')
+    return { x, y, shot: { width, height, originX, originY, scale } }
+  }
   return { x, y, shot: { width, height } }
 }
 
@@ -113,16 +137,17 @@ function gestureVia(value: unknown): 'cdp' | 'native' {
   return value === 'native' ? 'native' : 'cdp'
 }
 
-function locatorFrom(args: { xpath?: unknown; selector?: unknown }): Locator | undefined {
+function locatorFrom(args: { xpath?: unknown; selector?: unknown; pierce?: unknown }): Locator | undefined {
   const xpath = typeof args.xpath === 'string' && args.xpath ? args.xpath : undefined
   const selector = typeof args.selector === 'string' && args.selector ? args.selector : undefined
-  if (xpath || selector) return { xpath, selector }
+  if (xpath || selector) return { xpath, selector, pierce: Boolean(args.pierce) || undefined }
   return undefined
 }
 
 const locateFields = {
   xpath: z.string().optional(),
-  selector: z.string().optional()
+  selector: z.string().optional(),
+  pierce: z.boolean().optional()
 }
 
 const NEED_LOCATOR = '需要 xpath 或 selector'
@@ -326,12 +351,16 @@ tool('page_snapshot', '读取当前无障碍树。编号只对这一次有效。
   return { tabId: tabRef.id, snapshot: tree.text }
 })
 
-tool('page_query', '按同一种定位取出所有匹配，返回数组。每一项有序号、文字、当前能不能点到。点击和输入不走这个数组，它们必须恰好匹配一个。', z.object({
+tool('page_query', '按同一种定位取出所有匹配，返回数组。每一项有序号、文字、当前能不能点到和位置 rect。点击和输入不走这个数组，它们必须恰好匹配一个。pierce 为 true 时穿透 Shadow DOM 和同源 iframe 查找。', z.object({
   ...pageArgs, ...locateFields
 }), async (args) => {
   const locator = locatorFrom(args)
   if (!locator) throw new Error(NEED_LOCATOR)
   const tabRef = await pageTab(args, false)
+  if (locator.pierce) {
+    const found = await deepQuery(tabRef, locator)
+    return { tabId: tabRef.id, total: found.total, matches: found.matches.map((m, i) => ({ index: i, text: m.text, hittable: m.w > 0 && m.h > 0, rect: { x: m.x, y: m.y, w: m.w, h: m.h } })) }
+  }
   const found = await queryLocator(tabRef, locator)
   return { tabId: tabRef.id, total: found.total, matches: found.matches }
 })
@@ -343,6 +372,9 @@ tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个
   y: z.union([z.number(), z.string()]).optional(),
   shotWidth: z.union([z.number(), z.string()]).optional(),
   shotHeight: z.union([z.number(), z.string()]).optional(),
+  shotX: z.union([z.number(), z.string()]).optional(),
+  shotY: z.union([z.number(), z.string()]).optional(),
+  shotScale: z.union([z.number(), z.string()]).optional(),
   untilXpath: z.string().optional(),
   untilSelector: z.string().optional(),
   via: z.enum(['inject', 'native', 'cdp']).optional()
@@ -355,17 +387,64 @@ tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个
   }
   const located = locatorFrom(args)
   if (!located) throw new Error('需要 xpath 或 selector，或画布坐标 x 和 y')
+  if (located.pierce) {
+    await clickDeep(tabRef, located, viaOf(args.via))
+    return { tabId: tabRef.id }
+  }
   const until = locatorFrom({ xpath: args.untilXpath, selector: args.untilSelector })
   await clickLocator(tabRef, located, viaOf(args.via), until)
   return { tabId: tabRef.id }
 })
 
-tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 xpath 或 selector 指定目标。native 先真实点击再逐键输入。inject 直接写入。', z.object({
-  ...pageArgs, text: z.string(), ...locateFields, via: z.enum(['inject', 'native', 'cdp']).optional()
+tool('page_wait', '等元素出现或消失。state 默认 appear（出现），gone 是消失。timeoutMs 默认 10000，最长 60000。导航后、点按钮触发异步渲染后用它等，不要写死 sleep 循环。pierce 为 true 时穿透 Shadow DOM 和同源 iframe 查找。', z.object({
+  ...pageArgs, ...locateFields,
+  state: z.enum(['appear', 'gone']).default('appear'),
+  timeoutMs: z.number().optional()
 }), async (args) => {
-  const tabRef = await pageTab(args)
   const located = locatorFrom(args)
   if (!located) throw new Error(NEED_LOCATOR)
+  const tabRef = await pageTab(args)
+  const timeout = Math.max(500, Math.min(60_000, Number(args.timeoutMs ?? 10_000)))
+  if (located.pierce) {
+    const started = Date.now()
+    for (;;) {
+      const found = await deepQuery(tabRef, located).catch(() => ({ total: 0 }))
+      const present = found.total > 0
+      if ((args.state === 'gone' && !present) || (args.state !== 'gone' && present)) {
+        return { tabId: tabRef.id, state: args.state }
+      }
+      if (Date.now() - started >= timeout) throw new Error(`超时还没${args.state === 'gone' ? '消失' : '出现'} ${locatorLabel(located)}（穿透）`)
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
+  if (args.state === 'gone') await waitForGone(tabRef, located, timeout)
+  else await waitForLocator(tabRef, located, timeout)
+  return { tabId: tabRef.id, state: args.state }
+})
+
+tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 xpath 或 selector 指定目标，pierce 为 true 穿透 Shadow DOM 和同源 iframe；也可以用 x、y 坐标（先点击该点聚焦再输入，跨域 iframe 里的输入框用这种方式）。native 先真实点击再逐键输入。inject 直接写入。', z.object({
+  ...pageArgs, text: z.string(), ...locateFields,
+  x: z.union([z.number(), z.string()]).optional(),
+  y: z.union([z.number(), z.string()]).optional(),
+  shotWidth: z.union([z.number(), z.string()]).optional(),
+  shotHeight: z.union([z.number(), z.string()]).optional(),
+  shotX: z.union([z.number(), z.string()]).optional(),
+  shotY: z.union([z.number(), z.string()]).optional(),
+  shotScale: z.union([z.number(), z.string()]).optional(),
+  via: z.enum(['inject', 'native', 'cdp']).optional()
+}), async (args) => {
+  const tabRef = await pageTab(args)
+  const point = pointArgs(args)
+  if (point) {
+    await typeAtPoint(tabRef, point.x, point.y, String(args.text), viaOf(args.via))
+    return { tabId: tabRef.id }
+  }
+  const located = locatorFrom(args)
+  if (!located) throw new Error(NEED_LOCATOR)
+  if (located.pierce) {
+    await typeDeep(tabRef, located, String(args.text), viaOf(args.via))
+    return { tabId: tabRef.id }
+  }
   await typeLocator(tabRef, located, String(args.text), viaOf(args.via))
   return { tabId: tabRef.id }
 })
@@ -424,6 +503,34 @@ tool('page_swipe', '按住拖拽，用来拖滑块或横滑一块区域。翻长
   const until = locatorFrom({ xpath: args.untilXpath, selector: args.untilSelector })
   await swipePage(tabRef, args.direction as 'up' | 'down' | 'left' | 'right', locatorFrom(args), until, gestureVia(args.via))
   return { tabId: tabRef.id }
+})
+
+tool('page_drag', '按住一个点或元素，按 dx、dy 精确拖拽，轨迹自带拟人的加减速、横向抖动和微过冲回正。拖滑块验证码、拖排序这类要精确距离的目标用它，不要用 page_swipe。起点用 x、y（当前视口 CSS 像素；带 shotWidth、shotHeight 时按截图比例换算，再带 shotX、shotY、shotScale 时按 captcha_panel 这类裁剪图换算），或用 xpath、selector（取元素中心）。dx、dy 是位移，可正可负。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。', z.object({
+  ...pageArgs,
+  ...locateFields,
+  x: z.union([z.number(), z.string()]).optional(),
+  y: z.union([z.number(), z.string()]).optional(),
+  shotWidth: z.union([z.number(), z.string()]).optional(),
+  shotHeight: z.union([z.number(), z.string()]).optional(),
+  shotX: z.union([z.number(), z.string()]).optional(),
+  shotY: z.union([z.number(), z.string()]).optional(),
+  shotScale: z.union([z.number(), z.string()]).optional(),
+  dx: z.number(),
+  dy: z.number().default(0),
+  via: z.enum(['cdp', 'native']).optional()
+}), async (args) => {
+  const tabRef = await pageTab(args)
+  let start: { x: number; y: number } | undefined
+  const point = pointArgs(args)
+  if (point) {
+    start = mapPoint(tabRef, point.x, point.y, point.shot)
+  } else {
+    const located = locatorFrom(args)
+    if (!located) throw new Error('需要 xpath 或 selector，或起点坐标 x 和 y')
+    start = await locatorCenter(tabRef, located)
+  }
+  const moved = await dragPage(tabRef, gestureVia(args.via), start, Number(args.dx), Number(args.dy))
+  return { tabId: tabRef.id, from: moved.from, to: moved.to }
 })
 
 tool('page_upload', '把本机文件交给页面上的文件控件，不弹出系统选择框。用 xpath 或 selector 指定控件。不指定时用页面上的第一个文件控件。', z.object({
@@ -533,20 +640,63 @@ tool('page_source', '读取网页源码。dom 是当前文档，response 是这�
   return { tabId: tabRef.id, kind, html }
 })
 
-tool('page_script', '在当前网页里执行一段 JavaScript，把返回值交回。用来读页面数据或做没有单独工具的操作。', z.object({
-  ...pageArgs, source: z.string()
+tool('page_script', '在当前网页里执行一段 JavaScript，把返回值交回。用来读页面数据或做没有单独工具的操作。frame 填子框架 URL 的一段（比如 graph.qq.com），脚本就在那个 iframe 里跑，跨域也可以。', z.object({
+  ...pageArgs, source: z.string(), frame: z.string().optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
-  const value = await evalSource(tabRef, String(args.source))
+  const frame = typeof args.frame === 'string' && args.frame ? args.frame : undefined
+  const value = frame ? await evalInFrame(tabRef, String(args.source), frame) : await evalSource(tabRef, String(args.source))
   return { tabId: tabRef.id, value }
 })
 
-tool('page_cdp', '对当前网页调用一条 CDP，用完即断开，除非抓包还开着。', z.object({
+tool('page_cdp', '对当前网页调用一条 CDP，用完即断开，除非抓包还开着。要连着发一组命令（比如 press/move/release 的输入序列）用 page_cdp_batch。', z.object({
   ...pageArgs, method: z.string(), params: z.record(z.unknown()).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
   const value = await sendCdp(tabRef, String(args.method), args.params as Record<string, unknown> | undefined)
   return { tabId: tabRef.id, value }
+})
+
+tool('page_cdp_batch', '在同一个调试会话里按顺序跑一组 CDP 命令，中间不断开。commands 是数组，每项有 method、params（可选）和 delayMs（这条跑完后等多少毫秒，默认 0，上限 5000）。返回每条命令的结果数组。', z.object({
+  ...pageArgs,
+  commands: z.array(z.object({
+    method: z.string(),
+    params: z.record(z.unknown()).optional(),
+    delayMs: z.number().optional()
+  })).min(1)
+}), async (args) => {
+  const tabRef = await pageTab(args)
+  const results = await sendCdpBatch(tabRef, args.commands as Array<{ method: string; params?: Record<string, unknown>; delayMs?: number }>)
+  return { tabId: tabRef.id, results }
+})
+
+tool('captcha_panel', '把验证码区域截成一张图，返回图片路径 path、像素宽高、视口 CSS 坐标矩形 rect 和换算比例 scale。识别交给读图的 Agent：看图后自己算出点击位置或拖动距离，按 mapping 换算成 CSS 坐标后用 page_click 或 page_drag 操作。滑块、图标点选、语序点选、五子棋等任意类型都能用，是 captcha_solve 内置识别失败时的通用兜底。', z.object(pageArgs), async (args) => {
+  const tabRef = await pageTab(args)
+  const panel = await captchaPanelShot(tabRef)
+  return { tabId: tabRef.id, ...panel }
+})
+
+tool('captcha_detect', '识别页面上的验证码目标位置。目前支持 geetest-slide（极验 v4 滑块），type 传 auto 自动判断。返回 distance（滑块要拖的距离，视口 CSS 像素）、knob（滑块旋钮中心）、engine（实际用的识别引擎）和置信度 confidence。mark 为 true 时把识别出的缺口画在背景图上存盘，返回 markPath。engine 选识别引擎：cv（内置视觉算法，零依赖，极验滑块上最准）、ddddocr（调本机 Python 的开源 ddddocr 库，需 pip install ddddocr）、onnx（用户数据目录 models/geetest-slide.onnx + 该目录装好 onnxruntime-node）；auto 按 cv → ddddocr → onnx 顺序找可用的。其它类型用 captcha_panel 截图交给 Agent 自己识别。', z.object({
+  ...pageArgs,
+  type: z.string().default('auto'),
+  engine: z.enum(['auto', 'ddddocr', 'onnx', 'cv']).default('auto'),
+  mark: z.boolean().optional()
+}), async (args) => {
+  const tabRef = await pageTab(args)
+  const target = await detectCaptcha(tabRef, String(args.type || 'auto'), Boolean(args.mark), args.engine as 'auto' | 'ddddocr' | 'onnx' | 'cv')
+  return { tabId: tabRef.id, ...target }
+})
+
+tool('captcha_solve', '识别并拖动滑块完成验证码，一次调用里做完识别、拟人拖拽和结果检查。retries 是识别失败后的重试次数（默认 2），每次重试会等验证码刷新后重新识别。engine 选识别引擎：cv、ddddocr、onnx 或 auto（默认，按 cv → ddddocr → onnx 找可用的）。返回 solved、attempts 和每次尝试的距离与结果。', z.object({
+  ...pageArgs,
+  type: z.string().default('auto'),
+  engine: z.enum(['auto', 'ddddocr', 'onnx', 'cv']).default('auto'),
+  retries: z.number().optional(),
+  via: z.enum(['cdp', 'native']).optional()
+}), async (args) => {
+  const tabRef = await pageTab(args)
+  const result = await solveCaptcha(tabRef, String(args.type || 'auto'), gestureVia(args.via), Math.max(0, Math.min(5, Number(args.retries ?? 2))), args.engine as 'auto' | 'ddddocr' | 'onnx' | 'cv')
+  return { tabId: tabRef.id, ...result }
 })
 
 const graphSchema = z.object({
@@ -759,7 +909,27 @@ export function listToolMeta(): { name: string; description: string; inputSchema
 export async function callTool(name: string, raw: unknown): Promise<ToolResult> {
   const item = tools.find((toolItem) => toolItem.name === name)
   if (!item) return { ok: false, control: 'shared', error: `没有这个工具 ${name}` }
-  const args = item.schema.parse(raw ?? {}) as Record<string, unknown>
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && item.schema instanceof z.ZodObject) {
+    const def = (item.schema as z.ZodObject<z.ZodRawShape>)._def
+    if (def.unknownKeys !== 'passthrough') {
+      const known = Object.keys((item.schema as z.ZodObject<z.ZodRawShape>).shape)
+      const extra = Object.keys(raw as Record<string, unknown>).filter((key) => !known.includes(key))
+      if (extra.length) {
+        const hint = extra.includes('tab') && known.includes('tabId') ? '。标签参数叫 tabId，不是 tab' : ''
+        return { ok: false, control: 'shared', error: `不认识参数 ${extra.join('、')}${hint}。这个工具的参数是：${known.join('、') || '（无）'}` }
+      }
+    }
+  }
+  let args: Record<string, unknown>
+  try {
+    args = item.schema.parse(raw ?? {}) as Record<string, unknown>
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const issues = error.issues.map((issue) => `${issue.path.join('.') || '(根)'}: ${issue.message}`).join('；')
+      return { ok: false, control: 'shared', error: `参数不对：${issues}` }
+    }
+    throw error
+  }
   try {
     const data = await item.run(args)
     const tabId = typeof data.tabId === 'string' ? data.tabId : typeof args.tabId === 'string' ? args.tabId : undefined

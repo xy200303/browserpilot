@@ -2,10 +2,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import { randomBytes } from 'crypto'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { storage } from './store'
-import { callTool, listToolMeta, shapeOf } from './tool-catalog'
+import { callTool, listToolMeta } from './tool-catalog'
 
 let httpServer: ReturnType<typeof createServer> | null = null
 let token = randomBytes(24).toString('hex')
@@ -34,21 +35,13 @@ function readBody(req: IncomingMessage): Promise<unknown> {
   })
 }
 
-function buildMcp(): McpServer {
-  const server = new McpServer({ name: 'browserpilot', version: '0.1.0' })
-  for (const meta of listToolMeta()) {
-    server.registerTool(
-      meta.name,
-      {
-        description: meta.description,
-        inputSchema: shapeOf(meta.name)
-      },
-      async (args: Record<string, unknown>) => {
-        const result = await callTool(meta.name, args)
-        return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] }
-      }
-    )
-  }
+function buildMcp(): Server {
+  const server = new Server({ name: 'browserpilot', version: '0.1.0' }, { capabilities: { tools: {} } })
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: listToolMeta() }))
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const result = await callTool(request.params.name, request.params.arguments)
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] }
+  })
   return server
 }
 

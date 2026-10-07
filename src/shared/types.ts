@@ -133,7 +133,7 @@ export type LayerPayload =
   | { kind: 'settings'; section: '环境' | '抓包' | '通用' | '关于' }
   | { kind: 'workflow'; id: string }
 
-export type Locator = { selector?: string; xpath?: string }
+export type Locator = { selector?: string; xpath?: string; pierce?: boolean }
 
 export type ActVia = 'inject' | 'native' | 'cdp'
 export type GestureVia = 'cdp' | 'native'
