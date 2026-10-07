@@ -61,6 +61,7 @@ MCP 不可用时，在 Windows 上运行本机命令 `browserpilot`。窗口未�
 - 验证码识别：滑块用 `captcha_detect` / `captcha_solve` 全自动（识别引擎 cv / ddddocr / onnx 三选一，默认 auto 降级）。其它类型（图标点选、五子棋、交换消除……）用 `captcha_panel` 截出验证码区域图和坐标映射，由读图的 Agent 自己识别后点击——视觉模型路线，不限制验证码种类。新类型也可以在 `src/main/captcha.ts` 的 `detectors` 里注册内置检测器。
 - 本机部署：`npm run dist:win` 打完包后跑 `npm run deploy:win`，直接把 `release/win-unpacked` 覆盖到安装目录并重启，不走安装器。
 - 可以录下这扇窗口的画面，保存为本机 MP4。
+- 网页里右键有菜单面板：按元素类型出菜单（链接开新标签/复制，图像另存为/复制，视频音频另存为，文本复制，可编辑框剪切粘贴），另存为会弹系统保存对话框自己选位置。Agent 操作期间菜单不弹出。
 
 ## 下载
 

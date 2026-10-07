@@ -1614,7 +1614,11 @@ function extOf(url: string, contentType: string): string {
 }
 
 async function downloadWithSession(tab: TabRuntime, url: string): Promise<{ buf: Buffer; contentType: string }> {
-  const ses = wcOf(tab).session
+  return downloadUrl(wcOf(tab), url)
+}
+
+export async function downloadUrl(wc: WebContents, url: string): Promise<{ buf: Buffer; contentType: string }> {
+  const ses = wc.session
   return new Promise((resolve, reject) => {
     const req = net.request({ url, session: ses })
     const chunks: Buffer[] = []
@@ -1633,7 +1637,7 @@ async function downloadWithSession(tab: TabRuntime, url: string): Promise<{ buf:
   })
 }
 
-export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; point?: { x: number; y: number } }, dir: string): Promise<{ path: string; kind: string; bytes: number }> {
+export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; point?: { x: number; y: number } }, dir: string, savePath?: string): Promise<{ path: string; kind: string; bytes: number }> {
   const info = await inspectElement(tab, target)
   mkdirSync(dir, { recursive: true })
   if (info.kind === 'canvas') {
@@ -1643,7 +1647,7 @@ export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; po
     const dataUrl = (await evalSource(tab, source)) as string
     if (!dataUrl.startsWith('data:image/png;base64,')) throw new Error('画布导不出来（可能跨域污染）')
     const buf = Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64')
-    const path = join(dir, `canvas-${Date.now()}.png`)
+    const path = savePath || join(dir, `canvas-${Date.now()}.png`)
     writeFileSync(path, buf)
     return { path, kind: 'canvas', bytes: buf.length }
   }
@@ -1672,7 +1676,7 @@ export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; po
   } else {
     throw new Error(`不认识这种地址：${src.slice(0, 60)}`)
   }
-  const path = join(dir, `${info.kind}-${Date.now()}.${extOf(src, contentType)}`)
+  const path = savePath || join(dir, `${info.kind}-${Date.now()}.${extOf(src, contentType)}`)
   writeFileSync(path, buf)
   return { path, kind: info.kind, bytes: buf.length }
 }

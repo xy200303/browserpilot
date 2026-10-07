@@ -563,7 +563,7 @@ tool('page_inspect', '识别一个元素是什么类型：video、image、canvas
   return { tabId: tabRef.id, ...info }
 })
 
-tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。目标用 xpath、selector，或坐标 x、y。返回本机路径、类型和字节数。m3u8/mpd 流媒体清单下不了，会直接说明。', z.object({
+tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。目标用 xpath、selector，或坐标 x、y。savePath 给了就存到那个位置，不给就存进媒体目录。返回本机路径、类型和字节数。m3u8/mpd 流媒体清单下不了，会直接说明。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -572,13 +572,15 @@ tool('page_save_media', '把元素上的图片、视频、音频或画布保存�
   shotHeight: z.union([z.number(), z.string()]).optional(),
   shotX: z.union([z.number(), z.string()]).optional(),
   shotY: z.union([z.number(), z.string()]).optional(),
-  shotScale: z.union([z.number(), z.string()]).optional()
+  shotScale: z.union([z.number(), z.string()]).optional(),
+  savePath: z.string().optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
   const point = pointArgs(args)
   const located = locatorFrom(args)
   if (!point && !located) throw new Error('需要 xpath 或 selector，或坐标 x 和 y')
-  const saved = await saveMedia(tabRef, point ? { point: mapPoint(tabRef, point.x, point.y, point.shot) } : { locator: located }, storage.dir('media'))
+  const savePath = typeof args.savePath === 'string' && args.savePath ? String(args.savePath) : undefined
+  const saved = await saveMedia(tabRef, point ? { point: mapPoint(tabRef, point.x, point.y, point.shot) } : { locator: located }, storage.dir('media'), savePath)
   return { tabId: tabRef.id, ...saved }
 })
 

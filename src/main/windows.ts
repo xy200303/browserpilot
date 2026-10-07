@@ -1,5 +1,5 @@
-import { app, BrowserWindow, WebContentsView, session, Menu } from 'electron'
-import { existsSync } from 'fs'
+import { app, BrowserWindow, clipboard, dialog, Menu, session, shell, WebContentsView } from 'electron'
+import { existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { DEFAULT_ENV } from '@shared/types'
 import { chromeUserAgent } from './ua'
@@ -16,7 +16,7 @@ import {
   type TabRuntime,
   type WindowRuntime
 } from './runtime'
-import { isSendingToPage, startUrl, watchDocument } from './page'
+import { isSendingToPage, saveMedia, startUrl, watchDocument } from './page'
 
 const LOCK_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:rgba(32,33,36,.45);font-family:Segoe UI,sans-serif;color:#fff"><div style="text-align:center"><div style="font-size:18px">Agent 正在操作浏览器</div><button id="take" style="margin-top:16px;padding:8px 18px;border:0;border-radius:8px;background:#fff;color:#202124;font-size:14px">接管</button></div></body></html>`
 
@@ -262,6 +262,28 @@ function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings', title:
   runtime.tabs.push(tab)
   activateTab(runtime, tab.id)
   return tab
+}
+
+async function saveMediaAs(runtime: WindowRuntime, tab: TabRuntime, params: Electron.ContextMenuParams): Promise<void> {
+  const suggested = (() => {
+    try {
+      const name = new URL(params.srcURL).pathname.split('/').pop() || ''
+      return decodeURIComponent(name)
+    } catch {
+      return ''
+    }
+  })()
+  const picked = await dialog.showSaveDialog(runtime.win, {
+    title: '另存为',
+    defaultPath: suggested || undefined
+  })
+  if (picked.canceled || !picked.filePath) return
+  try {
+    const saved = await saveMedia(tab, { point: { x: params.x, y: params.y } }, storage.dir('media'), picked.filePath)
+    shell.showItemInFolder(saved.path)
+  } catch (error) {
+    dialog.showErrorBox('保存失败', error instanceof Error ? error.message : String(error))
+  }
 }
 
 export function openMarket(runtime: WindowRuntime): TabRuntime {
@@ -514,6 +536,45 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
   bindShortcuts(wc, runtime.envId)
   watchDocument(wc, (html) => {
     tab.documentHtml = html
+  })
+  wc.on('context-menu', (_event, params) => {
+    if (tab.control === 'agent') return
+    const items: Electron.MenuItemConstructorOptions[] = []
+    if (params.linkURL) {
+      items.push({ label: '在新标签页打开链接', click: () => addTab(runtime, params.linkURL) })
+      items.push({ label: '复制链接', click: () => clipboard.writeText(params.linkURL) })
+    }
+    if (params.mediaType === 'image' && params.srcURL) {
+      items.push({ label: '在新标签页打开图像', click: () => addTab(runtime, params.srcURL) })
+      items.push({ label: '将图像另存为…', click: () => void saveMediaAs(runtime, tab, params) })
+      items.push({ label: '复制图像', click: () => wc.copyImageAt(params.x, params.y) })
+      items.push({ label: '复制图像链接', click: () => clipboard.writeText(params.srcURL) })
+    }
+    if ((params.mediaType === 'video' || params.mediaType === 'audio') && params.srcURL) {
+      items.push({
+        label: params.mediaType === 'video' ? '将视频另存为…' : '将音频另存为…',
+        click: () => void saveMediaAs(runtime, tab, params)
+      })
+    }
+    if (params.isEditable) {
+      if (items.length) items.push({ type: 'separator' })
+      items.push({ label: '剪切', role: 'cut', enabled: Boolean(params.selectionText) })
+      items.push({ label: '复制', role: 'copy', enabled: Boolean(params.selectionText) })
+      items.push({ label: '粘贴', role: 'paste' })
+    } else if (params.selectionText) {
+      if (items.length) items.push({ type: 'separator' })
+      items.push({ label: '复制', role: 'copy' })
+    }
+    if (items.length) items.push({ type: 'separator' })
+    items.push({
+      label: '检查',
+      click: () => {
+        wc.openDevTools({ mode: 'detach' })
+        wc.inspectElement(params.x, params.y)
+      }
+    })
+    const viewBounds = tab.view ? tab.view.getBounds() : { x: 0, y: 0 }
+    Menu.buildFromTemplate(items).popup({ window: runtime.win, x: Math.round(viewBounds.x + params.x), y: Math.round(viewBounds.y + params.y) })
   })
   wc.setWindowOpenHandler(({ url }) => {
     addTab(runtime, url)
