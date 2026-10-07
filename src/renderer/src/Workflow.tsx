@@ -1173,7 +1173,7 @@ function EditorCanvas({ workflow, onBack }: { workflow: WorkflowInfo; onBack: ()
           导出
         </Button>
       </div>
-      <RunHistory workflowId={workflow.id} reloadKey={flow.nodes.length} />
+
       <p className="text-xs text-muted-foreground">从右侧端点拖到下一个节点左侧。选中连线后按 Delete 删除。判断的每个分支是一个端点。</p>
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border bg-[#f3f3f3]">

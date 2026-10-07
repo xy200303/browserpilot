@@ -27,6 +27,7 @@ import {
   openEnvironment,
   openMarket,
   openDownloadsPage,
+  openRunsPage,
   openSettingsPage,
   openWorkflowPage,
   setBounds,
@@ -443,7 +444,7 @@ export function wireIpc(): void {
     if (runtime) openSettingsPage(runtime, '环境')
   })
 
-  ipcMain.handle('workflow:runs', (_event, id: string) => storage.runs.filter((run) => run.workflowId === id).slice(0, 20))
+  ipcMain.handle('workflow:runs', (_event, id?: string) => (id ? storage.runs.filter((run) => run.workflowId === id) : storage.runs).slice(0, 50))
 
   ipcMain.handle('downloads:open', (_event, id: string) => downloadOpen(id))
   ipcMain.handle('downloads:show', (_event, id: string) => downloadShow(id))
@@ -453,6 +454,16 @@ export function wireIpc(): void {
   ipcMain.handle('downloads:cancel', (_event, id: string) => downloadCancel(id))
   ipcMain.handle('downloads:retry', (_event, id: string) => downloadRetry(id))
   ipcMain.handle('downloads:copyLink', (_event, id: string) => downloadCopyLink(id))
+  ipcMain.handle('menu:runs', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) openRunsPage(runtime)
+  })
+
+  ipcMain.handle('workflow:runsPage', (event, id: string) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) openRunsPage(runtime, id)
+  })
+
   ipcMain.handle('menu:downloads', (event) => {
     const runtime = windowFromSender(event.sender)
     if (runtime) openDownloadsPage(runtime)

@@ -54,6 +54,13 @@ export function WorkflowUse({ workflow }: { workflow: UiState['workflows'][numbe
         >
           交给 Agent
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void window.browser.openWorkflowRuns(workflow.id)}
+        >
+          运行记录
+        </Button>
       </div>
       {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
     </form>

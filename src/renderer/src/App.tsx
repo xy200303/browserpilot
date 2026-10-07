@@ -9,6 +9,7 @@ import { workflowPage } from '../../shared/market'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DownloadsPage } from './DownloadsPage'
+import { RunsPage } from './RunsPage'
 
 let recorder: MediaRecorder | null = null
 let recordChunks: Blob[] = []
@@ -103,7 +104,7 @@ export function App() {
 
   useEffect(() => {
     if (active?.kind === 'page') setAddress(active.url.startsWith('data:') ? '' : active.url)
-    if (active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow' || active?.kind === 'downloads') setAddress('')
+    if (active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow' || active?.kind === 'downloads' || active?.kind === 'runs') setAddress('')
   }, [active?.id, active?.url, active?.kind])
 
   useEffect(() => {
@@ -217,6 +218,7 @@ function addressPlaceholder(active: TabInfo | undefined, engineName: string): st
   if (active?.kind === 'market') return '工作流'
   if (active?.kind === 'settings') return '设置'
   if (active?.kind === 'downloads') return '下载'
+  if (active?.kind === 'runs') return '运行记录'
   if (active?.kind === 'workflow') return active.title
   return `在${engineName}中搜索，或输入网址`
 }
@@ -236,7 +238,7 @@ function AddressBar({
   addressRef: RefObject<HTMLInputElement | null>
   onReloadBuiltin: (tabId: string) => void
 }) {
-  const builtin = active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow' || active?.kind === 'downloads'
+  const builtin = active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow' || active?.kind === 'downloads' || active?.kind === 'runs'
   return (
     <div className="flex h-12 items-center gap-1 bg-[#f3f3f3] px-2">
       <Button variant="ghost" size="icon" className="no-drag" title="后退" disabled={!state.canBack} onClick={() => void window.browser.back()}><ArrowLeft /></Button>
@@ -322,6 +324,11 @@ function PageSurface({ state, active, contentRef, reloadKey }: { state: UiState;
         {active?.kind === 'downloads' && (
           <div className="absolute inset-0 overflow-hidden bg-white">
             <DownloadsPage key={reloadKey} state={state} />
+          </div>
+        )}
+        {active?.kind === 'runs' && (
+          <div className="absolute inset-0 overflow-hidden bg-white">
+            <RunsPage key={reloadKey} state={state} tabUrl={active.url} />
           </div>
         )}
         {active?.kind === 'settings' && (

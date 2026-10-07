@@ -4,7 +4,7 @@ import { join } from 'path'
 import { DEFAULT_ENV } from '@shared/types'
 import { chromeUserAgent } from './ua'
 import { createId } from './ids'
-import { DOWNLOADS_PAGE, MARKET_PAGE, SETTINGS_PAGE, workflowPage } from '@shared/market'
+import { DOWNLOADS_PAGE, MARKET_PAGE, RUNS_PAGE, SETTINGS_PAGE, workflowPage } from '@shared/market'
 import { storage } from './services/store'
 import {
   activePage,
@@ -240,7 +240,7 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
   return tab
 }
 
-function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings' | 'downloads', title: string, url: string): TabRuntime {
+function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings' | 'downloads' | 'runs', title: string, url: string): TabRuntime {
   const existing = runtime.tabs.find((tab) => tab.kind === kind)
   if (existing) {
     activateTab(runtime, existing.id)
@@ -327,6 +327,18 @@ export function openSettingsPage(runtime: WindowRuntime, _section = '环境'): T
 
 export function openDownloadsPage(runtime: WindowRuntime): TabRuntime {
   return openBuiltin(runtime, 'downloads', '下载', DOWNLOADS_PAGE)
+}
+
+export function openRunsPage(runtime: WindowRuntime, workflowId?: string): TabRuntime {
+  const url = workflowId ? `${RUNS_PAGE}?workflow=${workflowId}` : RUNS_PAGE
+  const existing = runtime.tabs.find((tab) => tab.kind === 'runs')
+  if (existing) {
+    existing.url = url
+    activateTab(runtime, existing.id)
+    bridge.broadcast(runtime.envId)
+    return existing
+  }
+  return openBuiltin(runtime, 'runs', '运行记录', url)
 }
 
 export function openWorkflowPage(runtime: WindowRuntime, workflowId: string): TabRuntime {
@@ -651,9 +663,9 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
   })
   const sync = (): void => {
     tab.loading = wc.isLoading()
-    if (tab.kind === 'market' || tab.kind === 'settings' || tab.kind === 'downloads') {
-      tab.title = tab.kind === 'market' ? '工作流' : tab.kind === 'settings' ? '设置' : '下载'
-      tab.url = tab.kind === 'market' ? MARKET_PAGE : tab.kind === 'settings' ? SETTINGS_PAGE : DOWNLOADS_PAGE
+    if (tab.kind === 'market' || tab.kind === 'settings' || tab.kind === 'downloads' || tab.kind === 'runs') {
+      tab.title = tab.kind === 'market' ? '工作流' : tab.kind === 'settings' ? '设置' : tab.kind === 'downloads' ? '下载' : '运行记录'
+      tab.url = tab.kind === 'market' ? MARKET_PAGE : tab.kind === 'settings' ? SETTINGS_PAGE : tab.kind === 'downloads' ? DOWNLOADS_PAGE : tab.url.startsWith(RUNS_PAGE) ? tab.url : RUNS_PAGE
     } else {
       tab.title = wc.getTitle() || tab.title
       tab.url = wc.getURL() || tab.url

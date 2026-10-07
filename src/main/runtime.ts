@@ -13,7 +13,7 @@ export type TabRuntime = {
   id: string
   envId: string
   groupId: string | null
-  kind: 'page' | 'settings' | 'market' | 'workflow' | 'downloads'
+  kind: 'page' | 'settings' | 'market' | 'workflow' | 'downloads' | 'runs'
   title: string
   url: string
   favicon?: string
