@@ -2214,3 +2214,125 @@ export function svgPathToPoints(d: string, box: { x: number; y: number; width: n
   })()
   return subpaths.map((sub) => sub.map((p) => ({ x: box.x + (p.x / vb[0]) * box.width, y: box.y + (p.y / vb[1]) * box.height })))
 }
+
+export function fillSerpentine(points: SvgPoint[], spacing = 5): SvgPoint[] {
+  const segments = fillScanlines(points, spacing)
+  // 蛇形连笔：端点都在区域内部，连接处贴着边界走，笔不离纸
+  const path: SvgPoint[] = []
+  let flip = false
+  for (const seg of segments) {
+    const [a, b] = flip ? [seg[1], seg[0]] : [seg[0], seg[1]]
+    path.push(a)
+    path.push(b)
+    flip = !flip
+  }
+  return path
+}
+
+export function fillScanlines(points: SvgPoint[], spacing = 5): SvgPoint[][] {
+  if (points.length < 3) return []
+  const ys = points.map((p) => p.y)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+  const segments: SvgPoint[][] = []
+  const n = points.length
+  for (let y = minY + spacing / 2; y < maxY; y += spacing) {
+    const xs: number[] = []
+    for (let i = 0; i < n; i += 1) {
+      const a = points[i]
+      const b = points[(i + 1) % n]
+      if ((a.y > y) === (b.y > y)) continue
+      xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x))
+    }
+    xs.sort((m, n2) => m - n2)
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      if (xs[i + 1] - xs[i] < 2) continue
+      segments.push([{ x: xs[i], y }, { x: xs[i + 1], y }])
+    }
+  }
+  return segments
+}
+
+type TurtleState = { x: number; y: number; heading: number; down: boolean }
+
+export async function turtleRun(tab: TabRuntime, via: GestureVia, script: string, start?: { x?: number; y?: number; heading?: number }): Promise<{ strokes: number; points: number }> {
+  const [viewW, viewH] = viewport(tab)
+  const state: TurtleState = { x: start?.x ?? Math.round(viewW / 2), y: start?.y ?? Math.round(viewH / 2), heading: start?.heading ?? 0, down: true }
+  let strokesCount = 0
+  let current: SvgPoint[] = []
+  let fillFrom: number | null = null
+  let spacing = 5
+  let total = 0
+  const flush = async (): Promise<void> => {
+    if (current.length >= 2) {
+      await drawPath(tab, via, current)
+      total += current.length
+      strokesCount += 1
+    }
+    current = []
+  }
+  const move = (nx: number, ny: number): void => {
+    if (nx < 0 || ny < 0 || nx > viewW || ny > viewH) throw new Error(`移动到了视口外 (${Math.round(nx)}, ${Math.round(ny)})`)
+    if (state.down) current.push({ x: nx, y: ny })
+    state.x = nx
+    state.y = ny
+  }
+  const penup = async (): Promise<void> => { await flush(); state.down = false }
+  for (const raw of script.split(/[\n;]+/)) {
+    const parts = raw.trim().split(/\s+/)
+    if (!parts[0]) continue
+    const cmd = parts[0].toLowerCase()
+    const arg = Number(parts[1])
+    if (cmd === 'fd' || cmd === 'forward') {
+      const rad = (state.heading * Math.PI) / 180
+      move(state.x + arg * Math.cos(rad), state.y + arg * Math.sin(rad))
+    } else if (cmd === 'bk' || cmd === 'backward') {
+      const rad = (state.heading * Math.PI) / 180
+      move(state.x - arg * Math.cos(rad), state.y - arg * Math.sin(rad))
+    } else if (cmd === 'lt' || cmd === 'left') {
+      state.heading = (state.heading - arg + 360) % 360
+    } else if (cmd === 'rt' || cmd === 'right') {
+      state.heading = (state.heading + arg) % 360
+    } else if (cmd === 'setheading' || cmd === 'seth') {
+      state.heading = ((arg % 360) + 360) % 360
+    } else if (cmd === 'goto' || cmd === 'setpos') {
+      move(Number(parts[1]), Number(parts[2]))
+    } else if (cmd === 'penup' || cmd === 'pu') {
+      await penup()
+    } else if (cmd === 'pendown' || cmd === 'pd') {
+      state.down = true
+      current = [{ x: state.x, y: state.y }]
+    } else if (cmd === 'circle') {
+      const r = arg
+      const extent = parts[2] !== undefined ? Number(parts[2]) : 360
+      const steps = Math.max(12, Math.round((Math.abs(extent) / 360) * Math.abs(r) / 2))
+      const turn = extent / steps
+      const chord = 2 * Math.abs(r) * Math.sin(Math.PI / steps)
+      for (let k = 0; k < steps; k += 1) {
+        state.heading = (state.heading + (r > 0 ? -turn : turn) / 2 + 360) % 360
+        const rad = (state.heading * Math.PI) / 180
+        move(state.x + chord * Math.cos(rad), state.y + chord * Math.sin(rad))
+        state.heading = (state.heading + (r > 0 ? -turn : turn) / 2 + 360) % 360
+      }
+    } else if (cmd === 'beginfill') {
+      if (state.down) fillFrom = 0
+      else fillFrom = null
+    } else if (cmd === 'endfill') {
+      if (current.length >= 3) {
+        await drawPath(tab, via, current, true)
+        total += current.length
+        strokesCount += 1
+        await drawPath(tab, via, fillSerpentine(current, spacing))
+        current = []
+      } else {
+        await flush()
+      }
+    } else if (cmd === 'spacing') {
+      spacing = Math.max(3, arg || 5)
+    } else {
+      throw new Error(`不认识的海龟命令 ${cmd}，支持 fd bk lt rt setheading goto penup pendown circle beginfill endfill spacing`)
+    }
+  }
+  await flush()
+  return { strokes: strokesCount, points: total }
+}
