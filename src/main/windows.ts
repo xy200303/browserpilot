@@ -265,21 +265,35 @@ function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings', title:
 }
 
 async function saveMediaAs(runtime: WindowRuntime, tab: TabRuntime, params: Electron.ContextMenuParams): Promise<void> {
+  const urlExt = (() => {
+    try {
+      const ext = new URL(params.srcURL).pathname.split('.').pop() || ''
+      return /^[a-z0-9]{2,5}$/i.test(ext) ? ext.toLowerCase() : ''
+    } catch {
+      return ''
+    }
+  })()
+  // 视频统一出 mp4（抓轨后合并），图像按源地址扩展名
+  const kind = params.mediaType === 'video' ? 'mp4' : params.mediaType === 'audio' ? urlExt || 'm4a' : urlExt || 'png'
+  const labels: Record<string, string> = { mp4: 'MP4 视频', m4a: '音频', png: 'PNG 图像', jpg: 'JPEG 图像', jpeg: 'JPEG 图像', webp: 'WebP 图像', gif: 'GIF 图像', svg: 'SVG 图像' }
   const suggested = (() => {
     try {
-      const name = new URL(params.srcURL).pathname.split('/').pop() || ''
-      return decodeURIComponent(name)
+      const name = decodeURIComponent(new URL(params.srcURL).pathname.split('/').pop() || '')
+      if (!name) return ''
+      return /\.[a-z0-9]{2,5}$/i.test(name) ? name : `${name}.${kind}`
     } catch {
       return ''
     }
   })()
   const picked = await dialog.showSaveDialog(runtime.win, {
     title: '另存为',
-    defaultPath: suggested || undefined
+    defaultPath: suggested || undefined,
+    filters: [{ name: labels[kind] || kind.toUpperCase(), extensions: [kind] }, { name: '所有文件', extensions: ['*'] }]
   })
   if (picked.canceled || !picked.filePath) return
+  const filePath = /\.[a-z0-9]{2,5}$/i.test(picked.filePath) ? picked.filePath : `${picked.filePath}.${kind}`
   try {
-    const saved = await saveMedia(tab, { point: { x: params.x, y: params.y } }, storage.dir('media'), picked.filePath)
+    const saved = await saveMedia(tab, { point: { x: params.x, y: params.y } }, storage.dir('media'), filePath)
     shell.showItemInFolder(saved.path)
   } catch (error) {
     dialog.showErrorBox('保存失败', error instanceof Error ? error.message : String(error))
