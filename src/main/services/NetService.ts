@@ -121,6 +121,60 @@ function onMessage(tabId: string, method: string, params: unknown): void {
 
 const requestOwners = new Map<string, string>()
 
+export type MockRule = {
+  urlContains: string
+  status?: number
+  body?: string
+  headers?: Record<string, string>
+}
+
+const mockRules = new Map<string, MockRule[]>()
+
+export async function netMock(tabId: string, rules: MockRule[]): Promise<void> {
+  const found = findTab(tabId)
+  if (!found?.tab.view) throw new Error(`没有这个标签 ${tabId}`)
+  const wc = found.tab.view.webContents
+  const dbg = holdDebugger(wc)
+  await dbg.sendCommand('Fetch.enable', { patterns: [{ urlPattern: '*' }] })
+  onDebuggerMessage(wc, (method, params) => {
+    if (method !== 'Fetch.requestPaused') return
+    void onPaused(tabId, wc, params as { requestId: string; request?: { url?: string } })
+  })
+  mockRules.set(tabId, rules)
+}
+
+export async function netMockOff(tabId: string): Promise<void> {
+  mockRules.delete(tabId)
+  const found = findTab(tabId)
+  const wc = found?.tab.view?.webContents
+  if (!wc?.debugger.isAttached()) return
+  try {
+    await wc.debugger.sendCommand('Fetch.disable')
+  } catch {
+    /* 调试器已断开 */
+  }
+  releaseDebugger(wc)
+}
+
+async function onPaused(tabId: string, wc: Electron.WebContents, params: { requestId: string; request?: { url?: string } }): Promise<void> {
+  const url = params.request?.url ?? ''
+  const rule = (mockRules.get(tabId) ?? []).find((item) => url.includes(item.urlContains))
+  try {
+    if (rule) {
+      await wc.debugger.sendCommand('Fetch.fulfillRequest', {
+        requestId: params.requestId,
+        responseCode: rule.status ?? 200,
+        responseHeaders: Object.entries({ 'content-type': 'application/json; charset=utf-8', ...(rule.headers ?? {}) }).map(([name, value]) => ({ name, value })),
+        body: Buffer.from(rule.body ?? '{}', 'utf8').toString('base64')
+      })
+    } else {
+      await wc.debugger.sendCommand('Fetch.continueRequest', { requestId: params.requestId })
+    }
+  } catch {
+    /* 请求已被页面取消 */
+  }
+}
+
 async function pullBody(tabId: string, requestId: string, item: Capture): Promise<void> {
   const found = findTab(tabId)
   const wc = found?.tab.view?.webContents

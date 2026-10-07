@@ -49,37 +49,51 @@ function findPython(): Promise<string | null> {
   })()
 }
 
-function ddddocrGapX(bgBuf: Buffer, sliceBuf: Buffer): Promise<number | null> {
+function bridgePath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'captcha', 'ddddocr_bridge.py')
+    : join(app.getAppPath(), 'resources', 'captcha', 'ddddocr_bridge.py')
+}
+
+function runBridge<T>(args: string[]): Promise<T | null> {
   return (async () => {
     const bin = await findPython()
     if (!bin) return null
-    const script = app.isPackaged
-      ? join(process.resourcesPath, 'captcha', 'geetest_slide.py')
-      : join(app.getAppPath(), 'resources', 'captcha', 'geetest_slide.py')
+    const script = bridgePath()
     if (!existsSync(script)) return null
-    const dir = join(tmpdir(), 'browserpilot-captcha')
-    mkdirSync(dir, { recursive: true })
-    const stamp = `${Date.now()}-${Math.round(Math.random() * 1e6)}`
-    const bgPath = join(dir, `bg-${stamp}.png`)
-    const slicePath = join(dir, `slice-${stamp}.png`)
-    writeFileSync(bgPath, bgBuf)
-    writeFileSync(slicePath, sliceBuf)
-    const args = bin === 'py' ? ['-3', script, bgPath, slicePath] : [script, bgPath, slicePath]
-    return new Promise<number | null>((resolve) => {
-      execFile(bin, args, { timeout: 30_000 }, (error, stdout) => {
+    const fullArgs = bin === 'py' ? ['-3', script, ...args] : [script, ...args]
+    return new Promise<T | null>((resolve) => {
+      execFile(bin, fullArgs, { timeout: 30_000 }, (error, stdout) => {
         if (error) {
           resolve(null)
           return
         }
         try {
-          const parsed = JSON.parse(String(stdout).trim()) as { x?: number }
-          resolve(typeof parsed.x === 'number' ? parsed.x : null)
+          resolve(JSON.parse(String(stdout).trim()) as T)
         } catch {
           resolve(null)
         }
       })
     })
   })().catch(() => null)
+}
+
+function ddddocrGapX(bgBuf: Buffer, sliceBuf: Buffer): Promise<number | null> {
+  const dir = join(tmpdir(), 'browserpilot-captcha')
+  mkdirSync(dir, { recursive: true })
+  const stamp = `${Date.now()}-${Math.round(Math.random() * 1e6)}`
+  const bgPath = join(dir, `bg-${stamp}.png`)
+  const slicePath = join(dir, `slice-${stamp}.png`)
+  writeFileSync(bgPath, bgBuf)
+  writeFileSync(slicePath, sliceBuf)
+  return runBridge<{ x?: number }>(['slide', bgPath, slicePath]).then((r) => (r && typeof r.x === 'number' ? r.x : null))
+}
+
+export async function captchaRead(tab: TabRuntime): Promise<{ text: string; path: string }> {
+  const shot = await captchaPanelShot(tab)
+  const result = await runBridge<{ text?: string }>(['ocr', shot.path])
+  if (!result) throw new Error('ddddocr 不可用：需要本机 Python 并 pip install ddddocr')
+  return { text: result.text ?? '', path: shot.path }
 }
 
 type SlideProbe = {
@@ -428,6 +442,13 @@ async function detectGeetestSlide(tab: TabRuntime, mark: boolean, engineHint: Ca
   if (!probe.bg || !probe.slice || !probe.bgRect || !probe.sliceRect || !probe.btn) {
     throw new Error('页面上没有极验滑块验证码，先点出验证面板再识别')
   }
+  // 面板动画可能晚于第一次滚动，读坐标前再滚一次并重新量
+  await evalSource(
+    tab,
+    `(() => { const el = document.querySelector('[class*=geetest_slider],[class*=geetest_wrap]'); if (el) el.scrollIntoView({ block: 'center' }); return true })()`
+  )
+  await sleep(300)
+  probe = (await evalSource(tab, SLIDE_PROBE)) as SlideProbe
   const [bgBuf, sliceBuf] = await Promise.all([download(probe.bg), download(probe.slice)])
   const bg = decodePng(bgBuf)
   const slice = decodePng(sliceBuf)
@@ -583,6 +604,12 @@ async function detectGeetestIcon(tab: TabRuntime, mark: boolean): Promise<IconTa
   if (!probe.icons?.length || !probe.bg || !probe.bgRect || !probe.okRect) {
     throw new Error('页面上没有极验图标点选验证码，先点出验证面板再识别')
   }
+  await evalSource(
+    tab,
+    `(() => { const el = document.querySelector('[class*=geetest_bg]'); if (el) el.scrollIntoView({ block: 'center' }); return true })()`
+  )
+  await sleep(300)
+  probe = (await evalSource(tab, ICON_PROBE)) as typeof probe
   const [bgBuf, ...iconBufs] = await Promise.all([download(probe.bg), ...probe.icons.map(download)])
   const bg = decodePng(bgBuf)
   const scaleX = bg.width / probe.bgRect[2]

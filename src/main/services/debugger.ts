@@ -54,14 +54,20 @@ export function holdDebugger(wc: WebContents): Debugger {
   return wc.debugger
 }
 
+const listeners = new Map<number, Array<(method: string, params: unknown) => void>>()
+
 export function onDebuggerMessage(
   wc: WebContents,
   listener: (method: string, params: unknown) => void
 ): void {
-  const lease = leaseOf(wc)
-  if (lease.listening) return
-  lease.listening = true
-  wc.debugger.on('message', (_event, method, params) => {
-    listener(method, params)
-  })
+  let list = listeners.get(wc.id)
+  if (!list) {
+    list = []
+    listeners.set(wc.id, list)
+    wc.debugger.on('message', (_event, method, params) => {
+      for (const fn of listeners.get(wc.id) ?? []) fn(method, params)
+    })
+    wc.once('destroyed', () => listeners.delete(wc.id))
+  }
+  list.push(listener)
 }

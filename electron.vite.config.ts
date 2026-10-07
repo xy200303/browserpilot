@@ -13,6 +13,17 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react(), tailwindcss()],
-    resolve: { alias: { '@': resolve('src/renderer/src') } }
+    resolve: { alias: { '@': resolve('src/renderer/src') } },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ['react', 'react-dom'],
+            radix: ['radix-ui', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-label', '@radix-ui/react-slot'],
+            xyflow: ['@xyflow/react']
+          }
+        }
+      }
+    }
   }
 })

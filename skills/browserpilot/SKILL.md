@@ -42,7 +42,9 @@ browserpilot call workflow_run --json-file args.json
 
 导航后或触发异步渲染后用 `page_wait` 等元素出现或消失，不要写死 sleep 循环。`page_key` 的快捷键用 `ctrl+a`、`shift+enter` 这种写法，修饰键只认 ctrl、shift、alt、meta。
 
-定位器默认只查顶层文档。加 `pierce: true` 可穿透 Shadow DOM 和同源 iframe（点击、输入、查询、等待都支持），穿透查到的目标会先滚进视口再点。跨域 iframe 进不了定位器：用 `page_script` 的 `frame` 参数（填框架 URL 的一段，如 graph.qq.com）在那个框架里跑脚本，或者用坐标点击、输入（CDP 输入能穿透，`page_type` 也支持 x、y 坐标直接打字）。
+定位器默认只查顶层文档。加 `pierce: true` 可穿透 Shadow DOM、同源 iframe，顶层查不到时还会自动查跨域 iframe（OOPIF）；穿透查到的目标会先滚进视口再点。`page_script` 的 `frame` 参数（填框架 URL 的一段，如 graph.qq.com）可以在跨域 iframe 里跑脚本。`page_cdp` 加 `sessionId` 可以把命令发到 `Target.attachToTarget` 返回的子框架会话。
+
+其它好用的新工具：`page_hit` 反查坐标命中的元素；`page_watch` 盯住元素等它变化；`net_mock` / `net_mock_off` 拦截请求返回假数据；`env_export` / `env_import` 导出导入环境登录（Cookie 文件含机密，只在本机用）；`captcha_read` 用 ddddocr 读文字验证码。工具失败时会自动附一张现场截图（errorShot）。
 
 拖拽要精确距离时用 `page_drag`（起点 + `dx`/`dy`，轨迹拟人），不要用 `page_swipe`。要连着发一组 CDP（比如按下、移动、松开的输入序列）用 `page_cdp_batch`，中间不断开调试会话。
 

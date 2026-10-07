@@ -25,10 +25,12 @@ import {
   clickDeep,
   clickLocator,
   clickPoint,
+  crossQuery,
   deepQuery,
   dragPage,
   evalInFrame,
   evalSource,
+  hitPoint,
   locatorCenter,
   locatorLabel,
   mapPoint,
@@ -53,9 +55,10 @@ import {
   waitForLoad,
   waitForLocator
 } from '../page'
-import { captchaPanelShot, detectCaptcha, solveCaptcha } from '../captcha'
+import { captchaPanelShot, captchaRead, detectCaptcha, solveCaptcha } from '../captcha'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate, workflowWrite } from './RecordService'
-import { netExport, netGet, netList, netStart, netStop } from './NetService'
+import { netExport, netGet, netList, netMock, netMockOff, netStart, netStop } from './NetService'
+import { writeFileSync, readFileSync } from 'fs'
 
 const tab = z.string().optional()
 const env = z.string().optional()
@@ -358,7 +361,11 @@ tool('page_query', '按同一种定位取出所有匹配，返回数组。每一
   if (!locator) throw new Error(NEED_LOCATOR)
   const tabRef = await pageTab(args, false)
   if (locator.pierce) {
-    const found = await deepQuery(tabRef, locator)
+    let found = await deepQuery(tabRef, locator)
+    if (found.total === 0) {
+      const cross = await crossQuery(tabRef, locator).catch(() => ({ total: 0, matches: [] }))
+      found = cross
+    }
     return { tabId: tabRef.id, total: found.total, matches: found.matches.map((m, i) => ({ index: i, text: m.text, hittable: m.w > 0 && m.h > 0, rect: { x: m.x, y: m.y, w: m.w, h: m.h } })) }
   }
   const found = await queryLocator(tabRef, locator)
@@ -649,11 +656,11 @@ tool('page_script', '在当前网页里执行一段 JavaScript，把返回值交
   return { tabId: tabRef.id, value }
 })
 
-tool('page_cdp', '对当前网页调用一条 CDP，用完即断开，除非抓包还开着。要连着发一组命令（比如 press/move/release 的输入序列）用 page_cdp_batch。', z.object({
-  ...pageArgs, method: z.string(), params: z.record(z.unknown()).optional()
+tool('page_cdp', '对当前网页调用一条 CDP，用完即断开，除非抓包还开着。要连着发一组命令（比如 press/move/release 的输入序列）用 page_cdp_batch。sessionId 可选：填 Target.attachToTarget 返回的会话编号时，命令发到那个子框架会话。', z.object({
+  ...pageArgs, method: z.string(), params: z.record(z.unknown()).optional(), sessionId: z.string().optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
-  const value = await sendCdp(tabRef, String(args.method), args.params as Record<string, unknown> | undefined)
+  const value = await sendCdp(tabRef, String(args.method), args.params as Record<string, unknown> | undefined, args.sessionId ? String(args.sessionId) : undefined)
   return { tabId: tabRef.id, value }
 })
 
@@ -685,6 +692,12 @@ tool('captcha_detect', '识别页面上的验证码目标位置。目前支持 g
   const tabRef = await pageTab(args)
   const target = await detectCaptcha(tabRef, String(args.type || 'auto'), Boolean(args.mark), args.engine as 'auto' | 'ddddocr' | 'onnx' | 'cv')
   return { tabId: tabRef.id, ...target }
+})
+
+tool('captcha_read', '把验证码区域截图后用 ddddocr 做文字识别，返回 text 和图片路径。适合英数文字验证码。需要本机 Python 且 pip install ddddocr。', z.object(pageArgs), async (args) => {
+  const tabRef = await pageTab(args)
+  const result = await captchaRead(tabRef)
+  return { tabId: tabRef.id, ...result }
 })
 
 tool('captcha_solve', '识别并拖动滑块完成验证码，一次调用里做完识别、拟人拖拽和结果检查。retries 是识别失败后的重试次数（默认 2），每次重试会等验证码刷新后重新识别。engine 选识别引擎：cv、ddddocr、onnx 或 auto（默认，按 cv → ddddocr → onnx 找可用的）。返回 solved、attempts 和每次尝试的距离与结果。', z.object({
@@ -895,6 +908,118 @@ tool('net_export', '把这个标签的记录写成 HAR，返回路径。', z.obj
   path: netExport(String(args.tabId), storage.dir('runs'))
 }))
 
+tool('net_mock', '拦截这个标签的请求并按规则返回假数据，用于接口测试和故障注入。rules 是数组，每项有 urlContains（URL 包含这段就拦截）和可选的 status（默认 200）、body（字符串，默认 {}）、headers。不匹配的请求正常放行。调 net_mock_off 解除。拦截和抓包可以同时开。', z.object({
+  tabId: z.string(),
+  rules: z.array(z.object({
+    urlContains: z.string(),
+    status: z.number().optional(),
+    body: z.string().optional(),
+    headers: z.record(z.string()).optional()
+  })).min(1)
+}), async (args) => {
+  await netMock(String(args.tabId), args.rules as Array<{ urlContains: string; status?: number; body?: string; headers?: Record<string, string> }>)
+  return { tabId: args.tabId, rules: (args.rules as unknown[]).length }
+})
+
+tool('net_mock_off', '解除这个标签的请求拦截。', z.object({ tabId: z.string() }), async (args) => {
+  await netMockOff(String(args.tabId))
+  return { tabId: args.tabId }
+})
+
+tool('page_hit', '返回视口坐标 (x, y) 命中的元素：标签、class、id、文字、rect。带 shotWidth、shotHeight 时按截图坐标换算，再带 shotX、shotY、shotScale 时按裁剪图换算（同 page_click）。用来确认"看图说话"算出来的点对不对。', z.object({
+  ...pageArgs,
+  x: z.union([z.number(), z.string()]),
+  y: z.union([z.number(), z.string()]),
+  shotWidth: z.union([z.number(), z.string()]).optional(),
+  shotHeight: z.union([z.number(), z.string()]).optional(),
+  shotX: z.union([z.number(), z.string()]).optional(),
+  shotY: z.union([z.number(), z.string()]).optional(),
+  shotScale: z.union([z.number(), z.string()]).optional()
+}), async (args) => {
+  const tabRef = await pageTab(args, false)
+  const point = pointArgs(args)
+  if (!point) throw new Error('需要 x 和 y')
+  const hit = await hitPoint(tabRef, point.x, point.y, point.shot)
+  return { tabId: tabRef.id, ...hit }
+})
+
+tool('page_watch', '盯住一个元素，它的文字或位置变了就返回变化前后，超时返回变化前的快照。timeoutMs 默认 30000，最长 120000；intervalMs 默认 500。用来等价格变化、新消息、状态翻转。pierce 为 true 时穿透 Shadow DOM 和 iframe。', z.object({
+  ...pageArgs, ...locateFields,
+  timeoutMs: z.number().optional(),
+  intervalMs: z.number().optional()
+}), async (args) => {
+  const located = locatorFrom(args)
+  if (!located) throw new Error(NEED_LOCATOR)
+  const tabRef = await pageTab(args, false)
+  const timeout = Math.max(1000, Math.min(120_000, Number(args.timeoutMs ?? 30_000)))
+  const interval = Math.max(200, Math.min(5_000, Number(args.intervalMs ?? 500)))
+  const snap = async (): Promise<string> => {
+    if (located.pierce) {
+      const found = await deepQuery(tabRef, located).catch(() => ({ total: 0, matches: [] }))
+      const cross = found.total ? { total: 0, matches: [] } : await crossQuery(tabRef, located).catch(() => ({ total: 0, matches: [] }))
+      const first = found.matches[0] ?? cross.matches[0]
+      return JSON.stringify(first ?? null)
+    }
+    const found = await queryLocator(tabRef, located).catch(() => ({ total: 0, matches: [] as Array<{ text: string; rect?: unknown }> }))
+    return JSON.stringify(found.matches[0] ?? null)
+  }
+  const before = await snap()
+  const started = Date.now()
+  while (Date.now() - started < timeout) {
+    await new Promise((resolve) => setTimeout(resolve, interval))
+    const now = await snap()
+    if (now !== before) return { tabId: tabRef.id, changed: true, before, after: now, elapsedMs: Date.now() - started }
+  }
+  return { tabId: tabRef.id, changed: false, before, timeoutMs: timeout }
+})
+
+tool('env_export', '把这套环境的登录（Cookie）导出成 JSON 文件，返回路径。不含 localStorage。文件里有完整 Cookie，只在本机用，不要发给别人。', z.object({ env: z.string() }), async (args) => {
+  const id = String(args.env)
+  const item = storage.envs.find((envItem) => envItem.id === id)
+  if (!item) throw new Error(`没有这套环境 ${id}`)
+  const ses = session.fromPartition(`persist:${id}`)
+  const cookies = await ses.cookies.get({})
+  const path = join(storage.dir('exports'), `env-${id}-${Date.now()}.json`)
+  writeFileSync(path, JSON.stringify({ name: item.name, remark: item.remark, exportedAt: Date.now(), cookies }, null, 2))
+  return { env: id, path, cookies: cookies.length }
+})
+
+tool('env_import', '从 env_export 导出的 JSON 恢复登录。env 不给就新建一套环境。返回环境编号。', z.object({
+  path: z.string(),
+  env: z.string().optional(),
+  name: z.string().optional()
+}), async (args) => {
+  const raw = JSON.parse(readFileSync(String(args.path), 'utf8')) as { name?: string; cookies: Array<Record<string, unknown>> }
+  let id = args.env ? String(args.env) : ''
+  if (!id) {
+    id = createId('env')
+    storage.envs.push({ id, name: String(args.name || raw.name || '导入的环境'), remark: '', sites: [] })
+    storage.saveEnvs()
+  }
+  const ses = session.fromPartition(`persist:${id}`)
+  let ok = 0
+  for (const cookie of raw.cookies ?? []) {
+    try {
+      const domain = String(cookie.domain || '')
+      const secure = Boolean(cookie.secure)
+      await ses.cookies.set({
+        url: `${secure ? 'https' : 'http'}://${domain.replace(/^\./, '')}${String(cookie.path || '/')}`,
+        name: String(cookie.name),
+        value: String(cookie.value ?? ''),
+        domain,
+        path: String(cookie.path || '/'),
+        secure,
+        httpOnly: Boolean(cookie.httpOnly),
+        expirationDate: typeof cookie.expirationDate === 'number' ? cookie.expirationDate : undefined
+      })
+      ok += 1
+    } catch {
+      /* 单个 cookie 失败跳过 */
+    }
+  }
+  return { env: id, cookies: ok, total: (raw.cookies ?? []).length }
+})
+
 export const screenWaiters = new Map<string, { resolve: (path: string) => void; reject: (error: Error) => void }>()
 export const screenStartWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void }>()
 
@@ -937,10 +1062,21 @@ export async function callTool(name: string, raw: unknown): Promise<ToolResult> 
     return finish({ tabId, env: envId }, data)
   } catch (error) {
     const tabId = typeof (raw as { tabId?: string })?.tabId === 'string' ? (raw as { tabId: string }).tabId : undefined
+    let errorShot: string | undefined
+    if (tabId) {
+      try {
+        const found = resolveTab({ tabId }, true)
+        const shot = await screenshot(found.tab, storage.dir('screenshots'))
+        errorShot = shot.path
+      } catch {
+        /* 现场截图失败就算了 */
+      }
+    }
     return {
       ok: false,
       control: controlOf(tabId, typeof (raw as { env?: string })?.env === 'string' ? (raw as { env: string }).env : undefined),
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
+      ...(errorShot ? { errorShot } : {})
     }
   }
 }

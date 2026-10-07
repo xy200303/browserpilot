@@ -245,7 +245,11 @@ export async function deepQuery(tab: TabRuntime, locator: Locator, doScroll = fa
 }
 
 async function deepOne(tab: TabRuntime, locator: Locator, doScroll = false): Promise<DeepMatch> {
-  const found = await deepQuery(tab, locator, doScroll)
+  let found = await deepQuery(tab, locator, doScroll)
+  if (found.total === 0) {
+    const cross = await crossQuery(tab, locator).catch(() => ({ total: 0, matches: [] as DeepMatch[] }))
+    found = cross
+  }
   if (found.total === 0) throw new Error(`穿透查找也没找到 ${locatorLabel(locator)}`)
   if (found.total !== 1) throw new Error(`穿透查找到 ${found.total} 个 ${locatorLabel(locator)}，这一步只能对应一个。前 3 个：${found.matches.slice(0, 3).map((m) => `「${m.text}」`).join('、')}`)
   return found.matches[0]
@@ -285,9 +289,95 @@ export async function evalInFrame(tab: TabRuntime, source: string, frameMatch: s
   }
 }
 
-async function nodeText(dbg: Electron.Debugger, backendNodeId: number): Promise<string> {
+export async function hitPoint(tab: TabRuntime, x: number, y: number, shot?: ShotRef): Promise<Record<string, unknown>> {
+  const point = mapPoint(tab, x, y, shot)
+  const source = `(() => {
+    const el = document.elementFromPoint(${point.x}, ${point.y})
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    return {
+      tag: el.tagName,
+      cls: String(el.className).slice(0, 80),
+      id: el.id || '',
+      text: String(el.innerText || el.textContent || el.value || '').replace(/\\s+/g, ' ').trim().slice(0, 80),
+      rect: { x: r.left, y: r.top, w: r.width, h: r.height }
+    }
+  })()`
+  const hit = await evalSource(tab, source)
+  if (!hit) throw new Error(`(${point.x}, ${point.y}) 上没有元素`)
+  return { ...(hit as Record<string, unknown>), x: point.x, y: point.y }
+}
+
+export async function crossQuery(tab: TabRuntime, locator: Locator): Promise<{ total: number; matches: DeepMatch[]; errors?: string[] }> {
+  const wc = wcOf(tab)
+  return withDebugger(wc, async (dbg) => {
+    const results: DeepMatch[] = []
+    const errors: string[] = []
+    const targets = (await dbg.sendCommand('Target.getTargets')) as { targetInfos: Array<{ targetId: string; type: string; url: string }> }
+    const frames = targets.targetInfos.filter((item) => item.type === 'iframe')
+    for (const frame of frames) {
+      let sessionId: string | undefined
+      try {
+        const attached = (await dbg.sendCommand('Target.attachToTarget', { targetId: frame.targetId, flatten: true })) as { sessionId: string }
+        sessionId = attached.sessionId
+        let ox = 0
+        let oy = 0
+        const owner = (await dbg.sendCommand('DOM.getFrameOwner', { frameId: frame.targetId }).catch(() => undefined)) as { backendNodeId?: number } | undefined
+        if (owner?.backendNodeId) {
+          const quads = (await dbg.sendCommand('DOM.getContentQuads', { backendNodeId: owner.backendNodeId }).catch(() => undefined)) as { quads?: number[][] } | undefined
+          const quad = quads?.quads?.[0]
+          if (quad) {
+            ox = Math.min(quad[0], quad[2], quad[4], quad[6])
+            oy = Math.min(quad[1], quad[3], quad[5], quad[7])
+          }
+        }
+        const doc = (await dbg.sendCommand('DOM.getDocument', { depth: 0 }, sessionId)) as { root: { nodeId: number } }
+        let nodeIds: number[] = []
+        if (locator.selector) {
+          const found = (await dbg.sendCommand('DOM.querySelectorAll', { nodeId: doc.root.nodeId, selector: locator.selector }, sessionId)) as { nodeIds?: number[] }
+          nodeIds = found.nodeIds ?? []
+        } else if (locator.xpath) {
+          const search = (await dbg.sendCommand('DOM.performSearch', { query: locator.xpath, includeUserAgentShadowDOM: true }, sessionId)) as { searchId: string; resultCount: number }
+          if (search.resultCount) {
+            const got = (await dbg.sendCommand('DOM.getSearchResults', { searchId: search.searchId, fromIndex: 0, toIndex: Math.min(search.resultCount, 20) }, sessionId)) as { nodeIds?: number[] }
+            nodeIds = got.nodeIds ?? []
+          }
+          await dbg.sendCommand('DOM.discardSearchResults', { searchId: search.searchId }, sessionId).catch(() => undefined)
+        }
+        for (const nodeId of nodeIds) {
+          const described = (await dbg.sendCommand('DOM.describeNode', { nodeId }, sessionId)) as { node: { backendNodeId: number; nodeName: string } }
+          const [text, box] = await Promise.all([
+            nodeText(dbg, described.node.backendNodeId, sessionId).catch(() => ''),
+            dbg.sendCommand('DOM.getBoxModel', { backendNodeId: described.node.backendNodeId }, sessionId).catch(() => undefined) as Promise<{ model?: { content: number[] } } | undefined>
+          ])
+          const quad = box?.model?.content
+          if (!quad) {
+            results.push({ text, x: ox, y: oy, w: 0, h: 0 })
+            continue
+          }
+          const left = Math.min(quad[0], quad[2], quad[4], quad[6]) + ox
+          const top = Math.min(quad[1], quad[3], quad[5], quad[7]) + oy
+          results.push({
+            text,
+            x: Math.round(left * 10) / 10,
+            y: Math.round(top * 10) / 10,
+            w: Math.round((Math.max(quad[0], quad[2], quad[4], quad[6]) + ox - left) * 10) / 10,
+            h: Math.round((Math.max(quad[1], quad[3], quad[5], quad[7]) + oy - top) * 10) / 10
+          })
+        }
+      } catch (error) {
+        errors.push(`${frame.url.slice(0, 50)}: ${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        if (sessionId) await dbg.sendCommand('Target.detachFromTarget', { sessionId }).catch(() => undefined)
+      }
+    }
+    return { total: results.length, matches: results.slice(0, 100), errors: errors.length ? errors : undefined }
+  })
+}
+
+async function nodeText(dbg: Electron.Debugger, backendNodeId: number, sessionId?: string): Promise<string> {
   try {
-    const value = await callOnBackend(dbg, backendNodeId, NODE_TEXT)
+    const value = await callOnBackend(dbg, backendNodeId, NODE_TEXT, [], sessionId)
     return typeof value === 'string' ? value : ''
   } catch {
     return ''
@@ -622,8 +712,8 @@ async function backendFor(dbg: Electron.Debugger, target: AxRef): Promise<number
   return target.backendNodeId
 }
 
-async function callOnBackend(dbg: Electron.Debugger, backendNodeId: number, source: string, args: unknown[] = []): Promise<unknown> {
-  const resolved = (await dbg.sendCommand('DOM.resolveNode', { backendNodeId })) as { object: { objectId: string } }
+async function callOnBackend(dbg: Electron.Debugger, backendNodeId: number, source: string, args: unknown[] = [], sessionId?: string): Promise<unknown> {
+  const resolved = (await dbg.sendCommand('DOM.resolveNode', { backendNodeId }, sessionId)) as { object: { objectId: string } }
   try {
     const called = (await dbg.sendCommand('Runtime.callFunctionOn', {
       objectId: resolved.object.objectId,
@@ -632,10 +722,10 @@ async function callOnBackend(dbg: Electron.Debugger, backendNodeId: number, sour
       returnByValue: true,
       awaitPromise: true,
       silent: true
-    })) as { result?: { value?: unknown } }
+    }, sessionId)) as { result?: { value?: unknown } }
     return called.result?.value
   } finally {
-    await dbg.sendCommand('Runtime.releaseObject', { objectId: resolved.object.objectId }).catch(() => undefined)
+    await dbg.sendCommand('Runtime.releaseObject', { objectId: resolved.object.objectId }, sessionId).catch(() => undefined)
   }
 }
 
@@ -1388,8 +1478,8 @@ export async function evalSource(tab: TabRuntime, source: string): Promise<unkno
   }
 }
 
-export async function sendCdp(tab: TabRuntime, method: string, params?: Record<string, unknown>): Promise<unknown> {
-  return withDebugger(wcOf(tab), (dbg) => dbg.sendCommand(method, params))
+export async function sendCdp(tab: TabRuntime, method: string, params?: Record<string, unknown>, sessionId?: string): Promise<unknown> {
+  return withDebugger(wcOf(tab), (dbg) => dbg.sendCommand(method, params, sessionId))
 }
 
 export async function sendCdpBatch(
