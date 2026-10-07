@@ -41,6 +41,7 @@ import {
   pressShortcut,
   readTree,
   queryLocator,
+  recordVideo,
   resolveLocator,
   saveMedia,
   screenshot,
@@ -563,7 +564,7 @@ tool('page_inspect', '识别一个元素是什么类型：video、image、canvas
   return { tabId: tabRef.id, ...info }
 })
 
-tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。目标用 xpath、selector，或坐标 x、y。savePath 给了就存到那个位置，不给就存进媒体目录。返回本机路径、类型和字节数。m3u8/mpd 流媒体清单下不了，会直接说明。', z.object({
+tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站这类 MSE 流媒体自动抓 DASH 音视频轨，有 ffmpeg 就合并成 mp4，没有就两条轨分开存。目标用 xpath、selector，或坐标 x、y。savePath 给了就存到那个位置，不给就存进媒体目录。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -582,6 +583,18 @@ tool('page_save_media', '把元素上的图片、视频、音频或画布保存�
   const savePath = typeof args.savePath === 'string' && args.savePath ? String(args.savePath) : undefined
   const saved = await saveMedia(tabRef, point ? { point: mapPoint(tabRef, point.x, point.y, point.shot) } : { locator: located }, storage.dir('media'), savePath)
   return { tabId: tabRef.id, ...saved }
+})
+
+tool('page_record_video', '把页面里正在播放的视频录下来：用 captureStream + MediaRecorder 录渲染出来的画面，重编码成 webm。seconds 是录多少秒（默认 10，最长 3600），会自动开始播放。任何能播的站都能录（B站、腾讯等流媒体也行），代价是要实时播完。m3u8 追台等直链/流媒体抓轨用 page_save_media，又快又无损。', z.object({
+  ...pageArgs,
+  seconds: z.number().optional(),
+  savePath: z.string().optional()
+}), async (args) => {
+  const tabRef = await pageTab(args, false)
+  const seconds = Math.max(1, Math.min(3600, Number(args.seconds ?? 10)))
+  const savePath = typeof args.savePath === 'string' && args.savePath ? String(args.savePath) : undefined
+  const result = await recordVideo(tabRef, seconds, storage.dir('media'), savePath)
+  return { tabId: tabRef.id, ...result }
 })
 
 tool('page_upload', '把本机文件交给页面上的文件控件，不弹出系统选择框。用 xpath 或 selector 指定控件。不指定时用页面上的第一个文件控件。', z.object({

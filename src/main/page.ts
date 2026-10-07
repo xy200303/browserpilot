@@ -1,8 +1,10 @@
 import { clipboard, nativeImage, net, type WebContents } from 'electron'
-import { mkdirSync, writeFileSync } from 'fs'
+import { appendFileSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { execFile } from 'child_process'
 import { join } from 'path'
 import { searchEngineOf, type ActVia, type GestureVia, type Locator } from '@shared/types'
 import { storage } from './services/store'
+import { runFfmpeg } from './services/ffmpeg'
 import { acquireDebugger, releaseDebugger, withDebugger } from './services/debugger'
 import type { AxRef, TabRuntime } from './runtime'
 import { bridge, windows } from './runtime'
@@ -1617,10 +1619,11 @@ async function downloadWithSession(tab: TabRuntime, url: string): Promise<{ buf:
   return downloadUrl(wcOf(tab), url)
 }
 
-export async function downloadUrl(wc: WebContents, url: string): Promise<{ buf: Buffer; contentType: string }> {
+export async function downloadUrl(wc: WebContents, url: string, referer?: string): Promise<{ buf: Buffer; contentType: string }> {
   const ses = wc.session
   return new Promise((resolve, reject) => {
     const req = net.request({ url, session: ses })
+    if (referer) req.setHeader('Referer', referer)
     const chunks: Buffer[] = []
     let contentType = ''
     req.on('response', (res) => {
@@ -1635,6 +1638,50 @@ export async function downloadUrl(wc: WebContents, url: string): Promise<{ buf: 
     req.on('error', reject)
     req.end()
   })
+}
+
+type StreamPair = { video: string; audio: string }
+
+const BILIBILI_PLAYINFO = `(() => {
+  const p = window.__playinfo__
+  if (!p) return null
+  const d = p.data || p
+  const dash = d.dash
+  if (!dash || !dash.video) return null
+  const vids = dash.video.slice().sort((a, b) => (b.bandwidth || 0) - (a.bandwidth || 0))
+  const auds = (dash.audio || []).slice().sort((a, b) => (b.bandwidth || 0) - (a.bandwidth || 0))
+  const v = vids[0]
+  const a = auds[0]
+  if (!v || !v.baseUrl) return null
+  return { video: v.baseUrl, audio: a ? a.baseUrl : '' }
+})()`
+
+async function bilibiliStreams(tab: TabRuntime): Promise<StreamPair | null> {
+  const found = (await evalSource(tab, BILIBILI_PLAYINFO).catch(() => null)) as StreamPair | null
+  return found && found.video ? found : null
+}
+
+function mergeTracks(videoPath: string, audioPath: string, outPath: string): Promise<void> {
+  const args = ['-y', '-i', videoPath]
+  if (audioPath) args.push('-i', audioPath)
+  args.push('-c', 'copy', outPath)
+  return runFfmpeg(args)
+}
+
+const GENERIC_STREAMS = `(() => {
+  const names = performance.getEntriesByType('resource').map((e) => e.name)
+  const m3u8 = names.filter((u) => /\.m3u8(\?|$)/i.test(u))
+  const mpd = names.filter((u) => /\.mpd(\?|$)/i.test(u))
+  return { m3u8: m3u8[m3u8.length - 1] || '', mpd: mpd[mpd.length - 1] || '' }
+})()`
+
+export async function downloadMedia(tab: TabRuntime, url: string, path: string, referer?: string): Promise<void> {
+  try {
+    const got = await downloadUrl(wcOf(tab), url, referer)
+    writeFileSync(path, got.buf)
+  } catch {
+    await fetchToFile(tab, url, path)
+  }
 }
 
 export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; point?: { x: number; y: number } }, dir: string, savePath?: string): Promise<{ path: string; kind: string; bytes: number }> {
@@ -1654,8 +1701,46 @@ export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; po
   if (info.kind !== 'image' && info.kind !== 'video' && info.kind !== 'audio') {
     throw new Error(info.kind === 'link' ? `这是链接不是媒体：${info.href}` : `这个元素是 ${info.kind}，没有可保存的媒体`)
   }
-  const src = info.src || ''
-  if (!src) throw new Error('这个媒体元素没有地址（可能还没加载）')
+  let src = info.src || ''
+  if (info.kind === 'video' && (!src || src.startsWith('blob:'))) {
+    const streams = await bilibiliStreams(tab)
+    if (streams) {
+      const stamp = Date.now()
+      const referer = tab.url || undefined
+      const videoPath = join(dir, `video-${stamp}-v.m4s`)
+      await downloadMedia(tab, streams.video, videoPath, referer)
+      let audioPath = ''
+      if (streams.audio) {
+        audioPath = join(dir, `video-${stamp}-a.m4s`)
+        await downloadMedia(tab, streams.audio, audioPath, referer)
+      }
+      const outPath = savePath || join(dir, `video-${stamp}.mp4`)
+      try {
+        await mergeTracks(videoPath, audioPath, outPath)
+        const { unlinkSync, statSync } = await import('fs')
+        unlinkSync(videoPath)
+        if (audioPath) unlinkSync(audioPath)
+        return { path: outPath, kind: 'video', bytes: statSync(outPath).size }
+      } catch {
+        throw new Error(`没有 ffmpeg 合并音视频轨，两条轨已分别保存：${videoPath}${audioPath ? `、${audioPath}` : ''}`)
+      }
+    }
+    const generic = (await evalSource(tab, GENERIC_STREAMS).catch(() => null)) as { m3u8?: string; mpd?: string } | null
+    const manifest = generic?.m3u8 || generic?.mpd || ''
+    if (manifest) {
+      const stamp = Date.now()
+      const outPath = savePath || join(dir, `video-${stamp}.mp4`)
+      const referer = tab.url || ''
+      const args = ['-y']
+      if (referer) args.push('-headers', `Referer: ${referer}
+`)
+      args.push('-i', manifest, '-c', 'copy', outPath)
+      await runFfmpeg(args, 10 * 60_000)
+      const { statSync } = await import('fs')
+      return { path: outPath, kind: 'video', bytes: statSync(outPath).size }
+    }
+    if (!src) throw new Error('流媒体视频没有直链也没探到清单（m3u8/mpd）。用 page_record_video 录下正在播放的画面')
+  }
   let buf: Buffer
   let contentType = ''
   if (src.startsWith('blob:')) {
@@ -1670,13 +1755,113 @@ export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; po
     buf = Buffer.from(src.slice(comma + 1), 'base64')
   } else if (/^https?:/.test(src)) {
     if (/\.(m3u8|mpd)(\?|$)/i.test(src)) throw new Error('这是流媒体清单（m3u8/mpd），不是单个文件，下不了')
-    const got = await downloadWithSession(tab, src)
-    buf = got.buf
-    contentType = got.contentType
+    try {
+      const got = await downloadWithSession(tab, src)
+      buf = got.buf
+      contentType = got.contentType
+    } catch (first) {
+      const tmpPath = join(dir, `dl-${Date.now()}.part`)
+      await fetchToFile(tab, src, tmpPath)
+      buf = readFileSync(tmpPath)
+      unlinkSync(tmpPath)
+    }
   } else {
     throw new Error(`不认识这种地址：${src.slice(0, 60)}`)
   }
   const path = savePath || join(dir, `${info.kind}-${Date.now()}.${extOf(src, contentType)}`)
   writeFileSync(path, buf)
   return { path, kind: info.kind, bytes: buf.length }
+}
+
+export async function recordVideo(tab: TabRuntime, seconds: number, dir: string, savePath?: string): Promise<{ path: string; bytes: number; seconds: number }> {
+  const runtime = windows.get(tab.envId)
+  if (runtime && !runtime.headless) {
+    if (runtime.win.isMinimized()) runtime.win.restore()
+    runtime.win.setAlwaysOnTop(true)
+    runtime.win.show()
+    runtime.win.moveTop()
+  }
+  mkdirSync(dir, { recursive: true })
+  const ms = Math.max(1, Math.min(3600, Math.round(seconds))) * 1000
+  const armed = await evalSource(tab, `(() => {
+    const v = document.querySelector('video')
+    if (!v) return 'no video'
+    const capture = v.captureStream || v.mozCaptureStream
+    if (!capture) return 'no captureStream'
+    window.__bpRec = { chunks: [], done: false, pending: 0 }
+    const rec = new MediaRecorder(capture.call(v))
+    rec.ondataavailable = (e) => {
+      if (!e.data.size) return
+      window.__bpRec.pending += 1
+      const fr = new FileReader()
+      fr.onload = () => { const t = String(fr.result); window.__bpRec.chunks.push(t.slice(t.indexOf(';base64,') + 8)); window.__bpRec.pending -= 1 }
+      fr.readAsDataURL(e.data)
+    }
+    rec.onstop = () => {
+      const waitFlush = () => { if (window.__bpRec.pending > 0) setTimeout(waitFlush, 100); else window.__bpRec.done = true }
+      waitFlush()
+    }
+    v.muted = true
+    v.play().catch(() => {})
+    rec.start(500)
+    setTimeout(() => { try { rec.stop() } catch (e) {} }, ${ms})
+    return 'recording'
+  })()`)
+  if (armed !== 'recording') throw new Error(armed === 'no video' ? '页面上没有 video 元素' : '这个环境录不了（captureStream 或编码器不可用）')
+  const path = savePath || join(dir, `record-${Date.now()}.webm`)
+  writeFileSync(path, Buffer.alloc(0))
+  let bytes = 0
+  try {
+    bytes = await pullChunks(tab, '__bpRec', path, Date.now() + ms + 15_000)
+  } finally {
+    if (runtime && !runtime.headless) runtime.win.setAlwaysOnTop(false)
+  }
+  if (bytes === 0) throw new Error('录出来是空的：视频可能没播起来')
+  const { statSync } = await import('fs')
+  return { path, bytes: statSync(path).size, seconds: Math.round(ms / 1000) }
+}
+
+async function pullChunks(tab: TabRuntime, key: string, path: string, deadlineMs: number): Promise<number> {
+  let bytes = 0
+  for (;;) {
+    await sleep(700)
+    const pulled = (await evalSource(
+      tab,
+      `(() => { const r = window.${key} || { chunks: [], done: true }; const chunks = r.chunks; r.chunks = []; return { chunks, done: r.done, error: r.error || '' } })()`
+    ).catch(() => ({ chunks: [] as string[], done: true, error: '页面连接断开' }))) as { chunks: string[]; done: boolean; error: string }
+    for (const chunk of pulled.chunks) {
+      const buf = Buffer.from(chunk, 'base64')
+      appendFileSync(path, buf)
+      bytes += buf.length
+    }
+    if (pulled.done) {
+      if (pulled.error) throw new Error(pulled.error)
+      return bytes
+    }
+    if (Date.now() > deadlineMs) throw new Error('拉取超时，页面可能被关了')
+  }
+}
+
+export async function fetchToFile(tab: TabRuntime, url: string, path: string): Promise<number> {
+  const armed = await evalSource(tab, `(async () => {
+    window.__bpDl = { chunks: [], done: false, error: '' }
+    const toB64 = (buf) => { const u = new Uint8Array(buf); const parts = []; for (let i = 0; i < u.length; i += 32768) parts.push(String.fromCharCode.apply(null, u.subarray(i, i + 32768))); return btoa(parts.join('')) }
+    try {
+      const res = await fetch(${JSON.stringify(url)})
+      if (!res.ok || !res.body) throw new Error('HTTP ' + res.status)
+      const reader = res.body.getReader()
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        window.__bpDl.chunks.push(toB64(value))
+      }
+      window.__bpDl.done = true
+    } catch (e) {
+      window.__bpDl.error = String(e && e.message || e)
+      window.__bpDl.done = true
+    }
+    return 'started'
+  })()`)
+  if (armed !== 'started') throw new Error('页面下载起不来')
+  return pullChunks(tab, '__bpDl', path, Date.now() + 10 * 60_000)
 }
