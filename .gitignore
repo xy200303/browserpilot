@@ -8,3 +8,14 @@ cli/browserpilot
 cli/dist
 cli/tmp-*
 release
+# 根目录下的测试媒体文件（用户右键另存时容易落在这里）
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
+/*.gif
+/*.svg
+/*.mp4
+/*.webm
+/*.ogg
+/*.m4s
