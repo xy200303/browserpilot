@@ -1624,7 +1624,8 @@ export async function downloadUrl(wc: WebContents, url: string, referer?: string
   const ses = wc.session
   return new Promise((resolve, reject) => {
     const req = net.request({ url, session: ses })
-    if (referer) req.setHeader('Referer', referer)
+    const ref = referer || wc.getURL()
+    if (ref) req.setHeader('Referer', ref)
     const chunks: Buffer[] = []
     let contentType = ''
     req.on('response', (res) => {
@@ -1717,6 +1718,17 @@ export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; po
   }
 }
 
+async function captureElementPng(tab: TabRuntime, rect: { x: number; y: number; w: number; h: number }): Promise<Buffer> {
+  const wc = wcOf(tab)
+  return withDebugger(wc, async (dbg) => {
+    const shot = (await dbg.sendCommand('Page.captureScreenshot', {
+      format: 'png',
+      clip: { x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: rect.w, height: rect.h, scale: 2 }
+    })) as { data: string }
+    return Buffer.from(shot.data, 'base64')
+  })
+}
+
 async function saveMediaInner(tab: TabRuntime, info: ElementInfo, dir: string, savePath: string | undefined, onProgress: (received: number, total?: number) => void): Promise<{ path: string; kind: string; bytes: number }> {
   mkdirSync(dir, { recursive: true })
   if (info.kind === 'canvas') {
@@ -1791,11 +1803,21 @@ async function saveMediaInner(tab: TabRuntime, info: ElementInfo, dir: string, s
       const got = await downloadWithSession(tab, src, undefined, onProgress)
       buf = got.buf
       contentType = got.contentType
-    } catch (first) {
-      const tmpPath = join(dir, `dl-${Date.now()}.part`)
-      await fetchToFile(tab, src, tmpPath, onProgress)
-      buf = readFileSync(tmpPath)
-      unlinkSync(tmpPath)
+    } catch {
+      try {
+        const tmpPath = join(dir, `dl-${Date.now()}.part`)
+        await fetchToFile(tab, src, tmpPath, onProgress)
+        buf = readFileSync(tmpPath)
+        unlinkSync(tmpPath)
+      } catch (second) {
+        if (info.kind === 'image') {
+          // URL 失效或防盗链：直接截这个元素渲染出来的画面
+          buf = await captureElementPng(tab, info.rect)
+          contentType = 'image/png'
+        } else {
+          throw second
+        }
+      }
     }
   } else {
     throw new Error(`不认识这种地址：${src.slice(0, 60)}`)
