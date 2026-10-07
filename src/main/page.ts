@@ -128,7 +128,7 @@ async function backendIdsOf(dbg: Electron.Debugger, nodeIds: number[]): Promise<
 async function collectMatches(dbg: Electron.Debugger, locator: Locator): Promise<{ total: number; backendNodeIds: number[] }> {
   if (locator.xpath) {
     const query = locator.xpath.trim()
-    if (!query.startsWith('/')) throw new Error('XPath 要以 / 开头')
+    if (!query.startsWith('/') && !query.startsWith('(//')) throw new Error('XPath 要以 / 开头（或 (// 取全局第几个）')
     await dbg.sendCommand('DOM.getDocument', { depth: 0 })
     const search = (await dbg.sendCommand('DOM.performSearch', { query })) as { searchId: string; resultCount: number }
     try {
@@ -258,15 +258,29 @@ async function deepOne(tab: TabRuntime, locator: Locator, doScroll = false): Pro
   return found.matches[0]
 }
 
+async function settlePoint(tab: TabRuntime, x: number, y: number): Promise<void> {
+  // 等目标点稳定可点，到了就立刻返回，不固定等
+  const deadline = Date.now() + 3_000
+  for (;;) {
+    const ready = (await evalSource(
+      tab,
+      `(() => { const el = document.elementFromPoint(${Math.round(x)}, ${Math.round(y)}); return !!el })()`
+    ).catch(() => false)) as boolean
+    if (ready) return
+    if (Date.now() > deadline) return
+    await sleep(80)
+  }
+}
+
 export async function clickDeep(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp', button: 'left' | 'right' = 'left'): Promise<void> {
   const match = await deepOne(tab, locator, true)
-  await sleep(300)
+  await settlePoint(tab, match.x + match.w / 2, match.y + match.h / 2)
   await clickPoint(tab, match.x + match.w / 2, match.y + match.h / 2, via, undefined, button)
 }
 
 export async function typeDeep(tab: TabRuntime, locator: Locator, text: string, via: ActVia = 'cdp'): Promise<void> {
   const match = await deepOne(tab, locator, true)
-  await sleep(300)
+  await settlePoint(tab, match.x + match.w / 2, match.y + match.h / 2)
   await clickPoint(tab, match.x + match.w / 2, match.y + match.h / 2, via === 'inject' ? 'cdp' : via)
   await typeByCdp(tab, text)
 }

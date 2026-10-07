@@ -599,13 +599,31 @@ function ExportSelectors({ node, choices, patch }: { node: WorkflowNode; choices
 
 function LoopSelectors({ node, choices, until, patch }: { node: WorkflowNode; choices: Choice[]; until: Record<string, unknown>; patch: (data: WorkflowNode['data']) => void }) {
   if (node.data.type !== 'loop') return null
+  const keepGoing = (
+    <Label className="grid gap-1 text-xs text-muted-foreground">
+      一轮失败时
+      <Select value={String(node.data.continueOnError === 'true' ? 'true' : 'false')} onValueChange={(continueOnError) => patch({ ...node.data, continueOnError })}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="false">整个流程停下</SelectItem>
+          <SelectItem value="true">记下错误，继续下一轮</SelectItem>
+        </SelectContent>
+      </Select>
+    </Label>
+  )
   if (node.data.mode === 'list') {
-    return <SelectorField label="输入" value={node.data.items_selector} choices={choices} onChange={(items_selector) => patch({ ...node.data, items_selector })} />
+    return (
+      <>
+        <SelectorField label="输入" value={node.data.items_selector} choices={choices} onChange={(items_selector) => patch({ ...node.data, items_selector })} />
+        {keepGoing}
+      </>
+    )
   }
   return (
     <>
       <SelectorField label="直到" value={until.variable_selector} choices={choices} onChange={(variable_selector) => patch({ ...node.data, until: { ...until, variable_selector } })} />
       <TextField label="比较值" value={String(until.value || '')} onCommit={(value) => patch({ ...node.data, until: { ...until, value } })} />
+      {keepGoing}
     </>
   )
 }

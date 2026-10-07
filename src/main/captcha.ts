@@ -708,7 +708,7 @@ export async function detectCaptcha(tab: TabRuntime, type = 'auto', mark = false
 export async function solveCaptcha(tab: TabRuntime, type = 'auto', via: GestureVia = 'cdp', retries = 2, engineHint: CaptchaEngine | 'auto' = 'auto'): Promise<CaptchaSolveResult> {
   const detail: CaptchaSolveResult['detail'] = []
   for (let attempt = 0; attempt <= retries; attempt += 1) {
-    if (attempt > 0) await sleep(1_500)
+    if (attempt > 0) await sleep(400)
     const target = await detectCaptcha(tab, type, false, engineHint)
     if (target.type === 'geetest-icon') {
       for (const point of target.points) {
@@ -721,8 +721,14 @@ export async function solveCaptcha(tab: TabRuntime, type = 'auto', via: GestureV
       await dragPage(tab, via, target.knob, target.distance, 0)
       detail.push({ distance: target.distance, engine: target.engine, solved: false })
     }
-    await sleep(1_800)
-    const state = (await evalSource(tab, SLIDE_RESULT)) as { success: boolean; panel: boolean }
+    // 拖完不等死时间，结果一出立刻判
+    let state = { success: false, panel: true }
+    const deadline = Date.now() + 6_000
+    while (Date.now() < deadline) {
+      await sleep(250)
+      state = (await evalSource(tab, SLIDE_RESULT).catch(() => state)) as { success: boolean; panel: boolean }
+      if (state.success || !state.panel) break
+    }
     const solved = state.success || !state.panel
     detail[detail.length - 1].solved = solved
     if (solved) return { solved: true, attempts: attempt + 1, detail }

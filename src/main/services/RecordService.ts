@@ -758,10 +758,16 @@ function declaredInputs(data: Data, pool: Pool): Record<string, unknown> {
   return inputs
 }
 
+function nodeInputs(data: Data, pool: Pool): Record<string, unknown> {
+  // 默认带上工作流的全部输入参数，节点声明的同名变量覆盖
+  const base = (pool.input && typeof pool.input === 'object' ? pool.input : {}) as Record<string, unknown>
+  return { ...base, ...declaredInputs(data, pool) }
+}
+
 async function runScript(tab: TabRuntime, data: Data, pool: Pool): Promise<Record<string, unknown>> {
   const source = typeof data.source === 'string' ? data.source : ''
   if (!source.trim()) throw new Error('页面脚本缺少 source')
-  const inputs = declaredInputs(data, pool)
+  const inputs = nodeInputs(data, pool)
   const result = await evalSource(
     tab,
     `(async () => {
@@ -775,7 +781,7 @@ async function runScript(tab: TabRuntime, data: Data, pool: Pool): Promise<Recor
 async function runCode(data: Data, pool: Pool): Promise<Record<string, unknown>> {
   const source = typeof data.code === 'string' ? data.code : ''
   if (!source.trim()) throw new Error('代码节点缺少 code')
-  const context = vm.createContext({ inputs: declaredInputs(data, pool) })
+  const context = vm.createContext({ inputs: nodeInputs(data, pool) })
   const script = new vm.Script(`(async () => {\n${source}\n})()`)
   const result = await Promise.race([
     Promise.resolve(script.runInContext(context) as Promise<unknown>),
@@ -820,8 +826,16 @@ async function runLoop(
       pool.loop = state
       const local: Record<string, unknown> = {}
       const innerProduced = { id: '' }
-      for (const entry of entries) {
-        await walk(tab, map, bodyEdges, pool, exported, local, entry, new Set(), failed, innerProduced)
+      const keepGoing = String(data.continueOnError) === 'true'
+      try {
+        for (const entry of entries) {
+          await walk(tab, map, bodyEdges, pool, exported, local, entry, new Set(), failed, innerProduced)
+        }
+      } catch (error) {
+        if (!keepGoing) throw error
+        local.error = error instanceof Error ? error.message : String(error)
+        local.failedAt = index + 1
+        failed.node = ''
       }
       const snapshot = Object.keys(local).length ? local : innerProduced.id ? pool[innerProduced.id] : {}
       collected.push({ ...snapshot })
