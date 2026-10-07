@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, Menu, session, shell, WebContentsView } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, Menu, session, WebContentsView } from 'electron'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { DEFAULT_ENV } from '@shared/types'
@@ -294,8 +294,7 @@ async function saveMediaAs(runtime: WindowRuntime, tab: TabRuntime, params: Elec
   if (picked.canceled || !picked.filePath) return
   const filePath = /\.[a-z0-9]{2,5}$/i.test(picked.filePath) ? picked.filePath : `${picked.filePath}.${kind}`
   try {
-    const saved = await saveMedia(tab, { point: { x: params.x, y: params.y } }, storage.dir('media'), filePath)
-    shell.showItemInFolder(saved.path)
+    await saveMedia(tab, { point: { x: params.x, y: params.y } }, storage.dir('media'), filePath)
   } catch (error) {
     dialog.showErrorBox('保存失败', error instanceof Error ? error.message : String(error))
   }
