@@ -415,15 +415,15 @@ tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个
   return { tabId: tabRef.id }
 })
 
-tool('page_wait', '等元素出现或消失。state 默认 appear（出现），gone 是消失。timeoutMs 默认 10000，最长 60000。导航后、点按钮触发异步渲染后用它等，不要写死 sleep 循环。pierce 为 true 时穿透 Shadow DOM 和同源 iframe 查找。', z.object({
+tool('page_wait', '等元素出现或消失。state 默认 appear（出现），gone 是消失。timeout 是秒，默认 10，最长 60。导航后、点按钮触发异步渲染后用它等，不要写死 sleep 循环。pierce 为 true 时穿透 Shadow DOM 和同源 iframe 查找。', z.object({
   ...pageArgs, ...locateFields,
   state: z.enum(['appear', 'gone']).default('appear'),
-  timeoutMs: z.number().optional()
+  timeout: z.number().optional()
 }), async (args) => {
   const located = locatorFrom(args)
   if (!located) throw new Error(NEED_LOCATOR)
   const tabRef = await pageTab(args)
-  const timeout = Math.max(500, Math.min(60_000, Number(args.timeoutMs ?? 10_000)))
+  const timeout = Math.max(1, Math.min(60, Number(args.timeout ?? 10))) * 1000
   if (located.pierce) {
     const started = Date.now()
     for (;;) {
@@ -785,16 +785,16 @@ tool('page_cdp', '对当前网页调用一条 CDP，用完即断开，除非抓�
   return { tabId: tabRef.id, value }
 })
 
-tool('page_cdp_batch', '在同一个调试会话里按顺序跑一组 CDP 命令，中间不断开。commands 是数组，每项有 method、params（可选）和 delayMs（这条跑完后等多少毫秒，默认 0，上限 5000）。返回每条命令的结果数组。', z.object({
+tool('page_cdp_batch', '在同一个调试会话里按顺序跑一组 CDP 命令，中间不断开。commands 是数组，每项有 method、params（可选）和 delay（这条跑完后等多少秒，默认 0，上限 5）。返回每条命令的结果数组。', z.object({
   ...pageArgs,
   commands: z.array(z.object({
     method: z.string(),
     params: z.record(z.unknown()).optional(),
-    delayMs: z.number().optional()
+    delay: z.number().optional()
   })).min(1)
 }), async (args) => {
   const tabRef = await pageTab(args)
-  const results = await sendCdpBatch(tabRef, args.commands as Array<{ method: string; params?: Record<string, unknown>; delayMs?: number }>)
+  const results = await sendCdpBatch(tabRef, args.commands as Array<{ method: string; params?: Record<string, unknown>; delay?: number }>)
   return { tabId: tabRef.id, results }
 })
 
@@ -1064,16 +1064,16 @@ tool('page_hit', '返回视口坐标 (x, y) 命中的元素：标签、class、i
   return { tabId: tabRef.id, ...hit }
 })
 
-tool('page_watch', '盯住一个元素，它的文字或位置变了就返回变化前后，超时返回变化前的快照。timeoutMs 默认 30000，最长 120000；intervalMs 默认 500。用来等价格变化、新消息、状态翻转。pierce 为 true 时穿透 Shadow DOM 和 iframe。', z.object({
+tool('page_watch', '盯住一个元素，它的文字或位置变了就返回变化前后，超时返回变化前的快照。timeout 是秒，默认 30，最长 120；interval 是秒，默认 0.5。用来等价格变化、新消息、状态翻转。pierce 为 true 时穿透 Shadow DOM 和 iframe。', z.object({
   ...pageArgs, ...locateFields,
-  timeoutMs: z.number().optional(),
-  intervalMs: z.number().optional()
+  timeout: z.number().optional(),
+  interval: z.number().optional()
 }), async (args) => {
   const located = locatorFrom(args)
   if (!located) throw new Error(NEED_LOCATOR)
   const tabRef = await pageTab(args, false)
-  const timeout = Math.max(1000, Math.min(120_000, Number(args.timeoutMs ?? 30_000)))
-  const interval = Math.max(200, Math.min(5_000, Number(args.intervalMs ?? 500)))
+  const timeout = Math.max(1, Math.min(120, Number(args.timeout ?? 30))) * 1000
+  const interval = Math.max(0.2, Math.min(5, Number(args.interval ?? 0.5))) * 1000
   const snap = async (): Promise<string> => {
     if (located.pierce) {
       const found = await deepQuery(tabRef, located).catch(() => ({ total: 0, matches: [] }))
@@ -1089,9 +1089,9 @@ tool('page_watch', '盯住一个元素，它的文字或位置变了就返回变
   while (Date.now() - started < timeout) {
     await new Promise((resolve) => setTimeout(resolve, interval))
     const now = await snap()
-    if (now !== before) return { tabId: tabRef.id, changed: true, before, after: now, elapsedMs: Date.now() - started }
+    if (now !== before) return { tabId: tabRef.id, changed: true, before, after: now, elapsed: (Date.now() - started) / 1000 }
   }
-  return { tabId: tabRef.id, changed: false, before, timeoutMs: timeout }
+  return { tabId: tabRef.id, changed: false, before, timeout: timeout / 1000 }
 })
 
 tool('env_export', '把这套环境的登录（Cookie）导出成 JSON 文件，返回路径。不含 localStorage。文件里有完整 Cookie，只在本机用，不要发给别人。', z.object({ env: z.string() }), async (args) => {
