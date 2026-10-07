@@ -1,0 +1,49 @@
+{
+  "kind": "app",
+  "version": "0.3.0",
+  "app": {
+    "name": "极验滑块验证码",
+    "mode": "workflow",
+    "description": "在当前标签识别并完成极验滑块验证码。不绑定网站，任何接了极验 v4 的页面都能用。遇到验证码弹窗后跑一次即可。"
+  },
+  "workflow": {
+    "environment_variables": [],
+    "conversation_variables": [],
+    "graph": {
+      "nodes": [
+        {
+          "id": "start",
+          "data": {
+            "type": "start",
+            "title": "开始",
+            "variables": []
+          }
+        },
+        {
+          "id": "solve",
+          "data": {
+            "type": "captcha",
+            "title": "识别并拖过滑块",
+            "engine": "auto",
+            "retries": "2"
+          }
+        },
+        {
+          "id": "end",
+          "data": {
+            "type": "end",
+            "title": "结束",
+            "outputs": [
+              { "variable": "solved", "value_selector": ["solve", "solved"] },
+              { "variable": "attempts", "value_selector": ["solve", "attempts"] }
+            ]
+          }
+        }
+      ],
+      "edges": [
+        { "id": "start-solve", "source": "start", "target": "solve" },
+        { "id": "solve-end", "source": "solve", "target": "end" }
+      ]
+    }
+  }
+}

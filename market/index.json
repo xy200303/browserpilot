@@ -15,6 +15,14 @@
       "author": "BrowserPilot",
       "category": "效率工具",
       "file": "page-title.json"
+    },
+    {
+      "slug": "geetest-slide",
+      "name": "极验滑块验证码",
+      "description": "在当前标签识别并完成极验滑块验证码。不绑定网站，任何接了极验 v4 的页面都能用。",
+      "author": "BrowserPilot",
+      "category": "验证码",
+      "file": "geetest-slide.json"
     }
   ]
 }

@@ -449,6 +449,9 @@ async function detectGeetestSlide(tab: TabRuntime, mark: boolean, engineHint: Ca
   )
   await sleep(300)
   probe = (await evalSource(tab, SLIDE_PROBE)) as SlideProbe
+  if (!probe.bg || !probe.slice || !probe.bgRect || !probe.sliceRect || !probe.btn) {
+    throw new Error('验证码面板状态变了，再来一次')
+  }
   const [bgBuf, sliceBuf] = await Promise.all([download(probe.bg), download(probe.slice)])
   const bg = decodePng(bgBuf)
   const slice = decodePng(sliceBuf)
@@ -610,6 +613,9 @@ async function detectGeetestIcon(tab: TabRuntime, mark: boolean): Promise<IconTa
   )
   await sleep(300)
   probe = (await evalSource(tab, ICON_PROBE)) as typeof probe
+  if (!probe.icons?.length || !probe.bg || !probe.bgRect || !probe.okRect) {
+    throw new Error('验证码面板状态变了，再来一次')
+  }
   const [bgBuf, ...iconBufs] = await Promise.all([download(probe.bg), ...probe.icons.map(download)])
   const bg = decodePng(bgBuf)
   const scaleX = bg.width / probe.bgRect[2]

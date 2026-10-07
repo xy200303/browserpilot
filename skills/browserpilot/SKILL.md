@@ -48,7 +48,7 @@ browserpilot call workflow_run --json-file args.json
 
 拖拽要精确距离时用 `page_drag`（起点 + `dx`/`dy`，轨迹拟人），不要用 `page_swipe`。要连着发一组 CDP（比如按下、移动、松开的输入序列）用 `page_cdp_batch`，中间不断开调试会话。
 
-验证码：滑块用 `captcha_detect` / `captcha_solve`（识别、拖拽、结果检查一次完成，`engine` 可选 cv / ddddocr / onnx，默认 auto）。其它类型（图标点选、五子棋、交换消除等）用 `captcha_panel` 把验证码区域截成图，你自己读图算出点击位置或移动方向，按返回的 `mapping` 把图上传像素换算成 CSS 坐标，再用 `page_click` 或 `page_drag` 操作。点选类点完要按面板上的确认按钮（OK）；五子棋和交换消除是「点一下起点、再点一下目标」，不是拖拽。操作完用同样的截图确认结果，失败就重新截新题目再来。
+验证码：滑块用 `captcha_detect` / `captcha_solve`（识别、拖拽、结果检查一次完成，`engine` 可选 cv / ddddocr / onnx，默认 auto）。工作流里有 `captcha` 节点，可以把「过验证码」编进任何流程；市场里的「极验滑块验证码」工作流装好后，在任何网站遇到极验弹窗直接 `workflow_run` 按名称跑，不用 inputs。其它类型（图标点选、五子棋、交换消除等）用 `captcha_panel` 把验证码区域截成图，你自己读图算出点击位置或移动方向，按返回的 `mapping` 把图上传像素换算成 CSS 坐标（page_click/page_drag 带 shotX/shotY/shotScale 直接换算），再用 `page_click` 或 `page_drag` 操作。点选类点完要按面板上的确认按钮（OK）；五子棋和交换消除是「点一下起点、再点一下目标」，不是拖拽。操作完用同样的截图确认结果，失败就重新截新题目再来。文字验证码用 `captcha_read`（ddddocr）。
 
 一次任务用已经打开的环境和标签。做完调用 `page_unlock`，遮罩不要留着。需要人接手时用 `page_handoff`。
 

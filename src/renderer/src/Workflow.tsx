@@ -57,10 +57,11 @@ const kindText: Record<string, string> = {
   extract: '提取',
   export: '导出',
   'if-else': '判断',
-  loop: '循环'
+  loop: '循环',
+  captcha: '验证码'
 }
 
-const addable = ['goto', 'click', 'fill', 'select', 'press', 'scroll', 'swipe', 'upload', 'handoff', 'script', 'code', 'http-request', 'extract', 'export', 'if-else', 'loop', 'end', 'cdp'] as const
+const addable = ['goto', 'click', 'fill', 'select', 'press', 'scroll', 'swipe', 'upload', 'handoff', 'captcha', 'script', 'code', 'http-request', 'extract', 'export', 'if-else', 'loop', 'end', 'cdp'] as const
 
 const operators = [
   { id: 'contains', label: '包含' },
@@ -233,6 +234,7 @@ function defaultData(type: string): WorkflowNode['data'] {
   if (type === 'scroll') return { type, title, direction: 'down' }
   if (type === 'swipe') return { type, title, direction: 'down' }
   if (type === 'handoff') return { type, title, message: '' }
+  if (type === 'captcha') return { type, title, engine: 'auto', retries: '2' }
   if (type === 'script') return { type, title, source: 'return {}' }
   if (type === 'code') return { type, title, code: 'return {}' }
   if (type === 'cdp') return { type, title, method: '', params: {} }
@@ -277,6 +279,7 @@ function outputFields(node: WorkflowNode): string[] {
   if (type === 'extract') return ['value', 'matches']
   if (type === 'export') return ['path']
   if (type === 'loop') return ['output', 'index']
+  if (type === 'captcha') return ['solved', 'attempts']
   if (type === 'code' || type === 'script') {
     const outputs = node.data.outputs
     if (outputs && typeof outputs === 'object' && !Array.isArray(outputs)) return Object.keys(outputs)
@@ -290,6 +293,7 @@ function portSummary(node: WorkflowNode): { inputs: string[]; outputs: string[] 
   if (type === 'end') return { inputs: [], outputs: records(node.data.outputs).map((item) => String(item.variable || '')).filter(Boolean) }
   if (type === 'code' || type === 'script') return { inputs: records(node.data.variables).map((item) => String(item.variable || '')).filter(Boolean), outputs: outputFields(node) }
   if (type === 'http-request') return { inputs: [], outputs: ['status_code', 'body', 'json'] }
+  if (type === 'captcha') return { inputs: [], outputs: ['solved', 'attempts'] }
   if (type === 'extract') return { inputs: selectorText(node.data.variable_selector), outputs: ['value', 'matches'] }
   if (type === 'export') return { inputs: selectorText(Array.isArray(node.data.data_selector) ? node.data.data_selector : node.data.rows_selector), outputs: ['path'] }
   if (type === 'loop') {
@@ -902,6 +906,23 @@ function NodePageFields({ node, patch }: { node: WorkflowNode; patch: NodePatch 
       {showFor(node, ['select'], <TextField label="选项" value={String(node.data.option || '')} onCommit={(option) => patch({ ...node.data, option })} />)}
       {showFor(node, ['press'], <TextField label="按键" value={String(node.data.shortcut || '')} onCommit={(shortcut) => patch({ ...node.data, shortcut })} />)}
       <DirectionField node={node} patch={patch} />
+      {showFor(node, ['captcha'], (
+        <>
+          <Label className="grid gap-1 text-xs text-muted-foreground">
+            识别引擎
+            <Select value={String(node.data.engine || 'auto')} onValueChange={(engine) => patch({ ...node.data, engine })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">自动</SelectItem>
+                <SelectItem value="cv">内置视觉</SelectItem>
+                <SelectItem value="ddddocr">ddddocr</SelectItem>
+                <SelectItem value="onnx">ONNX 模型</SelectItem>
+              </SelectContent>
+            </Select>
+          </Label>
+          <TextField label="重试次数" value={String(node.data.retries ?? '2')} onCommit={(retries) => patch({ ...node.data, retries })} />
+        </>
+      ))}
       {showFor(node, ['handoff'], <TextField label="提示" value={String(node.data.message || '')} onCommit={(message) => patch({ ...node.data, message })} />)}
     </>
   )

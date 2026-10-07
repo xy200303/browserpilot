@@ -26,6 +26,7 @@ import {
 } from '../page'
 import { beginAgentAction, beginHandoff, showAgentMask } from '../windows'
 import { netExport, isWatching } from './NetService'
+import { solveCaptcha } from '../captcha'
 
 const template = /\{\{#([\w\u4e00-\u9fff.-]+)#\}\}/g
 
@@ -627,6 +628,20 @@ async function execNode(
       if (locator) await waitForLocator(tab, locator, 10 * 60_000)
     }
     showAgentMask(tab)
+    return
+  }
+  if (data.type === 'captcha') {
+    const engine = textOf(data, 'engine', pool) || 'auto'
+    const retries = Number(textOf(data, 'retries', pool) || 2)
+    const result = await solveCaptcha(
+      tab,
+      'auto',
+      'cdp',
+      Number.isFinite(retries) ? Math.max(0, Math.min(5, retries)) : 2,
+      (['auto', 'ddddocr', 'onnx', 'cv'].includes(engine) ? engine : 'auto') as 'auto' | 'ddddocr' | 'onnx' | 'cv'
+    )
+    pool[id] = { solved: result.solved, attempts: result.attempts, detail: result.detail }
+    produced.id = id
     return
   }
   if (data.type === 'script') {
