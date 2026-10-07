@@ -633,8 +633,20 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
     const viewBounds = tab.view ? tab.view.getBounds() : { x: 0, y: 0 }
     Menu.buildFromTemplate(items).popup({ window: runtime.win, x: Math.round(viewBounds.x + params.x), y: Math.round(viewBounds.y + params.y) })
   })
-  wc.setWindowOpenHandler(({ url }) => {
-    addTab(runtime, url)
+  wc.setWindowOpenHandler(({ url, features, disposition, frameName }) => {
+    // 带尺寸/名称的 window.open（登录授权、支付这类靠 window.opener 回传的）开成真正的小窗
+    if (disposition === 'new-window' || disposition === 'other' || frameName || /width|height/i.test(features || '')) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 560,
+          height: 720,
+          autoHideMenuBar: true,
+          title: '弹窗'
+        }
+      }
+    }
+    if (url) addTab(runtime, url)
     return { action: 'deny' }
   })
   const sync = (): void => {

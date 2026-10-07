@@ -23,6 +23,14 @@ if (!gotLock) {
   })
 
   app.whenReady().then(async () => {
+    app.on('browser-window-created', (_event, win) => {
+      // OAuth/支付弹窗要立刻到最前，不然用户看不到
+      win.once('ready-to-show', () => {
+        if (win.isDestroyed()) return
+        win.show()
+        win.focus()
+      })
+    })
     storage.load()
     session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
       const contents = request.frame ? webContents.fromFrame(request.frame) : undefined
