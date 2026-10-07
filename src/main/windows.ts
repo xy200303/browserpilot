@@ -16,8 +16,8 @@ import {
   type TabRuntime,
   type WindowRuntime
 } from './runtime'
-import { registerSessionDownload } from './services/DownloadService'
-import { isSendingToPage, saveMedia, startUrl, watchDocument } from './page'
+import { downloadBegin, downloadDone, downloadFail, downloadProgress, registerSessionDownload } from './services/DownloadService'
+import { isSendingToPage, saveMedia, saveMediaInfo, startUrl, watchDocument } from './page'
 
 const LOCK_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:rgba(32,33,36,.45);font-family:Segoe UI,sans-serif;color:#fff"><div style="text-align:center"><div style="font-size:18px">Agent 正在操作浏览器</div><button id="take" style="margin-top:16px;padding:8px 18px;border:0;border-radius:8px;background:#fff;color:#202124;font-size:14px">接管</button></div></body></html>`
 
@@ -294,6 +294,23 @@ async function saveMediaAs(runtime: WindowRuntime, tab: TabRuntime, params: Elec
   if (picked.canceled || !picked.filePath) return
   const filePath = /\.[a-z0-9]{2,5}$/i.test(picked.filePath) ? picked.filePath : `${picked.filePath}.${kind}`
   try {
+    if ((params.mediaType === 'image' || params.mediaType === 'video' || params.mediaType === 'audio') && params.srcURL) {
+      const dlId = downloadBegin(suggested || params.srcURL.split('/').pop() || params.mediaType, params.srcURL)
+      try {
+        const saved = await saveMediaInfo(
+          tab,
+          { kind: params.mediaType, tag: params.mediaType.toUpperCase(), src: params.srcURL, rect: { x: params.x, y: params.y, w: 0, h: 0 } },
+          storage.dir('media'),
+          filePath,
+          (received, total) => downloadProgress(dlId, received, total ?? 0)
+        )
+        downloadDone(dlId, saved.path)
+      } catch (inner) {
+        downloadFail(dlId, inner instanceof Error ? inner.message : String(inner))
+        throw inner
+      }
+      return
+    }
     await saveMedia(tab, { point: { x: params.x, y: params.y } }, storage.dir('media'), filePath)
   } catch (error) {
     dialog.showErrorBox('保存失败', error instanceof Error ? error.message : String(error))

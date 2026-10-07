@@ -1591,12 +1591,46 @@ export async function inspectElement(tab: TabRuntime, target: { locator?: Locato
     return info as ElementInfo
   }
   if (target.point) {
-    const source = `(${CLASSIFY_JS}).call(document.elementFromPoint(${target.point.x}, ${target.point.y}))`
+    const source = `(() => {
+      const stack = []
+      const seen = new Set()
+      const deep = (root, depth) => {
+        if (depth > 12 || seen.has(root)) return
+        seen.add(root)
+        for (const el of root.elementsFromPoint(${target.point.x}, ${target.point.y})) {
+          stack.push(el)
+          if (el.shadowRoot) deep(el.shadowRoot, depth + 1)
+        }
+      }
+      deep(document, 0)
+      let best = null
+      let fallback = null
+      for (const el of stack) {
+        const info = (${CLASSIFY_JS}).call(el)
+        if (!info) continue
+        if (!fallback) fallback = info
+        if (info.kind === 'video' || info.kind === 'image' || info.kind === 'canvas' || info.kind === 'audio') { best = info; break }
+        if (info.kind === 'link' && !best) best = info
+      }
+      return best || fallback
+    })()`
     const info = await evalSource(tab, source)
     if (!info) throw new Error(`(${target.point.x}, ${target.point.y}) 上没有元素`)
     return info as ElementInfo
   }
   throw new Error('需要定位或坐标')
+}
+
+function sniffExt(buf: Buffer): string {
+  if (buf.length < 12) return ''
+  const head = buf.subarray(0, 12).toString('latin1')
+  if (buf[0] === 0xff && buf[1] === 0xd8) return 'jpg'
+  if (buf[0] === 0x89 && buf[1] === 0x50) return 'png'
+  if (head.startsWith('GIF8')) return 'gif'
+  if (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP') return 'webp'
+  if (head.slice(4, 8) === 'ftyp') return 'mp4'
+  if (head.startsWith('OggS')) return 'ogg'
+  return ''
 }
 
 function extOf(url: string, contentType: string): string {
@@ -1709,7 +1743,7 @@ export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; po
   })()
   const dlId = downloadBegin(name, info.src || '')
   try {
-    const result = await saveMediaInner(tab, info, dir, savePath, (received, total) => downloadProgress(dlId, received, total))
+    const result = await saveMediaInfo(tab, info, dir, savePath, (received, total) => downloadProgress(dlId, received, total))
     downloadDone(dlId, result.path)
     return result
   } catch (error) {
@@ -1729,7 +1763,7 @@ async function captureElementPng(tab: TabRuntime, rect: { x: number; y: number; 
   })
 }
 
-async function saveMediaInner(tab: TabRuntime, info: ElementInfo, dir: string, savePath: string | undefined, onProgress: (received: number, total?: number) => void): Promise<{ path: string; kind: string; bytes: number }> {
+export async function saveMediaInfo(tab: TabRuntime, info: ElementInfo, dir: string, savePath: string | undefined, onProgress: (received: number, total?: number) => void): Promise<{ path: string; kind: string; bytes: number }> {
   mkdirSync(dir, { recursive: true })
   if (info.kind === 'canvas') {
     const source = info.rect
@@ -1822,7 +1856,8 @@ async function saveMediaInner(tab: TabRuntime, info: ElementInfo, dir: string, s
   } else {
     throw new Error(`不认识这种地址：${src.slice(0, 60)}`)
   }
-  const path = savePath || join(dir, `${info.kind}-${Date.now()}.${extOf(src, contentType)}`)
+  const ext = sniffExt(buf) || extOf(src, contentType)
+  const path = savePath || join(dir, `${info.kind}-${Date.now()}.${ext}`)
   writeFileSync(path, buf)
   return { path, kind: info.kind, bytes: buf.length }
 }
