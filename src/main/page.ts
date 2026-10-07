@@ -1960,3 +1960,257 @@ export async function fetchToFile(tab: TabRuntime, url: string, path: string, on
   if (armed !== 'started') throw new Error('页面下载起不来')
   return pullChunks(tab, '__bpDl', path, Date.now() + 10 * 60_000, onProgress)
 }
+
+function shapePoints(shape: string, x: number, y: number, w: number, h: number, n = 48): Array<{ x: number; y: number }> {
+  const cx = x + w / 2
+  const cy = y + h / 2
+  const points: Array<{ x: number; y: number }> = []
+  if (shape === 'circle') {
+    for (let i = 0; i <= n; i += 1) {
+      const t = (i / n) * Math.PI * 2
+      points.push({ x: cx + (w / 2) * Math.cos(t), y: cy + (h / 2) * Math.sin(t) })
+    }
+    return points
+  }
+  if (shape === 'rect') {
+    return [
+      { x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }, { x, y }
+    ]
+  }
+  if (shape === 'triangle') {
+    return [{ x: cx, y }, { x: x + w, y: y + h }, { x, y: y + h }, { x: cx, y }]
+  }
+  if (shape === 'star') {
+    const ro = Math.min(w, h) / 2
+    const ri = ro * 0.42
+    for (let i = 0; i <= 10; i += 1) {
+      const t = -Math.PI / 2 + (i * Math.PI) / 5
+      const r = i % 2 === 0 ? ro : ri
+      points.push({ x: cx + r * Math.cos(t), y: cy + r * Math.sin(t) })
+    }
+    return points
+  }
+  if (shape === 'heart') {
+    for (let i = 0; i <= n; i += 1) {
+      const t = (i / n) * Math.PI * 2
+      const hx = 16 * Math.pow(Math.sin(t), 3)
+      const hy = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)
+      points.push({ x: cx + (hx / 16) * (w / 2) * 0.9, y: cy - (hy / 16) * (h / 2) * 0.9 })
+    }
+    return points
+  }
+  throw new Error(`不认识图形 ${shape}，支持 circle、rect、triangle、heart、star`)
+}
+
+function smoothPath(points: Array<{ x: number; y: number }>, close: boolean): Array<{ x: number; y: number }> {
+  // Catmull-Rom 样条：穿过所有控制点的平滑曲线
+  const out: Array<{ x: number; y: number }> = []
+  const pts = close ? [points[points.length - 1], ...points, points[0], points[1]] : [points[0], ...points, points[points.length - 1]]
+  for (let i = 1; i < pts.length - 2; i += 1) {
+    const p0 = pts[i - 1]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[i + 2]
+    const seg = Math.max(4, Math.round(Math.hypot(p2.x - p1.x, p2.y - p1.y) / 10))
+    for (let j = 0; j < seg; j += 1) {
+      const t = j / seg
+      const t2 = t * t
+      const t3 = t2 * t
+      out.push({
+        x: 0.5 * (2 * p1.x + (p2.x - p0.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (3 * p1.x - p0.x - 3 * p2.x + p3.x) * t3),
+        y: 0.5 * (2 * p1.y + (p2.y - p0.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (3 * p1.y - p0.y - 3 * p2.y + p3.y) * t3)
+      })
+    }
+  }
+  out.push(points[points.length - 1])
+  return out
+}
+
+export async function drawPath(tab: TabRuntime, via: GestureVia, points: Array<{ x: number; y: number }>, close = false, smooth = false): Promise<{ points: number }> {
+  if (smooth && points.length >= 3) points = smoothPath(points, close)
+  if (points.length < 2) throw new Error('路径至少要两个点')
+  const [width, height] = viewport(tab)
+  for (const p of points) {
+    if (p.x < 0 || p.y < 0 || p.x > width || p.y > height) throw new Error(`点 (${Math.round(p.x)}, ${Math.round(p.y)}) 不在视口 ${width}x${height} 里`)
+  }
+  const track: TrackPoint[] = []
+  let prev = points[0]
+  for (const p of points.slice(1)) {
+    const seg = Math.hypot(p.x - prev.x, p.y - prev.y)
+    const steps = Math.max(1, Math.round(seg / 14))
+    for (let i = 1; i <= steps; i += 1) {
+      track.push({
+        x: prev.x + ((p.x - prev.x) * i) / steps + (Math.random() - 0.5) * 1.2,
+        y: prev.y + ((p.y - prev.y) * i) / steps + (Math.random() - 0.5) * 1.2,
+        delay: 8 + Math.random() * 12
+      })
+    }
+    prev = p
+  }
+  if (close) track.push({ x: points[0].x, y: points[0].y, delay: 30 })
+  await runTrack(tab, via, points[0].x, points[0].y, track)
+  return { points: points.length }
+}
+
+export function drawShapePoints(shape: string, x: number, y: number, w: number, h: number): Array<{ x: number; y: number }> {
+  return shapePoints(shape, x, y, w, h)
+}
+
+type SvgPoint = { x: number; y: number }
+
+function cubicAt(p0: SvgPoint, c1: SvgPoint, c2: SvgPoint, p1: SvgPoint, t: number): SvgPoint {
+  const u = 1 - t
+  return {
+    x: u * u * u * p0.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * p1.x,
+    y: u * u * u * p0.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * p1.y
+  }
+}
+
+function quadAt(p0: SvgPoint, c: SvgPoint, p1: SvgPoint, t: number): SvgPoint {
+  const u = 1 - t
+  return { x: u * u * p0.x + 2 * u * t * c.x + t * t * p1.x, y: u * u * p0.y + 2 * u * t * c.y + t * t * p1.y }
+}
+
+export function parseSvgPath(d: string): SvgPoint[][] {
+  const tokens = d.match(/[MmLlHhVvCcSsQqTtZzAa]|-?\d*\.?\d+(?:e-?\d+)?/g) || []
+  const subpaths: SvgPoint[][] = []
+  let cur: SvgPoint[] = []
+  let pos: SvgPoint = { x: 0, y: 0 }
+  let start: SvgPoint = { x: 0, y: 0 }
+  let prevCtrl: SvgPoint | null = null
+  let i = 0
+  let cmd = ''
+  const num = (): number => Number(tokens[i++])
+  const push = (p: SvgPoint): void => { cur.push(p); pos = p }
+  const flush = (): void => { if (cur.length) { subpaths.push(cur); cur = [] } }
+  while (i < tokens.length) {
+    const t = tokens[i]
+    if (/^[A-Za-z]$/.test(t)) { cmd = t; i += 1 } else if (cmd === '') { throw new Error('路径数据要以命令开头') }
+    const rel = cmd !== cmd.toUpperCase()
+    const at = (): SvgPoint => (rel ? { x: pos.x, y: pos.y } : { x: 0, y: 0 })
+    if (cmd === 'M' || cmd === 'm') {
+      flush()
+      const o = at()
+      const p = { x: num() + o.x, y: num() + o.y }
+      cur = [p]; pos = p; start = p
+      cmd = rel ? 'l' : 'L'
+    } else if (cmd === 'L' || cmd === 'l') {
+      const o = at(); push({ x: num() + o.x, y: num() + o.y })
+    } else if (cmd === 'H' || cmd === 'h') {
+      const o = at(); push({ x: num() + o.x, y: pos.y })
+    } else if (cmd === 'V' || cmd === 'v') {
+      const o = at(); push({ x: pos.x, y: num() + o.y })
+    } else if (cmd === 'C' || cmd === 'c') {
+      const o = at()
+      const c1 = { x: num() + o.x, y: num() + o.y }
+      const c2 = { x: num() + o.x, y: num() + o.y }
+      const p1 = { x: num() + o.x, y: num() + o.y }
+      for (let k = 1; k <= 24; k += 1) push(cubicAt(pos, c1, c2, p1, k / 24))
+      prevCtrl = c2
+      pos = p1
+      continue
+    } else if (cmd === 'S' || cmd === 's') {
+      const o = at()
+      const c1 = prevCtrl ? { x: pos.x * 2 - prevCtrl.x, y: pos.y * 2 - prevCtrl.y } : { ...pos }
+      const c2 = { x: num() + o.x, y: num() + o.y }
+      const p1 = { x: num() + o.x, y: num() + o.y }
+      for (let k = 1; k <= 24; k += 1) push(cubicAt(pos, c1, c2, p1, k / 24))
+      prevCtrl = c2
+      pos = p1
+      continue
+    } else if (cmd === 'Q' || cmd === 'q') {
+      const o = at()
+      const cq = { x: num() + o.x, y: num() + o.y }
+      const p1 = { x: num() + o.x, y: num() + o.y }
+      for (let k = 1; k <= 24; k += 1) push(quadAt(pos, cq, p1, k / 24))
+      prevCtrl = cq
+      pos = p1
+      continue
+    } else if (cmd === 'T' || cmd === 't') {
+      const o = at()
+      const c: SvgPoint = prevCtrl ? { x: pos.x * 2 - prevCtrl.x, y: pos.y * 2 - prevCtrl.y } : { ...pos }
+      const p1 = { x: num() + o.x, y: num() + o.y }
+      for (let k = 1; k <= 24; k += 1) push(quadAt(pos, c, p1, k / 24))
+      prevCtrl = c
+      pos = p1
+      continue
+    } else if (cmd === 'A' || cmd === 'a') {
+      // 椭圆弧：取 rx, ry, xAxisRotation, largeArc, sweep, x, y，采样成折线
+      const rx = num(); const ry = num(); const rot = (num() * Math.PI) / 180
+      const largeArc = num(); const sweep = num()
+      const o = at(); const p1 = { x: num() + o.x, y: num() + o.y }
+      const pts = arcPoints(pos, rx, ry, rot, largeArc, sweep, p1)
+      for (const pt of pts) push(pt)
+      prevCtrl = null
+      pos = p1
+      continue
+    } else if (cmd === 'Z' || cmd === 'z') {
+      push({ ...start })
+      flush()
+      pos = { ...start }
+    }
+    if (cmd !== 'S' && cmd !== 's' && cmd !== 'C' && cmd !== 'c' && cmd !== 'Q' && cmd !== 'q' && cmd !== 'T' && cmd !== 't') prevCtrl = null
+    if (i >= tokens.length) break
+  }
+  flush()
+  return subpaths
+}
+
+function arcPoints(p0: SvgPoint, rx: number, ry: number, rot: number, largeArc: number, sweep: number, p1: SvgPoint): SvgPoint[] {
+  if (rx === 0 || ry === 0) return [p1]
+  const cosR = Math.cos(rot)
+  const sinR = Math.sin(rot)
+  const dx = (p0.x - p1.x) / 2
+  const dy = (p0.y - p1.y) / 2
+  const x1p = cosR * dx + sinR * dy
+  const y1p = -sinR * dx + cosR * dy
+  let rxs = Math.abs(rx)
+  let rys = Math.abs(ry)
+  const lambda = (x1p * x1p) / (rxs * rxs) + (y1p * y1p) / (rys * rys)
+  if (lambda > 1) { const s = Math.sqrt(lambda); rxs *= s; rys *= s }
+  const sign = largeArc !== sweep ? 1 : -1
+  const num = rxs * rxs * rys * rys - rxs * rxs * y1p * y1p - rys * rys * x1p * x1p
+  const den = rxs * rxs * y1p * y1p + rys * rys * x1p * x1p
+  const co = sign * Math.sqrt(Math.max(0, num / den))
+  const cxp = (co * rxs * y1p) / rys
+  const cyp = (-co * rys * x1p) / rxs
+  const cx = cosR * cxp - sinR * cyp + (p0.x + p1.x) / 2
+  const cy = sinR * cxp + cosR * cyp + (p0.y + p1.y) / 2
+  const angleOf = (x: number, y: number): number => Math.atan2((-sinR * x + cosR * y) / rys, (cosR * x + sinR * y) / rxs)
+  const th1 = angleOf(p0.x - cx, p0.y - cy)
+  let dth = angleOf(p1.x - cx, p1.y - cy) - th1
+  if (!sweep && dth > 0) dth -= Math.PI * 2
+  if (sweep && dth < 0) dth += Math.PI * 2
+  const steps = Math.max(4, Math.round(Math.abs(dth) / (Math.PI / 16)))
+  const out: SvgPoint[] = []
+  for (let k = 1; k <= steps; k += 1) {
+    const th = th1 + (dth * k) / steps
+    out.push({
+      x: cx + rxs * Math.cos(th) * cosR - rys * Math.sin(th) * sinR,
+      y: cy + rxs * Math.cos(th) * sinR + rys * Math.sin(th) * cosR
+    })
+  }
+  return out
+}
+
+export async function drawPaths(tab: TabRuntime, via: GestureVia, subpaths: SvgPoint[][]): Promise<{ paths: number; points: number }> {
+  let total = 0
+  for (const points of subpaths) {
+    if (points.length < 2) continue
+    await drawPath(tab, via, points)
+    total += points.length
+    await sleep(80)
+  }
+  return { paths: subpaths.length, points: total }
+}
+
+export function svgPathToPoints(d: string, box: { x: number; y: number; width: number; height: number }, viewBox?: [number, number]): SvgPoint[][] {
+  const subpaths = parseSvgPath(d)
+  const vb = viewBox ?? (() => {
+    let maxX = 1
+    let maxY = 1
+    for (const sub of subpaths) for (const p of sub) { if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y }
+    return [maxX, maxY] as [number, number]
+  })()
+  return subpaths.map((sub) => sub.map((p) => ({ x: box.x + (p.x / vb[0]) * box.width, y: box.y + (p.y / vb[1]) * box.height })))
+}

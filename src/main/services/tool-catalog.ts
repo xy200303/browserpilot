@@ -28,6 +28,10 @@ import {
   crossQuery,
   deepQuery,
   dragPage,
+  drawPath,
+  drawPaths,
+  drawShapePoints,
+  svgPathToPoints,
   evalInFrame,
   evalSource,
   hitPoint,
@@ -595,6 +599,40 @@ tool('page_record_video', '把页面里正在播放的视频录下来：用 capt
   const savePath = typeof args.savePath === 'string' && args.savePath ? String(args.savePath) : undefined
   const result = await recordVideo(tabRef, seconds, storage.dir('media'), savePath)
   return { tabId: tabRef.id, ...result }
+})
+
+tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径点数组按路径画线；加 smooth: true 用样条插值把控制点连成平滑曲线；给 path（SVG 路径字符串，支持 M/L/H/V/C/S/Q/T/A/Z，含贝塞尔曲线）按 viewBox 缩放到 x、y、width、height 的区域画；或给 shape（circle/rect/triangle/heart/star）加 x、y、width、height 画标准图形。close: true 闭合路径。多段路径（多个 M）会逐段抬笔。用来在画板、签名板、Canva 这类画布上作画。via 默认 cdp。', z.object({
+  ...pageArgs,
+  points: z.array(z.object({ x: z.number(), y: z.number() })).optional(),
+  path: z.string().optional(),
+  viewBox: z.array(z.number()).length(2).optional(),
+  shape: z.enum(['circle', 'rect', 'triangle', 'heart', 'star']).optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+  smooth: z.boolean().optional(),
+  close: z.boolean().optional(),
+  via: z.enum(['cdp', 'native']).optional()
+}), async (args) => {
+  const tabRef = await pageTab(args)
+  if (typeof args.path === 'string' && args.path) {
+    if (args.x === undefined || args.y === undefined || !args.width || !args.height) throw new Error('path 要配 x、y、width、height 定目标区域')
+    const box = { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height) }
+    const subpaths = svgPathToPoints(String(args.path), box, args.viewBox ? [Number(args.viewBox[0]), Number(args.viewBox[1])] : undefined)
+    const drawn = await drawPaths(tabRef, gestureVia(args.via), subpaths)
+    return { tabId: tabRef.id, ...drawn }
+  }
+  let points = args.points as Array<{ x: number; y: number }> | undefined
+  if (!points) {
+    if (!args.shape || args.x === undefined || args.y === undefined || !args.width || !args.height) {
+      throw new Error('给 points 路径点、path SVG 路径，或 shape + x、y、width、height')
+    }
+    points = drawShapePoints(String(args.shape), Number(args.x), Number(args.y), Number(args.width), Number(args.height))
+    args.close = true
+  }
+  const drawn = await drawPath(tabRef, gestureVia(args.via), points, Boolean(args.close), Boolean(args.smooth))
+  return { tabId: tabRef.id, ...drawn }
 })
 
 tool('page_upload', '把本机文件交给页面上的文件控件，不弹出系统选择框。用 xpath 或 selector 指定控件。不指定时用页面上的第一个文件控件。', z.object({
