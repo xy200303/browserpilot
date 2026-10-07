@@ -5,6 +5,7 @@ import { join } from 'path'
 import { searchEngineOf, type ActVia, type GestureVia, type Locator } from '@shared/types'
 import { storage } from './services/store'
 import { runFfmpeg } from './services/ffmpeg'
+import { downloadBegin, downloadDone, downloadFail, downloadProgress } from './services/DownloadService'
 import { acquireDebugger, releaseDebugger, withDebugger } from './services/debugger'
 import type { AxRef, TabRuntime } from './runtime'
 import { bridge, windows } from './runtime'
@@ -1615,11 +1616,11 @@ function extOf(url: string, contentType: string): string {
   return 'bin'
 }
 
-async function downloadWithSession(tab: TabRuntime, url: string): Promise<{ buf: Buffer; contentType: string }> {
-  return downloadUrl(wcOf(tab), url)
+async function downloadWithSession(tab: TabRuntime, url: string, referer?: string, onProgress?: (received: number, total: number) => void): Promise<{ buf: Buffer; contentType: string }> {
+  return downloadUrl(wcOf(tab), url, referer, onProgress)
 }
 
-export async function downloadUrl(wc: WebContents, url: string, referer?: string): Promise<{ buf: Buffer; contentType: string }> {
+export async function downloadUrl(wc: WebContents, url: string, referer?: string, onProgress?: (received: number, total: number) => void): Promise<{ buf: Buffer; contentType: string }> {
   const ses = wc.session
   return new Promise((resolve, reject) => {
     const req = net.request({ url, session: ses })
@@ -1632,7 +1633,13 @@ export async function downloadUrl(wc: WebContents, url: string, referer?: string
         reject(new Error(`下载失败 HTTP ${res.statusCode}`))
         return
       }
-      res.on('data', (chunk) => chunks.push(chunk))
+      const total = Number(res.headers['content-length'] || 0)
+      let received = 0
+      res.on('data', (chunk) => {
+        chunks.push(chunk)
+        received += chunk.length
+        if (onProgress) onProgress(received, total)
+      })
       res.on('end', () => resolve({ buf: Buffer.concat(chunks), contentType }))
     })
     req.on('error', reject)
@@ -1677,17 +1684,35 @@ const GENERIC_STREAMS = `(() => {
   return { m3u8: m3u8[m3u8.length - 1] || '', mpd: mpd[mpd.length - 1] || '' }
 })()`
 
-export async function downloadMedia(tab: TabRuntime, url: string, path: string, referer?: string): Promise<void> {
+export async function downloadMedia(tab: TabRuntime, url: string, path: string, referer?: string, onProgress?: (received: number, total?: number) => void): Promise<void> {
   try {
-    const got = await downloadUrl(wcOf(tab), url, referer)
+    const got = await downloadUrl(wcOf(tab), url, referer, onProgress)
     writeFileSync(path, got.buf)
   } catch {
-    await fetchToFile(tab, url, path)
+    await fetchToFile(tab, url, path, onProgress)
   }
 }
 
 export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; point?: { x: number; y: number } }, dir: string, savePath?: string): Promise<{ path: string; kind: string; bytes: number }> {
   const info = await inspectElement(tab, target)
+  const name = (() => {
+    try {
+      if (info.src) return decodeURIComponent(new URL(info.src).pathname.split('/').pop() || '') || `${info.kind}`
+    } catch { /* blob/data 地址 */ }
+    return `${info.kind}-${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`
+  })()
+  const dlId = downloadBegin(name, info.src || '')
+  try {
+    const result = await saveMediaInner(tab, info, dir, savePath, (received, total) => downloadProgress(dlId, received, total))
+    downloadDone(dlId, result.path)
+    return result
+  } catch (error) {
+    downloadFail(dlId, error instanceof Error ? error.message : String(error))
+    throw error
+  }
+}
+
+async function saveMediaInner(tab: TabRuntime, info: ElementInfo, dir: string, savePath: string | undefined, onProgress: (received: number, total?: number) => void): Promise<{ path: string; kind: string; bytes: number }> {
   mkdirSync(dir, { recursive: true })
   if (info.kind === 'canvas') {
     const source = info.rect
@@ -1710,11 +1735,11 @@ export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; po
       const stamp = Date.now()
       const referer = tab.url || undefined
       const videoPath = join(dir, `video-${stamp}-v.m4s`)
-      await downloadMedia(tab, streams.video, videoPath, referer)
+      await downloadMedia(tab, streams.video, videoPath, referer, onProgress)
       let audioPath = ''
       if (streams.audio) {
         audioPath = join(dir, `video-${stamp}-a.m4s`)
-        await downloadMedia(tab, streams.audio, audioPath, referer)
+        await downloadMedia(tab, streams.audio, audioPath, referer, onProgress)
       }
       const outPath = savePath || join(dir, `video-${stamp}.mp4`)
       try {
@@ -1758,12 +1783,12 @@ export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; po
   } else if (/^https?:/.test(src)) {
     if (/\.(m3u8|mpd)(\?|$)/i.test(src)) throw new Error('这是流媒体清单（m3u8/mpd），不是单个文件，下不了')
     try {
-      const got = await downloadWithSession(tab, src)
+      const got = await downloadWithSession(tab, src, undefined, onProgress)
       buf = got.buf
       contentType = got.contentType
     } catch (first) {
       const tmpPath = join(dir, `dl-${Date.now()}.part`)
-      await fetchToFile(tab, src, tmpPath)
+      await fetchToFile(tab, src, tmpPath, onProgress)
       buf = readFileSync(tmpPath)
       unlinkSync(tmpPath)
     }
@@ -1812,18 +1837,23 @@ export async function recordVideo(tab: TabRuntime, seconds: number, dir: string,
   if (armed !== 'recording') throw new Error(armed === 'no video' ? '页面上没有 video 元素' : '这个环境录不了（captureStream 或编码器不可用）')
   const path = savePath || join(dir, `record-${Date.now()}.webm`)
   writeFileSync(path, Buffer.alloc(0))
+  const dlId = downloadBegin(`录制 ${tab.title || '视频'}`, tab.url)
   let bytes = 0
   try {
-    bytes = await pullChunks(tab, '__bpRec', path, Date.now() + ms + 15_000)
+    bytes = await pullChunks(tab, '__bpRec', path, Date.now() + ms + 15_000, (received) => downloadProgress(dlId, received))
+  } catch (error) {
+    downloadFail(dlId, error instanceof Error ? error.message : String(error))
+    throw error
   } finally {
     if (runtime && !runtime.headless) runtime.win.setAlwaysOnTop(false)
   }
+  downloadDone(dlId, path)
   if (bytes === 0) throw new Error('录出来是空的：视频可能没播起来')
   const { statSync } = await import('fs')
   return { path, bytes: statSync(path).size, seconds: Math.round(ms / 1000) }
 }
 
-async function pullChunks(tab: TabRuntime, key: string, path: string, deadlineMs: number): Promise<number> {
+async function pullChunks(tab: TabRuntime, key: string, path: string, deadlineMs: number, onProgress?: (received: number, total?: number) => void): Promise<number> {
   let bytes = 0
   for (;;) {
     await sleep(700)
@@ -1836,6 +1866,7 @@ async function pullChunks(tab: TabRuntime, key: string, path: string, deadlineMs
       appendFileSync(path, buf)
       bytes += buf.length
     }
+    if (onProgress) onProgress(bytes)
     if (pulled.done) {
       if (pulled.error) throw new Error(pulled.error)
       return bytes
@@ -1844,7 +1875,7 @@ async function pullChunks(tab: TabRuntime, key: string, path: string, deadlineMs
   }
 }
 
-export async function fetchToFile(tab: TabRuntime, url: string, path: string): Promise<number> {
+export async function fetchToFile(tab: TabRuntime, url: string, path: string, onProgress?: (received: number, total?: number) => void): Promise<number> {
   const armed = await evalSource(tab, `(async () => {
     window.__bpDl = { chunks: [], done: false, error: '' }
     const toB64 = (buf) => { const u = new Uint8Array(buf); const parts = []; for (let i = 0; i < u.length; i += 32768) parts.push(String.fromCharCode.apply(null, u.subarray(i, i + 32768))); return btoa(parts.join('')) }
@@ -1865,5 +1896,5 @@ export async function fetchToFile(tab: TabRuntime, url: string, path: string): P
     return 'started'
   })()`)
   if (armed !== 'started') throw new Error('页面下载起不来')
-  return pullChunks(tab, '__bpDl', path, Date.now() + 10 * 60_000)
+  return pullChunks(tab, '__bpDl', path, Date.now() + 10 * 60_000, onProgress)
 }

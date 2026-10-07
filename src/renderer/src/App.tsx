@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { ArrowLeft, ArrowRight, Minus, MoreVertical, Plus, RotateCw, Square, Workflow, X } from 'lucide-react'
-import { searchEngineOf, type TabInfo, type UiState } from '../../shared/types'
+import { ArrowLeft, ArrowRight, Download, FolderOpen, Minus, MoreVertical, Plus, RotateCw, Square, Workflow, X } from 'lucide-react'
+import { searchEngineOf, type DownloadItem, type TabInfo, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { MarketPage } from './MarketPage'
 import { SettingsPage } from './Settings'
@@ -8,6 +8,7 @@ import { WorkflowEditor } from './Workflow'
 import { workflowPage } from '../../shared/market'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DownloadsFlyout } from '@/components/DownloadsFlyout'
 
 let recorder: MediaRecorder | null = null
 let recordChunks: Blob[] = []
@@ -263,6 +264,7 @@ function AddressBar({
           readOnly={builtin}
         />
       </form>
+      <DownloadsFlyout downloads={state.downloads} />
       <Button variant="ghost" className="no-drag" title="工作流" onClick={() => void window.browser.openMarket()}><Workflow />工作流</Button>
       {state.screenRecording && <span className="rounded-md bg-destructive px-1.5 py-0.5 text-xs text-white">录屏</span>}
       <Button

@@ -16,6 +16,7 @@ import {
   type TabRuntime,
   type WindowRuntime
 } from './runtime'
+import { downloadBegin, downloadDone, downloadFail, downloadProgress } from './services/DownloadService'
 import { isSendingToPage, saveMedia, startUrl, watchDocument } from './page'
 
 const LOCK_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:rgba(32,33,36,.45);font-family:Segoe UI,sans-serif;color:#fff"><div style="text-align:center"><div style="font-size:18px">Agent 正在操作浏览器</div><button id="take" style="margin-top:16px;padding:8px 18px;border:0;border-radius:8px;background:#fff;color:#202124;font-size:14px">接管</button></div></body></html>`
@@ -545,8 +546,31 @@ export function beginAgentAction(tab: TabRuntime): void {
   showAgentMask(tab)
 }
 
+const watchedSessions = new Set<Electron.Session>()
+
+function watchDownloads(ses: Electron.Session): void {
+  if (watchedSessions.has(ses)) return
+  watchedSessions.add(ses)
+  ses.on('will-download', (_event, item) => {
+    const name = item.getFilename() || '下载文件'
+    const id = downloadBegin(name, item.getURL())
+    item.on('updated', (_e, state) => {
+      if (state === 'interrupted') {
+        downloadFail(id, '下载中断')
+        return
+      }
+      downloadProgress(id, item.getReceivedBytes(), item.getTotalBytes())
+    })
+    item.once('done', (_e, state) => {
+      if (state === 'completed') downloadDone(id, item.getSavePath())
+      else downloadFail(id, state === 'cancelled' ? '已取消' : '下载中断')
+    })
+  })
+}
+
 function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
   const wc = tab.view!.webContents
+  watchDownloads(wc.session)
   bindShortcuts(wc, runtime.envId)
   watchDocument(wc, (html) => {
     tab.documentHtml = html

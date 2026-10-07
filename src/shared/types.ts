@@ -124,6 +124,20 @@ export type UiState = {
   version: string
   maximized: boolean
   railPinned: boolean
+  downloads: DownloadItem[]
+}
+
+export type DownloadItem = {
+  id: string
+  name: string
+  url: string
+  path: string
+  totalBytes: number
+  receivedBytes: number
+  state: 'progressing' | 'completed' | 'failed' | 'cancelled'
+  error?: string
+  startedAt: number
+  doneAt?: number
 }
 
 export type LayerPayload =

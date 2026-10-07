@@ -8,6 +8,7 @@ import type { StoredEnv } from './services/StorageService'
 import { storage } from './services/store'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate } from './services/RecordService'
 import { installMarketFile, installMarketUrl, listMarket } from './services/MarketService'
+import { downloadOpen, downloadShow, downloadsClear, listDownloads } from './services/DownloadService'
 import { windows, type WindowRuntime } from './runtime'
 import { bridge } from './runtime'
 import {
@@ -103,7 +104,8 @@ export async function buildState(runtime: WindowRuntime): Promise<UiState> {
     settings: storage.settings,
     version: app.getVersion(),
     maximized: runtime.win.isMaximized(),
-    railPinned: runtime.railPinned
+    railPinned: runtime.railPinned,
+    downloads: listDownloads()
   }
 }
 
@@ -439,6 +441,10 @@ export function wireIpc(): void {
     const runtime = windowFromSender(event.sender)
     if (runtime) openSettingsPage(runtime, '环境')
   })
+
+  ipcMain.handle('downloads:open', (_event, id: string) => downloadOpen(id))
+  ipcMain.handle('downloads:show', (_event, id: string) => downloadShow(id))
+  ipcMain.handle('downloads:clear', () => downloadsClear())
 
   ipcMain.handle('group:create', async (event, input: { name: string; color?: string }) => {
     const runtime = windowFromSender(event.sender)
