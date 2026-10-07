@@ -38,7 +38,7 @@ browserpilot call workflow_run --json-file args.json
 
 标签编号是 `tab-`，全局唯一，关掉后不复用。只给 `tab-` 就能在所有窗口里找到。找不到就失败，不要另开一个标签。所有工具的标签参数都叫 `tabId`，不叫 `tab`。传错参数名会直接报错并列出合法参数。
 
-定位只用 `xpath` 或 `selector`。点击、输入、粘贴、选择必须恰好匹配一个元素。匹配到多个就停，不取第一条。画布上没有稳定节点时，`page_click` 用 `x` 和 `y`；按截图点坐标时，把 `page_screenshot` 返回的 `width`、`height` 原样传给 `shotWidth`、`shotHeight`；按 `captcha_panel` 这类裁剪图点坐标时，再带上 `shotX`、`shotY`（rect 前两个值）和 `shotScale`（scale）。
+定位只用 `xpath` 或 `selector`。点击、输入、粘贴、选择必须恰好匹配一个元素。匹配到多个就停，不取第一条。画布上没有稳定节点时，`page_click` 用 `x` 和 `y`；按截图点坐标时，把 `page_screenshot` 返回的 `width`、`height` 原样传给 `shotWidth`、`shotHeight`；按 `captcha_panel` 这类裁剪图点坐标时，再带上 `shotX`、`shotY`（rect 前两个值）和 `shotScale`（scale）。`page_click` 加 `button: "right"` 是右键。`page_inspect` 识别元素类型（video/image/canvas/audio/link/input/text）和地址；`page_save_media` 把图片、视频、音频、画布存成本机文件（带登录态，m3u8/mpd 流媒体下不了）。
 
 导航后或触发异步渲染后用 `page_wait` 等元素出现或消失，不要写死 sleep 循环。`page_key` 的快捷键用 `ctrl+a`、`shift+enter` 这种写法，修饰键只认 ctrl、shift、alt、meta。
 

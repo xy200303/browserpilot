@@ -1,4 +1,4 @@
-import { clipboard, nativeImage, type WebContents } from 'electron'
+import { clipboard, nativeImage, net, type WebContents } from 'electron'
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { searchEngineOf, type ActVia, type GestureVia, type Locator } from '@shared/types'
@@ -255,10 +255,10 @@ async function deepOne(tab: TabRuntime, locator: Locator, doScroll = false): Pro
   return found.matches[0]
 }
 
-export async function clickDeep(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp'): Promise<void> {
+export async function clickDeep(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp', button: 'left' | 'right' = 'left'): Promise<void> {
   const match = await deepOne(tab, locator, true)
   await sleep(300)
-  await clickPoint(tab, match.x + match.w / 2, match.y + match.h / 2, via)
+  await clickPoint(tab, match.x + match.w / 2, match.y + match.h / 2, via, undefined, button)
 }
 
 export async function typeDeep(tab: TabRuntime, locator: Locator, text: string, via: ActVia = 'cdp'): Promise<void> {
@@ -465,12 +465,12 @@ async function failWithScene(tab: TabRuntime, locator: Locator, message: string)
   throw new Error(scene ? `${message}。${scene}` : message)
 }
 
-export async function clickLocator(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp', until?: Locator): Promise<void> {
+export async function clickLocator(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp', until?: Locator, button: 'left' | 'right' = 'left'): Promise<void> {
   const rounds = until ? 3 : 1
   for (let round = 0; round < rounds; round += 1) {
     try {
       const target = await resolveLocator(tab, locator)
-      await clickKnown(tab, target, via)
+      await clickKnown(tab, target, via, button)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (!until || round === rounds - 1) await failWithScene(tab, locator, message)
@@ -615,10 +615,24 @@ export function mapPoint(tab: TabRuntime, x: number, y: number, shot?: ShotRef):
   return { x: px, y: py }
 }
 
-export async function clickPoint(tab: TabRuntime, x: number, y: number, via: ActVia = 'cdp', shot?: ShotRef): Promise<void> {
+export async function clickPoint(tab: TabRuntime, x: number, y: number, via: ActVia = 'cdp', shot?: ShotRef, button: 'left' | 'right' = 'left'): Promise<void> {
   const point = mapPoint(tab, x, y, shot)
   if (via === 'inject') {
-    const source = `(() => {
+    const source = button === 'right'
+      ? `(() => {
+      const x = ${point.x}
+      const y = ${point.y}
+      const el = document.elementFromPoint(x, y)
+      if (!(el instanceof Element)) return false
+      const common = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2, buttons: 2 }
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...common, pointerType: 'mouse' }))
+      el.dispatchEvent(new MouseEvent('mousedown', common))
+      el.dispatchEvent(new PointerEvent('pointerup', { ...common, buttons: 0, pointerType: 'mouse' }))
+      el.dispatchEvent(new MouseEvent('mouseup', { ...common, buttons: 0 }))
+      el.dispatchEvent(new MouseEvent('contextmenu', common))
+      return true
+    })()`
+      : `(() => {
       const x = ${point.x}
       const y = ${point.y}
       const el = document.elementFromPoint(x, y)
@@ -637,28 +651,29 @@ export async function clickPoint(tab: TabRuntime, x: number, y: number, via: Act
     if (clicked !== true) throw new Error('这个坐标上没有元素')
     return
   }
-  if (via === 'cdp') await clickAtCdp(tab, point.x, point.y)
-  else await clickAt(tab, point.x, point.y)
+  if (via === 'cdp') await clickAtCdp(tab, point.x, point.y, button)
+  else await clickAt(tab, point.x, point.y, button)
 }
 
-export async function clickAt(tab: TabRuntime, x: number, y: number): Promise<void> {
+export async function clickAt(tab: TabRuntime, x: number, y: number, button: 'left' | 'right' = 'left'): Promise<void> {
   const wc = wcOf(tab)
   const ix = Math.round(x)
   const iy = Math.round(y)
   wc.sendInputEvent({ type: 'mouseMove', x: ix, y: iy })
   await sleep(30)
-  wc.sendInputEvent({ type: 'mouseDown', x: ix, y: iy, button: 'left', clickCount: 1 })
-  wc.sendInputEvent({ type: 'mouseUp', x: ix, y: iy, button: 'left', clickCount: 1 })
+  wc.sendInputEvent({ type: 'mouseDown', x: ix, y: iy, button, clickCount: 1 })
+  wc.sendInputEvent({ type: 'mouseUp', x: ix, y: iy, button, clickCount: 1 })
 }
 
-async function clickAtCdp(tab: TabRuntime, x: number, y: number): Promise<void> {
+async function clickAtCdp(tab: TabRuntime, x: number, y: number, button: 'left' | 'right' = 'left'): Promise<void> {
   const ix = Math.round(x)
   const iy = Math.round(y)
+  const buttons = button === 'right' ? 2 : 1
   await withDebugger(wcOf(tab), async (dbg) => {
     await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: ix, y: iy, button: 'none', buttons: 0, pointerType: 'mouse' })
     await sleep(30)
-    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: ix, y: iy, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' })
-    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: ix, y: iy, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' })
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: ix, y: iy, button, buttons, clickCount: 1, pointerType: 'mouse' })
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: ix, y: iy, button, buttons: 0, clickCount: 1, pointerType: 'mouse' })
   })
 }
 
@@ -686,12 +701,13 @@ async function pointForClick(dbg: Electron.Debugger, tab: TabRuntime, backendNod
   return pointOnNode(dbg, tab, backendNodeId)
 }
 
-async function clickKnown(tab: TabRuntime, target: AxRef, via: ActVia): Promise<void> {
+async function clickKnown(tab: TabRuntime, target: AxRef, via: ActVia, button: 'left' | 'right' = 'left'): Promise<void> {
   const wc = wcOf(tab)
   if (via === 'inject') {
     const clicked = await withDebugger(wc, async (dbg) => {
       const backendNodeId = await backendFor(dbg, target)
       await scrollNodeIntoView(dbg, backendNodeId)
+      if (button === 'right') return callOnBackend(dbg, backendNodeId, INJECT_CONTEXT_MENU)
       return callOnBackend(dbg, backendNodeId, INJECT_CLICK)
     })
     if (clicked !== true) throw new Error(`点不到「${target.name || target.role}」`)
@@ -702,8 +718,8 @@ async function clickKnown(tab: TabRuntime, target: AxRef, via: ActVia): Promise<
     return pointForClick(dbg, tab, backendNodeId)
   })
   if (!point) throw new Error(`点不到「${target.name || target.role}」，这个位置被挡住了`)
-  if (via === 'cdp') await clickAtCdp(tab, point.x, point.y)
-  else await clickAt(tab, point.x, point.y)
+  if (via === 'cdp') await clickAtCdp(tab, point.x, point.y, button)
+  else await clickAt(tab, point.x, point.y, button)
 }
 
 async function backendFor(dbg: Electron.Debugger, target: AxRef): Promise<number> {
@@ -756,6 +772,21 @@ const INJECT_CLICK = `function () {
   if (typeof el.focus === 'function') el.focus({ preventScroll: true })
   if (typeof el.click === 'function') { el.click(); return true }
   return false
+}`
+
+const INJECT_CONTEXT_MENU = `function () {
+  const el = this
+  if (!(el instanceof Element)) return false
+  const rect = el.getBoundingClientRect()
+  const x = rect.left + rect.width / 2
+  const y = rect.top + rect.height / 2
+  const common = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2, buttons: 2 }
+  el.dispatchEvent(new PointerEvent('pointerdown', { ...common, pointerType: 'mouse' }))
+  el.dispatchEvent(new MouseEvent('mousedown', common))
+  el.dispatchEvent(new PointerEvent('pointerup', { ...common, buttons: 0, pointerType: 'mouse' }))
+  el.dispatchEvent(new MouseEvent('mouseup', { ...common, buttons: 0 }))
+  el.dispatchEvent(new MouseEvent('contextmenu', common))
+  return true
 }`
 
 const INJECT_TEXT = `function (text, x, y) {
@@ -1510,4 +1541,138 @@ export function noteNavigation(tab: TabRuntime, url: string): void {
   } catch {
     /* data url */
   }
+}
+
+const CLASSIFY_JS = `function () {
+  const el = this
+  if (!(el instanceof Element)) return null
+  const abs = (u) => { try { return new URL(u, location.href).href } catch (e) { return u || '' } }
+  const r = el.getBoundingClientRect()
+  const base = { tag: el.tagName, rect: { x: r.left, y: r.top, w: r.width, h: r.height } }
+  const video = el.closest('video')
+  if (video) {
+    const src = video.currentSrc || video.src || ((video.querySelector('source') || {}).src) || ''
+    return { ...base, kind: 'video', src: abs(src), poster: abs(video.poster || '') }
+  }
+  if (el.tagName === 'IMG') return { ...base, kind: 'image', src: abs(el.currentSrc || el.src || '') }
+  if (el.tagName === 'CANVAS') return { ...base, kind: 'canvas' }
+  if (el.tagName === 'AUDIO') {
+    const src = el.currentSrc || el.src || ((el.querySelector('source') || {}).src) || ''
+    return { ...base, kind: 'audio', src: abs(src) }
+  }
+  const a = el.closest('a[href]')
+  if (a) return { ...base, kind: 'link', href: abs(a.href) }
+  const bg = getComputedStyle(el).backgroundImage
+  const m = bg && bg.match(/url\(["']?(.+?)["']?\)/)
+  if (m) return { ...base, kind: 'image', src: abs(m[1]), via: 'background' }
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable) return { ...base, kind: 'input' }
+  return { ...base, kind: 'text', text: String(el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 100) }
+}`
+
+export type ElementInfo = {
+  kind: 'video' | 'image' | 'canvas' | 'audio' | 'link' | 'input' | 'text'
+  tag: string
+  src?: string
+  poster?: string
+  href?: string
+  via?: string
+  text?: string
+  rect: { x: number; y: number; w: number; h: number }
+}
+
+export async function inspectElement(tab: TabRuntime, target: { locator?: Locator; point?: { x: number; y: number } }): Promise<ElementInfo> {
+  if (target.locator) {
+    const resolved = await resolveLocator(tab, target.locator)
+    const info = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, resolved.backendNodeId ?? 0, CLASSIFY_JS))
+    if (!info) throw new Error(`识别不了 ${locatorLabel(target.locator)}`)
+    return info as ElementInfo
+  }
+  if (target.point) {
+    const source = `(${CLASSIFY_JS}).call(document.elementFromPoint(${target.point.x}, ${target.point.y}))`
+    const info = await evalSource(tab, source)
+    if (!info) throw new Error(`(${target.point.x}, ${target.point.y}) 上没有元素`)
+    return info as ElementInfo
+  }
+  throw new Error('需要定位或坐标')
+}
+
+function extOf(url: string, contentType: string): string {
+  const byType: Record<string, string> = {
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg',
+    'video/mp4': 'mp4', 'video/webm': 'webm', 'audio/mpeg': 'mp3'
+  }
+  for (const [type, ext] of Object.entries(byType)) {
+    if (contentType.includes(type)) return ext
+  }
+  try {
+    const ext = new URL(url).pathname.split('.').pop() || ''
+    if (/^[a-z0-9]{2,5}$/i.test(ext)) return ext.toLowerCase()
+  } catch {
+    /* 不是合法 URL */
+  }
+  return 'bin'
+}
+
+async function downloadWithSession(tab: TabRuntime, url: string): Promise<{ buf: Buffer; contentType: string }> {
+  const ses = wcOf(tab).session
+  return new Promise((resolve, reject) => {
+    const req = net.request({ url, session: ses })
+    const chunks: Buffer[] = []
+    let contentType = ''
+    req.on('response', (res) => {
+      contentType = String(res.headers['content-type'] || '')
+      if ((res.statusCode ?? 500) >= 400) {
+        reject(new Error(`下载失败 HTTP ${res.statusCode}`))
+        return
+      }
+      res.on('data', (chunk) => chunks.push(chunk))
+      res.on('end', () => resolve({ buf: Buffer.concat(chunks), contentType }))
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; point?: { x: number; y: number } }, dir: string): Promise<{ path: string; kind: string; bytes: number }> {
+  const info = await inspectElement(tab, target)
+  mkdirSync(dir, { recursive: true })
+  if (info.kind === 'canvas') {
+    const source = info.rect
+      ? `(() => { const el = document.elementFromPoint(${info.rect.x + info.rect.w / 2}, ${info.rect.y + info.rect.h / 2}); const c = el && el.closest ? el.closest('canvas') : null; return c ? c.toDataURL('image/png') : '' })()`
+      : ''
+    const dataUrl = (await evalSource(tab, source)) as string
+    if (!dataUrl.startsWith('data:image/png;base64,')) throw new Error('画布导不出来（可能跨域污染）')
+    const buf = Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64')
+    const path = join(dir, `canvas-${Date.now()}.png`)
+    writeFileSync(path, buf)
+    return { path, kind: 'canvas', bytes: buf.length }
+  }
+  if (info.kind !== 'image' && info.kind !== 'video' && info.kind !== 'audio') {
+    throw new Error(info.kind === 'link' ? `这是链接不是媒体：${info.href}` : `这个元素是 ${info.kind}，没有可保存的媒体`)
+  }
+  const src = info.src || ''
+  if (!src) throw new Error('这个媒体元素没有地址（可能还没加载）')
+  let buf: Buffer
+  let contentType = ''
+  if (src.startsWith('blob:')) {
+    const base64 = (await evalSource(
+      tab,
+      `fetch(${JSON.stringify(src)}).then((r) => r.arrayBuffer()).then((b) => { const u = new Uint8Array(b); const parts = []; for (let i = 0; i < u.length; i += 32768) parts.push(String.fromCharCode.apply(null, u.subarray(i, i + 32768))); return btoa(parts.join('')) })`
+    )) as string
+    buf = Buffer.from(base64, 'base64')
+  } else if (src.startsWith('data:')) {
+    const comma = src.indexOf(',')
+    contentType = src.slice(5, src.indexOf(';'))
+    buf = Buffer.from(src.slice(comma + 1), 'base64')
+  } else if (/^https?:/.test(src)) {
+    if (/\.(m3u8|mpd)(\?|$)/i.test(src)) throw new Error('这是流媒体清单（m3u8/mpd），不是单个文件，下不了')
+    const got = await downloadWithSession(tab, src)
+    buf = got.buf
+    contentType = got.contentType
+  } else {
+    throw new Error(`不认识这种地址：${src.slice(0, 60)}`)
+  }
+  const path = join(dir, `${info.kind}-${Date.now()}.${extOf(src, contentType)}`)
+  writeFileSync(path, buf)
+  return { path, kind: info.kind, bytes: buf.length }
 }

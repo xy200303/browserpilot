@@ -31,6 +31,7 @@ import {
   evalInFrame,
   evalSource,
   hitPoint,
+  inspectElement,
   locatorCenter,
   locatorLabel,
   mapPoint,
@@ -41,6 +42,7 @@ import {
   readTree,
   queryLocator,
   resolveLocator,
+  saveMedia,
   screenshot,
   scrollPage,
   selectLocator,
@@ -372,7 +374,7 @@ tool('page_query', '按同一种定位取出所有匹配，返回数组。每一
   return { tabId: tabRef.id, total: found.total, matches: found.matches }
 })
 
-tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个。XPath 原样交给 DOM.performSearch，选择器原样交给 DOM.querySelectorAll。匹配到多个会失败，不取其中一条。画布这种没有稳定节点的目标改用 x 和 y：不带 shotWidth、shotHeight 时是当前视口的 CSS 像素；带上截图返回的宽高时，x 和 y 是这张图上的像素，会先换算到视口再点。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。inject 在该点的元素上派发指针事件。untilXpath 或 untilSelector 只在按元素点击时使用，表示点完后要出现的元素；没出现会在同一个定位上再点，最多 3 次。失败时带上匹配个数、文字和当时能不能点到。', z.object({
+tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个。button 传 right 是右键（会触发页面或窗口的右键菜单）。XPath 原样交给 DOM.performSearch，选择器原样交给 DOM.querySelectorAll。匹配到多个会失败，不取其中一条。画布这种没有稳定节点的目标改用 x 和 y：不带 shotWidth、shotHeight 时是当前视口的 CSS 像素；带上截图返回的宽高时，x 和 y 是这张图上的像素，会先换算到视口再点。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。inject 在该点的元素上派发指针事件。untilXpath 或 untilSelector 只在按元素点击时使用，表示点完后要出现的元素；没出现会在同一个定位上再点，最多 3 次。失败时带上匹配个数、文字和当时能不能点到。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -382,24 +384,26 @@ tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个
   shotX: z.union([z.number(), z.string()]).optional(),
   shotY: z.union([z.number(), z.string()]).optional(),
   shotScale: z.union([z.number(), z.string()]).optional(),
+  button: z.enum(['left', 'right']).optional(),
   untilXpath: z.string().optional(),
   untilSelector: z.string().optional(),
   via: z.enum(['inject', 'native', 'cdp']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
+  const button = args.button === 'right' ? 'right' as const : 'left' as const
   const point = pointArgs(args)
   if (point) {
-    await clickPoint(tabRef, point.x, point.y, viaOf(args.via), point.shot)
+    await clickPoint(tabRef, point.x, point.y, viaOf(args.via), point.shot, button)
     return { tabId: tabRef.id }
   }
   const located = locatorFrom(args)
   if (!located) throw new Error('需要 xpath 或 selector，或画布坐标 x 和 y')
   if (located.pierce) {
-    await clickDeep(tabRef, located, viaOf(args.via))
+    await clickDeep(tabRef, located, viaOf(args.via), button)
     return { tabId: tabRef.id }
   }
   const until = locatorFrom({ xpath: args.untilXpath, selector: args.untilSelector })
-  await clickLocator(tabRef, located, viaOf(args.via), until)
+  await clickLocator(tabRef, located, viaOf(args.via), until, button)
   return { tabId: tabRef.id }
 })
 
@@ -538,6 +542,44 @@ tool('page_drag', '按住一个点或元素，按 dx、dy 精确拖拽，轨迹�
   }
   const moved = await dragPage(tabRef, gestureVia(args.via), start, Number(args.dx), Number(args.dy))
   return { tabId: tabRef.id, from: moved.from, to: moved.to }
+})
+
+tool('page_inspect', '识别一个元素是什么类型：video、image、canvas、audio、link、input、text。返回类型、地址（src/href/poster）、位置和文字。目标用 xpath、selector，或坐标 x、y（支持 shot 换算，同 page_click）。保存图片视频前先用它确认类型。', z.object({
+  ...pageArgs,
+  ...locateFields,
+  x: z.union([z.number(), z.string()]).optional(),
+  y: z.union([z.number(), z.string()]).optional(),
+  shotWidth: z.union([z.number(), z.string()]).optional(),
+  shotHeight: z.union([z.number(), z.string()]).optional(),
+  shotX: z.union([z.number(), z.string()]).optional(),
+  shotY: z.union([z.number(), z.string()]).optional(),
+  shotScale: z.union([z.number(), z.string()]).optional()
+}), async (args) => {
+  const tabRef = await pageTab(args, false)
+  const point = pointArgs(args)
+  const located = locatorFrom(args)
+  if (!point && !located) throw new Error('需要 xpath 或 selector，或坐标 x 和 y')
+  const info = await inspectElement(tabRef, point ? { point: mapPoint(tabRef, point.x, point.y, point.shot) } : { locator: located })
+  return { tabId: tabRef.id, ...info }
+})
+
+tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。目标用 xpath、selector，或坐标 x、y。返回本机路径、类型和字节数。m3u8/mpd 流媒体清单下不了，会直接说明。', z.object({
+  ...pageArgs,
+  ...locateFields,
+  x: z.union([z.number(), z.string()]).optional(),
+  y: z.union([z.number(), z.string()]).optional(),
+  shotWidth: z.union([z.number(), z.string()]).optional(),
+  shotHeight: z.union([z.number(), z.string()]).optional(),
+  shotX: z.union([z.number(), z.string()]).optional(),
+  shotY: z.union([z.number(), z.string()]).optional(),
+  shotScale: z.union([z.number(), z.string()]).optional()
+}), async (args) => {
+  const tabRef = await pageTab(args)
+  const point = pointArgs(args)
+  const located = locatorFrom(args)
+  if (!point && !located) throw new Error('需要 xpath 或 selector，或坐标 x 和 y')
+  const saved = await saveMedia(tabRef, point ? { point: mapPoint(tabRef, point.x, point.y, point.shot) } : { locator: located }, storage.dir('media'))
+  return { tabId: tabRef.id, ...saved }
 })
 
 tool('page_upload', '把本机文件交给页面上的文件控件，不弹出系统选择框。用 xpath 或 selector 指定控件。不指定时用页面上的第一个文件控件。', z.object({
