@@ -26,6 +26,7 @@ import {
   waitForLocator
 } from '../page'
 import { beginAgentAction, beginHandoff, showAgentMask } from '../windows'
+import { saveMedia } from '../page'
 import { netExport, isWatching } from './NetService'
 import { solveCaptcha } from '../captcha'
 
@@ -392,7 +393,7 @@ export async function runWorkflow(
     await walk(tab, nodes, app.workflow.graph.edges, pool, exported, outputs, start.id, new Set(), failed, produced)
     if (!Object.keys(outputs).length && produced.id && pool[produced.id]) Object.assign(outputs, pool[produced.id])
     const takenOver = tab.control === 'shared'
-    storage.addRun({ id: createId('run'), workflowId: app.id, at: Date.now(), ok: true, title: tab.title })
+    storage.addRun({ id: createId('run'), workflowId: app.id, at: Date.now(), ok: true, title: tab.title, outputs, files: exported.files })
     return { ok: true, workflow: app.id, title: tab.title, files: exported.files, outputs, takenOver }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -637,6 +638,14 @@ async function execNode(
     const timeout = Math.max(1, Number(textOf(data, 'timeout', pool) || 10)) * 1000
     if (gone) await waitForGone(tab, locator, timeout)
     else await waitForLocator(tab, locator, timeout)
+    return
+  }
+  if (data.type === 'download') {
+    const locator = mustLocator(data.locator, pool)
+    const savePath = textOf(data, 'savePath', pool) || undefined
+    const saved = await saveMedia(tab, { locator }, storage.dir('downloads'), savePath)
+    pool[id] = { path: saved.path, kind: saved.kind, bytes: saved.bytes }
+    produced.id = id
     return
   }
   if (data.type === 'captcha') {

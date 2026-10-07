@@ -443,6 +443,8 @@ export function wireIpc(): void {
     if (runtime) openSettingsPage(runtime, '环境')
   })
 
+  ipcMain.handle('workflow:runs', (_event, id: string) => storage.runs.filter((run) => run.workflowId === id).slice(0, 20))
+
   ipcMain.handle('downloads:open', (_event, id: string) => downloadOpen(id))
   ipcMain.handle('downloads:show', (_event, id: string) => downloadShow(id))
   ipcMain.handle('downloads:clear', () => downloadsClear())

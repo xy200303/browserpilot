@@ -58,10 +58,12 @@ const kindText: Record<string, string> = {
   export: '导出',
   'if-else': '判断',
   loop: '循环',
-  captcha: '验证码'
+  captcha: '验证码',
+  wait: '等待',
+  download: '下载'
 }
 
-const addable = ['goto', 'click', 'fill', 'select', 'press', 'scroll', 'swipe', 'upload', 'handoff', 'captcha', 'wait', 'script', 'code', 'http-request', 'extract', 'export', 'if-else', 'loop', 'end', 'cdp'] as const
+const addable = ['goto', 'click', 'fill', 'select', 'press', 'scroll', 'swipe', 'upload', 'handoff', 'captcha', 'wait', 'download', 'script', 'code', 'http-request', 'extract', 'export', 'if-else', 'loop', 'end', 'cdp'] as const
 
 const operators = [
   { id: 'contains', label: '包含' },
@@ -236,6 +238,7 @@ function defaultData(type: string): WorkflowNode['data'] {
   if (type === 'handoff') return { type, title, message: '' }
   if (type === 'captcha') return { type, title, engine: 'auto', retries: '2' }
   if (type === 'wait') return { type, title, state: 'appear', timeout: '10', locator: {} }
+  if (type === 'download') return { type, title, locator: {}, savePath: '' }
   if (type === 'script') return { type, title, source: 'return {}' }
   if (type === 'code') return { type, title, code: 'return {}' }
   if (type === 'cdp') return { type, title, method: '', params: {} }
@@ -295,6 +298,7 @@ function portSummary(node: WorkflowNode): { inputs: string[]; outputs: string[] 
   if (type === 'code' || type === 'script') return { inputs: records(node.data.variables).map((item) => String(item.variable || '')).filter(Boolean), outputs: outputFields(node) }
   if (type === 'http-request') return { inputs: [], outputs: ['status_code', 'body', 'json'] }
   if (type === 'captcha') return { inputs: [], outputs: ['solved', 'attempts'] }
+  if (type === 'download') return { inputs: [], outputs: ['path', 'kind', 'bytes'] }
   if (type === 'extract') return { inputs: selectorText(node.data.variable_selector), outputs: ['value', 'matches'] }
   if (type === 'export') return { inputs: selectorText(Array.isArray(node.data.data_selector) ? node.data.data_selector : node.data.rows_selector), outputs: ['path'] }
   if (type === 'loop') {
@@ -1042,6 +1046,44 @@ function NodePanel({
   )
 }
 
+type RunLog = { id: string; at: number; ok: boolean; node?: string; error?: string; screenshot?: string; outputs?: Record<string, unknown>; files?: string[] }
+
+function RunHistory({ workflowId, reloadKey }: { workflowId: string; reloadKey: number }) {
+  const [runs, setRuns] = useState<RunLog[]>([])
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    void window.browser.listRuns(workflowId).then((items) => setRuns(items as RunLog[]))
+  }, [open, workflowId, reloadKey])
+  return (
+    <div className="grid gap-2">
+      <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => setOpen(!open)}>
+        {open ? '收起运行记录' : '最近运行'}
+      </Button>
+      {open && (
+        <div className="grid max-h-64 gap-2 overflow-auto rounded-lg border border-neutral-200 bg-white p-2">
+          {runs.length === 0 && <p className="px-1 py-3 text-center text-xs text-neutral-400">还没跑过</p>}
+          {runs.map((run) => (
+            <div key={run.id} className="grid gap-1 rounded-md border border-neutral-200 p-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className={run.ok ? 'text-green-600' : 'text-red-500'}>{run.ok ? '成功' : '失败'}</span>
+                <span className="text-neutral-500">{new Date(run.at).toLocaleString()}</span>
+                {run.node && <span className="text-neutral-500">节点 {run.node}</span>}
+              </div>
+              {run.error && <p className="text-red-500">{run.error}</p>}
+              {run.outputs && Object.keys(run.outputs).length > 0 && (
+                <pre className="max-h-24 overflow-auto rounded bg-neutral-50 p-1 whitespace-pre-wrap">{JSON.stringify(run.outputs, null, 1)}</pre>
+              )}
+              {run.files && run.files.length > 0 && <p className="truncate text-neutral-500">{run.files.join('、')}</p>}
+              {run.screenshot && <p className="truncate text-neutral-400">现场截图：{run.screenshot}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function EditorCanvas({ workflow, onBack }: { workflow: WorkflowInfo; onBack: () => void }) {
   const [stack, setStack] = useState<string[]>([])
   const [selectedId, setSelectedId] = useState('')
@@ -1131,6 +1173,7 @@ function EditorCanvas({ workflow, onBack }: { workflow: WorkflowInfo; onBack: ()
           导出
         </Button>
       </div>
+      <RunHistory workflowId={workflow.id} reloadKey={flow.nodes.length} />
       <p className="text-xs text-muted-foreground">从右侧端点拖到下一个节点左侧。选中连线后按 Delete 删除。判断的每个分支是一个端点。</p>
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border bg-[#f3f3f3]">

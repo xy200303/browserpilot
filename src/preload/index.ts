@@ -71,6 +71,7 @@ const api = {
   importWorkflow: (): Promise<{ canceled: boolean; workflow?: string; name?: string }> => ipcRenderer.invoke('workflow:import'),
   deleteWorkflow: (id: string): Promise<{ id: string; name: string }> => ipcRenderer.invoke('workflow:delete', id),
   openWorkflow: (id: string): Promise<void> => ipcRenderer.invoke('workflow:open', id),
+  listRuns: (id: string): Promise<unknown[]> => ipcRenderer.invoke('workflow:runs', id),
   openMarket: (): Promise<void> => ipcRenderer.invoke('market:open'),
   listMarket: (): Promise<{ items: { slug: string; name: string; description: string; author: string; category: string; site: string; icon: string; file: string }[]; source: string }> => ipcRenderer.invoke('market:list'),
   installMarket: (input: { file?: string; url?: string }): Promise<{ workflow: string; name: string }> => ipcRenderer.invoke('market:install', input),

@@ -34,6 +34,8 @@ type RunLog = {
   title?: string
   error?: string
   screenshot?: string
+  outputs?: Record<string, unknown>
+  files?: string[]
 }
 
 function file(name: string): string {

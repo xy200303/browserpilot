@@ -1,5 +1,7 @@
 import type { LayerPayload, Settings, UiState, WorkflowEdge, WorkflowNode } from '../../shared/types'
 
+type RunLog = { id: string; workflowId: string; at: number; ok: boolean; node?: string; title?: string; error?: string; screenshot?: string; outputs?: Record<string, unknown>; files?: string[] }
+
 export type BrowserApi = {
   getState: () => Promise<UiState | null>
   onState: (callback: (state: UiState) => void) => () => void
@@ -50,6 +52,7 @@ export type BrowserApi = {
   importWorkflow: () => Promise<{ canceled: boolean; workflow?: string; name?: string }>
   deleteWorkflow: (id: string) => Promise<{ id: string; name: string }>
   openWorkflow: (id: string) => Promise<void>
+  listRuns: (id: string) => Promise<RunLog[]>
   openMarket: () => Promise<void>
   listMarket: () => Promise<{ items: { slug: string; name: string; description: string; author: string; category: string; site: string; icon: string; file: string }[]; source: string }>
   installMarket: (input: { file?: string; url?: string }) => Promise<{ workflow: string; name: string }>
