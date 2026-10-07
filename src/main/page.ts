@@ -1341,6 +1341,15 @@ function waitForNextLoad(wc: WebContents, timeoutMs = 30_000): Promise<void> {
       cleanup()
       resolve()
     }
+    // 重页面（广告、长连接）did-stop-loading 可能一直不来：dom-ready 后静置一下就放行
+    const onDomReady = (): void => {
+      if (!started) return
+      setTimeout(() => {
+        cleanup()
+        resolve()
+      }, 1_200)
+    }
+    wc.on('dom-ready', onDomReady)
     const onFail = (_event: unknown, code: number, desc: string, _url: string, isMainFrame: boolean): void => {
       if (!isMainFrame || code === -3) return
       if (!started) return
@@ -1352,6 +1361,7 @@ function waitForNextLoad(wc: WebContents, timeoutMs = 30_000): Promise<void> {
       wc.removeListener('did-start-loading', onStart)
       wc.removeListener('did-stop-loading', onStop)
       wc.removeListener('did-fail-load', onFail)
+      wc.removeListener('dom-ready', onDomReady)
     }
     wc.on('did-start-loading', onStart)
     wc.on('did-stop-loading', onStop)

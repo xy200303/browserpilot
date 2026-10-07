@@ -61,7 +61,7 @@ const kindText: Record<string, string> = {
   captcha: '验证码'
 }
 
-const addable = ['goto', 'click', 'fill', 'select', 'press', 'scroll', 'swipe', 'upload', 'handoff', 'captcha', 'script', 'code', 'http-request', 'extract', 'export', 'if-else', 'loop', 'end', 'cdp'] as const
+const addable = ['goto', 'click', 'fill', 'select', 'press', 'scroll', 'swipe', 'upload', 'handoff', 'captcha', 'wait', 'script', 'code', 'http-request', 'extract', 'export', 'if-else', 'loop', 'end', 'cdp'] as const
 
 const operators = [
   { id: 'contains', label: '包含' },
@@ -235,6 +235,7 @@ function defaultData(type: string): WorkflowNode['data'] {
   if (type === 'swipe') return { type, title, direction: 'down' }
   if (type === 'handoff') return { type, title, message: '' }
   if (type === 'captcha') return { type, title, engine: 'auto', retries: '2' }
+  if (type === 'wait') return { type, title, state: 'appear', timeout: '10', locator: {} }
   if (type === 'script') return { type, title, source: 'return {}' }
   if (type === 'code') return { type, title, code: 'return {}' }
   if (type === 'cdp') return { type, title, method: '', params: {} }
@@ -921,6 +922,21 @@ function NodePageFields({ node, patch }: { node: WorkflowNode; patch: NodePatch 
             </Select>
           </Label>
           <TextField label="重试次数" value={String(node.data.retries ?? '2')} onCommit={(retries) => patch({ ...node.data, retries })} />
+        </>
+      ))}
+      {showFor(node, ['wait'], (
+        <>
+          <Label className="grid gap-1 text-xs text-muted-foreground">
+            等到
+            <Select value={String(node.data.state || 'appear')} onValueChange={(state) => patch({ ...node.data, state })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="appear">出现</SelectItem>
+                <SelectItem value="gone">消失</SelectItem>
+              </SelectContent>
+            </Select>
+          </Label>
+          <TextField label="超时（秒）" value={String(node.data.timeout ?? '10')} onCommit={(timeout) => patch({ ...node.data, timeout })} />
         </>
       ))}
       {showFor(node, ['handoff'], <TextField label="提示" value={String(node.data.message || '')} onCommit={(message) => patch({ ...node.data, message })} />)}

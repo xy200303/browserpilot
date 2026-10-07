@@ -22,6 +22,7 @@ import {
   swipePage,
   typeLocator,
   uploadFiles,
+  waitForGone,
   waitForLocator
 } from '../page'
 import { beginAgentAction, beginHandoff, showAgentMask } from '../windows'
@@ -630,7 +631,21 @@ async function execNode(
     showAgentMask(tab)
     return
   }
+  if (data.type === 'wait') {
+    const locator = mustLocator(data.locator, pool)
+    const gone = textOf(data, 'state', pool) === 'gone'
+    const timeout = Math.max(1, Number(textOf(data, 'timeout', pool) || 10)) * 1000
+    if (gone) await waitForGone(tab, locator, timeout)
+    else await waitForLocator(tab, locator, timeout)
+    return
+  }
   if (data.type === 'captcha') {
+    const present = (await evalSource(tab, `!!document.querySelector('[class*=geetest_bg],[class*=geetest_slider]')`)) as boolean
+    if (!present) {
+      pool[id] = { solved: true, attempts: 0, skipped: true }
+      produced.id = id
+      return
+    }
     const engine = textOf(data, 'engine', pool) || 'auto'
     const retries = Number(textOf(data, 'retries', pool) || 2)
     const result = await solveCaptcha(
