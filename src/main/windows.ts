@@ -1,10 +1,10 @@
 import { app, BrowserWindow, clipboard, dialog, Menu, session, shell, WebContentsView } from 'electron'
-import { existsSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { DEFAULT_ENV } from '@shared/types'
 import { chromeUserAgent } from './ua'
 import { createId } from './ids'
-import { MARKET_PAGE, SETTINGS_PAGE, workflowPage } from '@shared/market'
+import { DOWNLOADS_PAGE, MARKET_PAGE, SETTINGS_PAGE, workflowPage } from '@shared/market'
 import { storage } from './services/store'
 import {
   activePage,
@@ -16,7 +16,7 @@ import {
   type TabRuntime,
   type WindowRuntime
 } from './runtime'
-import { downloadBegin, downloadDone, downloadFail, downloadProgress } from './services/DownloadService'
+import { registerSessionDownload } from './services/DownloadService'
 import { isSendingToPage, saveMedia, startUrl, watchDocument } from './page'
 
 const LOCK_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:rgba(32,33,36,.45);font-family:Segoe UI,sans-serif;color:#fff"><div style="text-align:center"><div style="font-size:18px">Agent 正在操作浏览器</div><button id="take" style="margin-top:16px;padding:8px 18px;border:0;border-radius:8px;background:#fff;color:#202124;font-size:14px">接管</button></div></body></html>`
@@ -240,7 +240,7 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
   return tab
 }
 
-function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings', title: string, url: string): TabRuntime {
+function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings' | 'downloads', title: string, url: string): TabRuntime {
   const existing = runtime.tabs.find((tab) => tab.kind === kind)
   if (existing) {
     activateTab(runtime, existing.id)
@@ -307,6 +307,10 @@ export function openMarket(runtime: WindowRuntime): TabRuntime {
 
 export function openSettingsPage(runtime: WindowRuntime, _section = '环境'): TabRuntime {
   return openBuiltin(runtime, 'settings', '设置', SETTINGS_PAGE)
+}
+
+export function openDownloadsPage(runtime: WindowRuntime): TabRuntime {
+  return openBuiltin(runtime, 'downloads', '下载', DOWNLOADS_PAGE)
 }
 
 export function openWorkflowPage(runtime: WindowRuntime, workflowId: string): TabRuntime {
@@ -552,19 +556,18 @@ function watchDownloads(ses: Electron.Session): void {
   if (watchedSessions.has(ses)) return
   watchedSessions.add(ses)
   ses.on('will-download', (_event, item) => {
+    const dir = storage.dir('downloads')
+    mkdirSync(dir, { recursive: true })
     const name = item.getFilename() || '下载文件'
-    const id = downloadBegin(name, item.getURL())
-    item.on('updated', (_e, state) => {
-      if (state === 'interrupted') {
-        downloadFail(id, '下载中断')
-        return
-      }
-      downloadProgress(id, item.getReceivedBytes(), item.getTotalBytes())
-    })
-    item.once('done', (_e, state) => {
-      if (state === 'completed') downloadDone(id, item.getSavePath())
-      else downloadFail(id, state === 'cancelled' ? '已取消' : '下载中断')
-    })
+    let target = join(dir, name)
+    let n = 1
+    while (existsSync(target)) {
+      const dot = name.lastIndexOf('.')
+      target = join(dir, dot > 0 ? `${name.slice(0, dot)} (${n})${name.slice(dot)}` : `${name} (${n})`)
+      n += 1
+    }
+    item.setSavePath(target)
+    registerSessionDownload(item, target)
   })
 }
 
@@ -620,9 +623,9 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
   })
   const sync = (): void => {
     tab.loading = wc.isLoading()
-    if (tab.kind === 'market' || tab.kind === 'settings') {
-      tab.title = tab.kind === 'market' ? '工作流' : '设置'
-      tab.url = tab.kind === 'market' ? MARKET_PAGE : SETTINGS_PAGE
+    if (tab.kind === 'market' || tab.kind === 'settings' || tab.kind === 'downloads') {
+      tab.title = tab.kind === 'market' ? '工作流' : tab.kind === 'settings' ? '设置' : '下载'
+      tab.url = tab.kind === 'market' ? MARKET_PAGE : tab.kind === 'settings' ? SETTINGS_PAGE : DOWNLOADS_PAGE
     } else {
       tab.title = wc.getTitle() || tab.title
       tab.url = wc.getURL() || tab.url

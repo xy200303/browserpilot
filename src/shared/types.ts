@@ -53,7 +53,7 @@ export type TabInfo = {
   id: string
   envId: string
   groupId: string | null
-  kind: 'page' | 'settings' | 'market' | 'workflow'
+  kind: 'page' | 'settings' | 'market' | 'workflow' | 'downloads'
   title: string
   url: string
   favicon?: string
@@ -134,7 +134,7 @@ export type DownloadItem = {
   path: string
   totalBytes: number
   receivedBytes: number
-  state: 'progressing' | 'completed' | 'failed' | 'cancelled'
+  state: 'progressing' | 'paused' | 'completed' | 'failed' | 'cancelled'
   error?: string
   startedAt: number
   doneAt?: number

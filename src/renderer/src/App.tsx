@@ -8,7 +8,7 @@ import { WorkflowEditor } from './Workflow'
 import { workflowPage } from '../../shared/market'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { DownloadsFlyout } from '@/components/DownloadsFlyout'
+import { DownloadsPage } from './DownloadsPage'
 
 let recorder: MediaRecorder | null = null
 let recordChunks: Blob[] = []
@@ -103,7 +103,7 @@ export function App() {
 
   useEffect(() => {
     if (active?.kind === 'page') setAddress(active.url.startsWith('data:') ? '' : active.url)
-    if (active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow') setAddress('')
+    if (active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow' || active?.kind === 'downloads') setAddress('')
   }, [active?.id, active?.url, active?.kind])
 
   useEffect(() => {
@@ -216,6 +216,7 @@ function TitleRow({ state }: { state: UiState }) {
 function addressPlaceholder(active: TabInfo | undefined, engineName: string): string {
   if (active?.kind === 'market') return '工作流'
   if (active?.kind === 'settings') return '设置'
+  if (active?.kind === 'downloads') return '下载'
   if (active?.kind === 'workflow') return active.title
   return `在${engineName}中搜索，或输入网址`
 }
@@ -235,7 +236,7 @@ function AddressBar({
   addressRef: RefObject<HTMLInputElement | null>
   onReloadBuiltin: (tabId: string) => void
 }) {
-  const builtin = active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow'
+  const builtin = active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow' || active?.kind === 'downloads'
   return (
     <div className="flex h-12 items-center gap-1 bg-[#f3f3f3] px-2">
       <Button variant="ghost" size="icon" className="no-drag" title="后退" disabled={!state.canBack} onClick={() => void window.browser.back()}><ArrowLeft /></Button>
@@ -264,7 +265,7 @@ function AddressBar({
           readOnly={builtin}
         />
       </form>
-      <DownloadsFlyout downloads={state.downloads} />
+      <Button variant="ghost" size="icon" className="no-drag relative" title="下载" onClick={() => void window.browser.openDownloads()}><Download />{state.downloads.some((d) => d.state === 'progressing') && <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-blue-600" />}</Button>
       <Button variant="ghost" className="no-drag" title="工作流" onClick={() => void window.browser.openMarket()}><Workflow />工作流</Button>
       {state.screenRecording && <span className="rounded-md bg-destructive px-1.5 py-0.5 text-xs text-white">录屏</span>}
       <Button
@@ -316,6 +317,11 @@ function PageSurface({ state, active, contentRef, reloadKey }: { state: UiState;
         {active?.kind === 'market' && (
           <div className="absolute inset-0 overflow-hidden bg-white">
             <MarketPage key={reloadKey} state={state} />
+          </div>
+        )}
+        {active?.kind === 'downloads' && (
+          <div className="absolute inset-0 overflow-hidden bg-white">
+            <DownloadsPage key={reloadKey} state={state} />
           </div>
         )}
         {active?.kind === 'settings' && (

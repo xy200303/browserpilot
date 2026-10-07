@@ -8,7 +8,7 @@ import type { StoredEnv } from './services/StorageService'
 import { storage } from './services/store'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate } from './services/RecordService'
 import { installMarketFile, installMarketUrl, listMarket } from './services/MarketService'
-import { downloadOpen, downloadShow, downloadsClear, listDownloads } from './services/DownloadService'
+import { downloadCopyLink, downloadOpen, downloadPause, downloadResume, downloadRetry, downloadShow, downloadCancel, downloadsClear, listDownloads } from './services/DownloadService'
 import { windows, type WindowRuntime } from './runtime'
 import { bridge } from './runtime'
 import {
@@ -26,6 +26,7 @@ import {
   restoreTab,
   openEnvironment,
   openMarket,
+  openDownloadsPage,
   openSettingsPage,
   openWorkflowPage,
   setBounds,
@@ -445,6 +446,15 @@ export function wireIpc(): void {
   ipcMain.handle('downloads:open', (_event, id: string) => downloadOpen(id))
   ipcMain.handle('downloads:show', (_event, id: string) => downloadShow(id))
   ipcMain.handle('downloads:clear', () => downloadsClear())
+  ipcMain.handle('downloads:pause', (_event, id: string) => downloadPause(id))
+  ipcMain.handle('downloads:resume', (_event, id: string) => downloadResume(id))
+  ipcMain.handle('downloads:cancel', (_event, id: string) => downloadCancel(id))
+  ipcMain.handle('downloads:retry', (_event, id: string) => downloadRetry(id))
+  ipcMain.handle('downloads:copyLink', (_event, id: string) => downloadCopyLink(id))
+  ipcMain.handle('menu:downloads', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) openDownloadsPage(runtime)
+  })
 
   ipcMain.handle('group:create', async (event, input: { name: string; color?: string }) => {
     const runtime = windowFromSender(event.sender)
