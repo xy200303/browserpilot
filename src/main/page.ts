@@ -1648,7 +1648,9 @@ const BILIBILI_PLAYINFO = `(() => {
   const d = p.data || p
   const dash = d.dash
   if (!dash || !dash.video) return null
-  const vids = dash.video.slice().sort((a, b) => (b.bandwidth || 0) - (a.bandwidth || 0))
+  const all = dash.video.slice()
+  const avc = all.filter((v) => String(v.codecs || '').startsWith('avc'))
+  const vids = (avc.length ? avc : all).sort((a, b) => (b.bandwidth || 0) - (a.bandwidth || 0))
   const auds = (dash.audio || []).slice().sort((a, b) => (b.bandwidth || 0) - (a.bandwidth || 0))
   const v = vids[0]
   const a = auds[0]
