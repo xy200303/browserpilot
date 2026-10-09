@@ -4,9 +4,9 @@ import { execFile } from 'child_process'
 import { join } from 'path'
 import { searchEngineOf, type ActVia, type GestureVia, type Locator } from '@shared/types'
 import { storage } from './services/store'
-import { runFfmpeg } from './services/ffmpeg'
 import { downloadBegin, downloadDone, downloadFail, downloadProgress } from './services/DownloadService'
 import { acquireDebugger, releaseDebugger, withDebugger } from './services/debugger'
+import { executeMediaPlan, resolveMediaPlan } from './media'
 import type { AxRef, TabRuntime } from './runtime'
 import { bridge, windows } from './runtime'
 
@@ -1708,154 +1708,6 @@ export async function downloadUrl(wc: WebContents, url: string, referer?: string
   })
 }
 
-type StreamPair = { video: string; audio: string }
-
-const BILIBILI_PLAYINFO = `(() => {
-  const p = window.__playinfo__
-  if (!p) return null
-  const d = p.data || p
-  const dash = d.dash
-  if (!dash || !dash.video) return null
-  const all = dash.video.slice()
-  const avc = all.filter((v) => String(v.codecs || '').startsWith('avc'))
-  const vids = (avc.length ? avc : all).sort((a, b) => (b.bandwidth || 0) - (a.bandwidth || 0))
-  const auds = (dash.audio || []).slice().sort((a, b) => (b.bandwidth || 0) - (a.bandwidth || 0))
-  const v = vids[0]
-  const a = auds[0]
-  if (!v || !v.baseUrl) return null
-  return { video: v.baseUrl, audio: a ? a.baseUrl : '' }
-})()`
-
-async function bilibiliStreams(tab: TabRuntime): Promise<StreamPair | null> {
-  const found = (await evalSource(tab, BILIBILI_PLAYINFO).catch(() => null)) as StreamPair | null
-  return found && found.video ? found : null
-}
-
-function mergeTracks(videoPath: string, audioPath: string, outPath: string): Promise<void> {
-  const args = ['-y', '-i', videoPath]
-  if (audioPath) args.push('-i', audioPath)
-  args.push('-c', 'copy', outPath)
-  return runFfmpeg(args)
-}
-
-async function downloadDashPair(tab: TabRuntime, streams: StreamPair, dir: string, savePath: string | undefined, onProgress: (received: number, total?: number) => void): Promise<{ path: string; kind: string; bytes: number }> {
-  const stamp = Date.now()
-  const referer = tab.url || undefined
-  const videoPath = join(dir, `video-${stamp}-v.m4s`)
-  await downloadMedia(tab, streams.video, videoPath, referer, onProgress)
-  let audioPath = ''
-  if (streams.audio) {
-    audioPath = join(dir, `video-${stamp}-a.m4s`)
-    await downloadMedia(tab, streams.audio, audioPath, referer, onProgress)
-  }
-  const outPath = savePath || join(dir, `video-${stamp}.mp4`)
-  try {
-    await mergeTracks(videoPath, audioPath, outPath)
-    const { unlinkSync, statSync } = await import('fs')
-    unlinkSync(videoPath)
-    if (audioPath) unlinkSync(audioPath)
-    return { path: outPath, kind: 'video', bytes: statSync(outPath).size }
-  } catch {
-    throw new Error(`没有 ffmpeg 合并音视频轨，两条轨已分别保存：${videoPath}${audioPath ? `、${audioPath}` : ''}`)
-  }
-}
-
-async function concatMp4Segments(tab: TabRuntime, urls: string[], dir: string, savePath: string | undefined, onProgress: (received: number, total?: number) => void): Promise<{ path: string; kind: string; bytes: number }> {
-  // 搜狐这类站把整片切成多段 mp4，逐段带登录态下载后按播放顺序合并
-  const stamp = Date.now()
-  const referer = tab.url || undefined
-  const segs: string[] = []
-  let received = 0
-  for (let i = 0; i < urls.length; i += 1) {
-    const segPath = join(dir, `segs-${stamp}-${i}.mp4`)
-    await downloadMedia(tab, urls[i], segPath, referer, (n) => onProgress(received + n))
-    const { statSync } = await import('fs')
-    received += statSync(segPath).size
-    segs.push(segPath)
-  }
-  const outPath = savePath || join(dir, `video-${stamp}.mp4`)
-  const listPath = join(dir, `segs-${stamp}.txt`)
-  writeFileSync(listPath, segs.map((s) => `file '${s.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'))
-  try {
-    await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', outPath], 10 * 60_000)
-    const { statSync, unlinkSync } = await import('fs')
-    for (const s of segs) unlinkSync(s)
-    unlinkSync(listPath)
-    return { path: outPath, kind: 'video', bytes: statSync(outPath).size }
-  } catch {
-    throw new Error(`分段视频合并失败，${segs.length} 个分段已保存在 ${dir}（segs-${stamp}-*.mp4）`)
-  }
-}
-
-const GENERIC_STREAMS = `(() => {
-  const entries = performance.getEntriesByType('resource')
-  const names = entries.map((e) => e.name)
-  const pick = (list) => list[list.length - 1] || ''
-  const biggest = (list) => list.slice().sort((a, b) => (b.transferSize || 0) - (a.transferSize || 0)).map((e) => e.name)[0] || ''
-  const m3u8 = names.filter((u) => /\\.m3u8(\\?|$)/i.test(u))
-  const mpd = names.filter((u) => /\\.mpd(\\?|$)/i.test(u))
-  const audioOnly = names.filter((u) => /media-audio|audio-only/i.test(u))
-  const videoOnly = entries.filter((e) => /media-video|video-only/i.test(e.name))
-  const progressive = entries.filter((e) => (/\\.mp4(\\?|$)/i.test(e.name) || /mime_type=video_mp4/i.test(e.name)) && !/media-audio|media-video|audio-only|video-only/i.test(e.name))
-  const hostCount = {}
-  for (const e of progressive) { try { const h = new URL(e.name).host; hostCount[h] = (hostCount[h] || 0) + 1 } catch (err) {} }
-  let mainHost = ''
-  let bestCount = -1
-  for (const h in hostCount) { if (hostCount[h] > bestCount) { bestCount = hostCount[h]; mainHost = h } }
-  const ofMainHost = progressive.filter((e) => { try { return new URL(e.name).host === mainHost } catch (err) { return false } })
-  const seen = new Set()
-  const mp4s = []
-  for (const e of ofMainHost) { if (!seen.has(e.name)) { seen.add(e.name); mp4s.push(e.name) } }
-  return { m3u8: pick(m3u8), mpd: pick(mpd), video: biggest(videoOnly), audio: pick(audioOnly), mp4: biggest(ofMainHost), mp4s: mp4s.slice(0, 100) }
-})()`
-
-const YOUTUBE_STREAMS = `(() => {
-  const p = window.ytInitialPlayerResponse
-  const sd = p && p.streamingData
-  if (!sd) return null
-  const prog = (sd.formats || []).filter((f) => f.url && (f.mimeType || '').indexOf('mp4') >= 0).sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
-  if (prog[0]) return { video: prog[0].url, audio: '' }
-  const ad = (sd.adaptiveFormats || []).filter((f) => f.url && (f.mimeType || '').indexOf('mp4') >= 0)
-  const vids = ad.filter((f) => (f.mimeType || '').indexOf('video') === 0).sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
-  const auds = ad.filter((f) => (f.mimeType || '').indexOf('audio') === 0).sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
-  if (!vids[0]) return null
-  return { video: vids[0].url, audio: auds[0] ? auds[0].url : '' }
-})()`
-
-async function youtubeStreams(tab: TabRuntime): Promise<StreamPair | null> {
-  const found = (await evalSource(tab, YOUTUBE_STREAMS).catch(() => null)) as StreamPair | null
-  return found && found.video ? found : null
-}
-
-type StreamSniff = { m3u8?: string; mpd?: string; video?: string; audio?: string; mp4?: string; mp4s?: string[] }
-
-async function sniffNetworkStreams(tab: TabRuntime, waitMs = 5000): Promise<StreamSniff> {
-  // 腾讯这类播放器在 Web Worker 里拉流，性能条目看不到，用 CDP 网络事件兜底
-  const wc = wcOf(tab)
-  return withDebugger(wc, async (dbg) => {
-    const found: Record<string, string> = { m3u8: '', mpd: '', video: '', audio: '', mp4: '' }
-    const onMessage = (_event: unknown, method: string, params: { request?: { url?: string } }): void => {
-      if (method !== 'Network.requestWillBeSent') return
-      const url = params.request?.url || ''
-      const low = url.toLowerCase()
-      const base = low.split('?')[0].split('#')[0]
-      if (base.endsWith('.m3u8')) found.m3u8 = url
-      else if (base.endsWith('.mpd')) found.mpd = url
-      else if (low.includes('media-audio') || low.includes('audio-only')) found.audio = url
-      else if (low.includes('media-video') || low.includes('video-only')) found.video = url
-      else if (!found.mp4 && (base.endsWith('.mp4') || low.includes('mime_type=video_mp4'))) found.mp4 = url
-    }
-    wc.debugger.on('message', onMessage)
-    try {
-      await dbg.sendCommand('Network.enable')
-      await sleep(waitMs)
-    } finally {
-      wc.debugger.removeListener('message', onMessage)
-    }
-    return found
-  })
-}
-
 export async function downloadMedia(tab: TabRuntime, url: string, path: string, referer?: string, onProgress?: (received: number, total?: number) => void): Promise<void> {
   try {
     const got = await downloadUrl(wcOf(tab), url, referer, onProgress)
@@ -1918,67 +1770,10 @@ export async function saveMediaInfo(tab: TabRuntime, info: ElementInfo, dir: str
   }
   let src = info.src || ''
   if (info.kind === 'video' && (!src || src.startsWith('blob:'))) {
-    const streams = await bilibiliStreams(tab)
-    if (streams) return downloadDashPair(tab, streams, dir, savePath, onProgress)
-    const yt = await youtubeStreams(tab)
-    if (yt) return downloadDashPair(tab, yt, dir, savePath, onProgress)
-    const saveManifest = async (manifest: string): Promise<{ path: string; kind: string; bytes: number }> => {
-      const stamp = Date.now()
-      const outPath = savePath || join(dir, `video-${stamp}.mp4`)
-      const referer = tab.url || ''
-      const args = ['-y']
-      const ua = wcOf(tab).getUserAgent()
-      if (ua) args.push('-user_agent', ua)
-      if (referer) args.push('-headers', `Referer: ${referer}
-`)
-      args.push('-i', manifest, '-c', 'copy', outPath)
-      await runFfmpeg(args, 10 * 60_000)
-      const { statSync } = await import('fs')
-      return { path: outPath, kind: 'video', bytes: statSync(outPath).size }
-    }
-    const handleSniffed = async (g: StreamSniff | null): Promise<{ path: string; kind: string; bytes: number } | null> => {
-      if (!g) return null
-      if (g.video) return downloadDashPair(tab, { video: g.video, audio: g.audio || '' }, dir, savePath, onProgress)
-      if (g.mp4s && g.mp4s.length > 1) return concatMp4Segments(tab, g.mp4s, dir, savePath, onProgress)
-      if (g.mp4) {
-        src = g.mp4
-        return null
-      }
-      const manifest = g.m3u8 || g.mpd || ''
-      if (manifest) return saveManifest(manifest)
-      return null
-    }
-    for (let round = 0; round < 10; round += 1) {
-      // 流地址往往要播起来才出现在性能条目里，多探几轮
-      const generic = (await evalSource(tab, GENERIC_STREAMS).catch(() => null)) as StreamSniff | null
-      const hit = await handleSniffed(generic)
-      if (hit) return hit
-      if (src && !src.startsWith('blob:')) break
-      const attached = (await evalSource(tab, `(() => { const vs = [...document.querySelectorAll('video')].filter((v) => v.currentSrc && !v.currentSrc.startsWith('blob:')).sort((a, b) => (b.videoWidth * b.videoHeight) - (a.videoWidth * a.videoHeight)); return vs[0] ? vs[0].currentSrc : '' })()`).catch(() => '')) as string
-      if (attached) {
-        src = attached
-        break
-      }
-      if (round >= 2) {
-        // 性能条目探不到（可能在 Web Worker 里拉流），先催播放再用 CDP 网络嗅探
-        await evalSource(tab, `(() => { const v = document.querySelector('video'); if (v) { v.muted = true; v.play().catch(() => undefined) } })()`).catch(() => undefined)
-        const sniffed = await sniffNetworkStreams(tab, 5000).catch(() => null)
-        const hit2 = await handleSniffed(sniffed)
-        if (hit2) return hit2
-        if (src && !src.startsWith('blob:')) break
-      }
-      if (round === 8) {
-        // HLS 清单只在起播时拉一次，页面开久了性能条目和网络监听都抓不到，重载从头抓
-        const sniffing = sniffNetworkStreams(tab, 15000)
-        await navigate(tab, tab.url).catch(() => undefined)
-        const sniffed = await sniffing.catch(() => null)
-        const hit3 = await handleSniffed(sniffed)
-        if (hit3) return hit3
-        if (src && !src.startsWith('blob:')) break
-      }
-      if (round < 9) await sleep(1500)
-    }
-    if (!src || src.startsWith('blob:')) throw new Error('流媒体视频没有直链也没探到音视频轨或清单（m3u8/mpd）。用 page_record_video 录下正在播放的画面')
+    const plan = await resolveMediaPlan(tab)
+    if (!plan) throw new Error('流媒体视频没有直链也没探到音视频轨或清单（m3u8/mpd）。用 page_record_video 录下正在播放的画面')
+    if (plan.kind === 'direct') src = plan.url
+    else return executeMediaPlan(tab, plan, dir, savePath, onProgress)
   }
   let buf: Buffer
   let contentType = ''
