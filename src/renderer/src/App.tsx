@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { ArrowLeft, ArrowRight, Download, FolderOpen, Minus, MoreVertical, Plus, RotateCw, Square, Volume2, VolumeX, Workflow, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Download, FolderOpen, Minus, MoreVertical, Plus, RotateCw, Square, Volume2, VolumeX, Workflow, X } from 'lucide-react'
 import { searchEngineOf, type DownloadItem, type TabInfo, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { MarketPage } from './MarketPage'
@@ -140,43 +140,83 @@ export function App() {
 function TabStrip({ state }: { state: UiState }) {
   const pinnedTabs = state.tabs.filter((tab) => tab.pinned)
   const looseTabs = state.tabs.filter((tab) => !tab.pinned && !tab.groupId)
+  const stripRef = useRef<HTMLDivElement>(null)
+  const [canLeft, setCanLeft] = useState(false)
+  const [canRight, setCanRight] = useState(false)
+  useEffect(() => {
+    const el = stripRef.current
+    if (!el) return
+    const update = (): void => {
+      setCanLeft(el.scrollLeft > 1)
+      setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    el.addEventListener('scroll', update)
+    return () => {
+      observer.disconnect()
+      el.removeEventListener('scroll', update)
+    }
+  }, [state.tabs, state.groups])
+  const scrollStrip = (delta: number): void => {
+    stripRef.current?.scrollBy({ left: delta, behavior: 'smooth' })
+  }
   return (
-    <div
-      className="drag flex min-w-0 flex-1 items-end gap-1 overflow-x-auto"
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        const tabId = event.dataTransfer.getData('text/plain')
-        if (tabId) void window.browser.assignGroup({ tabId, groupId: null })
-      }}
-    >
-      {pinnedTabs.map((tab) => (
-        <TabButton key={tab.id} tab={tab} />
-      ))}
-      {state.groups.map((group) => {
-        const members = state.tabs.filter((tab) => tab.groupId === group.id && !tab.pinned)
-        return (
-          <div
-            key={group.id}
-            className="no-drag mb-0 flex items-end gap-1 rounded-t-lg px-1"
-            style={{ boxShadow: `inset 0 -2px 0 ${group.color}` }}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.stopPropagation()
-              const tabId = event.dataTransfer.getData('text/plain')
-              if (tabId) void window.browser.assignGroup({ tabId, groupId: group.id })
-            }}
-          >
-            <span className="mb-1 max-w-16 truncate px-1 text-xs" style={{ color: group.color }}>{group.name}</span>
-            {members.map((tab) => (
-              <TabButton key={tab.id} tab={tab} />
-            ))}
-          </div>
-        )
-      })}
-      {looseTabs.map((tab) => (
-        <TabButton key={tab.id} tab={tab} />
-      ))}
-      <Button variant="ghost" size="icon" className="no-drag" title="新标签" onClick={() => void window.browser.newTab()}>
+    <div className="flex min-w-0 flex-1 items-end">
+      {canLeft && (
+        <Button variant="ghost" size="icon" className="no-drag mb-0 h-7 w-5 shrink-0 rounded-full" title="向左滚动" onClick={() => scrollStrip(-240)}>
+          <ChevronLeft />
+        </Button>
+      )}
+      <div
+        ref={stripRef}
+        className="drag flex min-w-0 flex-1 items-end gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        onWheel={(event) => {
+          const el = stripRef.current
+          if (!el || event.deltaY === 0) return
+          el.scrollLeft += event.deltaY
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          const tabId = event.dataTransfer.getData('text/plain')
+          if (tabId) void window.browser.assignGroup({ tabId, groupId: null })
+        }}
+      >
+        {pinnedTabs.map((tab) => (
+          <TabButton key={tab.id} tab={tab} />
+        ))}
+        {state.groups.map((group) => {
+          const members = state.tabs.filter((tab) => tab.groupId === group.id && !tab.pinned)
+          return (
+            <div
+              key={group.id}
+              className="no-drag mb-0 flex items-end gap-1 rounded-t-lg px-1"
+              style={{ boxShadow: `inset 0 -2px 0 ${group.color}` }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.stopPropagation()
+                const tabId = event.dataTransfer.getData('text/plain')
+                if (tabId) void window.browser.assignGroup({ tabId, groupId: group.id })
+              }}
+            >
+              <span className="mb-1 max-w-16 truncate px-1 text-xs" style={{ color: group.color }}>{group.name}</span>
+              {members.map((tab) => (
+                <TabButton key={tab.id} tab={tab} />
+              ))}
+            </div>
+          )
+        })}
+        {looseTabs.map((tab) => (
+          <TabButton key={tab.id} tab={tab} />
+        ))}
+      </div>
+      {canRight && (
+        <Button variant="ghost" size="icon" className="no-drag mb-0 h-7 w-5 shrink-0 rounded-full" title="向右滚动" onClick={() => scrollStrip(240)}>
+          <ChevronRight />
+        </Button>
+      )}
+      <Button variant="ghost" size="icon" className="no-drag shrink-0" title="新标签" onClick={() => void window.browser.newTab()}>
         <Plus />
       </Button>
     </div>
@@ -383,7 +423,7 @@ function TabButton({ tab }: { tab: TabInfo }) {
   return (
     <div
       draggable
-      className={`no-drag mb-0 flex h-8 max-w-56 min-w-0 items-center gap-2 rounded-t-lg px-3 ${tab.active ? 'bg-white' : 'hover:bg-black/5'}`}
+      className={`no-drag mb-0 flex h-8 max-w-56 min-w-28 shrink-0 items-center gap-2 rounded-t-lg px-3 ${tab.active ? 'bg-white' : 'hover:bg-black/5'}`}
       onDragStart={(event) => {
         event.dataTransfer.setData('text/plain', tab.id)
         event.dataTransfer.effectAllowed = 'move'
