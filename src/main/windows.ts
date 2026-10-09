@@ -712,6 +712,19 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
     tab.favicon = next
     bridge.broadcast(runtime.envId)
   })
+  wc.on('media-started-playing', () => {
+    if (tab.audible) return
+    tab.audible = true
+    bridge.broadcast(runtime.envId)
+  })
+  wc.on('media-paused', () => {
+    if (!tab.audible) return
+    tab.audible = false
+    bridge.broadcast(runtime.envId)
+  })
+  wc.on('did-navigate', () => {
+    tab.audible = false
+  })
   wc.on('did-start-loading', sync)
   wc.on('did-stop-loading', sync)
   wc.on('did-navigate', sync)

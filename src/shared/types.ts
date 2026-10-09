@@ -61,6 +61,7 @@ export type TabInfo = {
   active: boolean
   pinned?: boolean
   muted?: boolean
+  audible?: boolean
   control: Control
 }
 

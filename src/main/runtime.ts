@@ -20,6 +20,7 @@ export type TabRuntime = {
   loading: boolean
   pinned?: boolean
   muted?: boolean
+  audible?: boolean
   control: InternalControl
   handoffMessage: string
   userTookOver: boolean

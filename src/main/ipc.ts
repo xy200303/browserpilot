@@ -82,6 +82,7 @@ export async function buildState(runtime: WindowRuntime): Promise<UiState> {
       active: tab.id === runtime.activeTabId,
       pinned: Boolean(tab.pinned),
       muted: Boolean(tab.muted),
+      audible: Boolean(tab.audible),
       control: tab.control === 'handoff' ? 'handoff' : tab.control === 'agent' ? 'agent' : 'shared'
     })),
     groups: storage.groups

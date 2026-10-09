@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { ArrowLeft, ArrowRight, Download, FolderOpen, Minus, MoreVertical, Plus, RotateCw, Square, Workflow, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Download, FolderOpen, Minus, MoreVertical, Plus, RotateCw, Square, Volume2, VolumeX, Workflow, X } from 'lucide-react'
 import { searchEngineOf, type DownloadItem, type TabInfo, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { MarketPage } from './MarketPage'
@@ -363,6 +363,18 @@ function WorkflowPage({ state, tab }: { state: UiState; tab: TabInfo }) {
   return <WorkflowEditor workflow={workflow} onBack={() => void window.browser.closeTab(tab.id)} />
 }
 
+function TabIcon({ tab }: { tab: TabInfo }) {
+  const [broken, setBroken] = useState(false)
+  if (tab.favicon && !broken) {
+    return <img key={tab.favicon} src={tab.favicon} alt="" className="h-4 w-4 shrink-0 rounded-sm object-cover" onError={() => setBroken(true)} />
+  }
+  return (
+    <span className="grid h-4 w-4 shrink-0 place-items-center rounded-sm bg-[#d0d0d0] text-[10px] text-[#3c3c3c]">
+      {(tab.title || '新').slice(0, 1)}
+    </span>
+  )
+}
+
 function TabButton({ tab }: { tab: TabInfo }) {
   const openMenu = (event: MouseEvent<HTMLElement>): void => {
     event.preventDefault()
@@ -378,6 +390,21 @@ function TabButton({ tab }: { tab: TabInfo }) {
       }}
       onDoubleClick={(event) => event.stopPropagation()}
     >
+      {tab.audible ? (
+        <button
+          type="button"
+          className="grid h-4 w-4 shrink-0 place-items-center text-neutral-500 hover:text-neutral-900"
+          title={tab.muted ? '取消静音' : '静音'}
+          onClick={(event) => {
+            event.stopPropagation()
+            void window.browser.muteTab(tab.id)
+          }}
+        >
+          {tab.muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+        </button>
+      ) : (
+        <TabIcon tab={tab} />
+      )}
       <button type="button" className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-left text-sm" onClick={() => void window.browser.activateTab(tab.id)} onContextMenu={openMenu}>
         {tab.title || '新标签页'}
       </button>
