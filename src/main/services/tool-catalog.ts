@@ -571,7 +571,7 @@ tool('page_inspect', '识别一个元素是什么类型：video、image、canvas
   return { tabId: tabRef.id, ...info }
 })
 
-tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站(__playinfo__)、抖音(media-video/media-audio)这类 MSE 流媒体自动从性能条目里抓 DASH 音视频轨或渐进 mp4，有 ffmpeg 就合并成 mp4，没有就两条轨分开存。目标用 xpath、selector，或坐标 x、y。savePath 给了就存到那个位置，不给就存进媒体目录。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
+tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站(__playinfo__)、抖音(media-video/media-audio)、YouTube(ytInitialPlayerResponse)这类流媒体自动抓 DASH 音视频轨合并 mp4；m3u8/mpd 清单（央视、AcFun、优酷等）用 ffmpeg 拉流转 mp4；搜狐这类分段 mp4 按已加载的分段顺序合并（长视频只下到自己播到的部分，要完整就配合 page_record_video）；播放器在 Web Worker 里拉流（腾讯等）时用 CDP 网络嗅探兜底，必要时自动重载页面从头抓清单。目标用 xpath、selector，或坐标 x、y。savePath 给了就存到那个位置，不给就存进媒体目录。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
