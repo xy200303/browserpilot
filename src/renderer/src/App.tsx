@@ -141,6 +141,18 @@ function TabStrip({ state }: { state: UiState }) {
   const pinnedTabs = state.tabs.filter((tab) => tab.pinned)
   const looseTabs = state.tabs.filter((tab) => !tab.pinned && !tab.groupId)
   const stripRef = useRef<HTMLDivElement>(null)
+  const orderedTabs = [
+    ...pinnedTabs,
+    ...state.groups.flatMap((group) => state.tabs.filter((tab) => tab.groupId === group.id && !tab.pinned)),
+    ...looseTabs
+  ]
+  const dividerHidden = new Set<string>()
+  orderedTabs.forEach((tab, index) => {
+    if (tab.active) {
+      dividerHidden.add(tab.id)
+      if (index > 0) dividerHidden.add(orderedTabs[index - 1].id)
+    }
+  })
   const [canLeft, setCanLeft] = useState(false)
   const [canRight, setCanRight] = useState(false)
   useEffect(() => {
@@ -184,7 +196,7 @@ function TabStrip({ state }: { state: UiState }) {
         }}
       >
         {pinnedTabs.map((tab) => (
-          <TabButton key={tab.id} tab={tab} />
+          <TabButton key={tab.id} tab={tab} hideDivider={dividerHidden.has(tab.id)} />
         ))}
         {state.groups.map((group) => {
           const members = state.tabs.filter((tab) => tab.groupId === group.id && !tab.pinned)
@@ -202,13 +214,13 @@ function TabStrip({ state }: { state: UiState }) {
             >
               <span className="mb-1 max-w-16 truncate px-1 text-xs" style={{ color: group.color }}>{group.name}</span>
               {members.map((tab) => (
-                <TabButton key={tab.id} tab={tab} />
+                <TabButton key={tab.id} tab={tab} hideDivider={dividerHidden.has(tab.id)} />
               ))}
             </div>
           )
         })}
         {looseTabs.map((tab) => (
-          <TabButton key={tab.id} tab={tab} />
+          <TabButton key={tab.id} tab={tab} hideDivider={dividerHidden.has(tab.id)} />
         ))}
       </div>
       {canRight && (
@@ -415,7 +427,7 @@ function TabIcon({ tab }: { tab: TabInfo }) {
   )
 }
 
-function TabButton({ tab }: { tab: TabInfo }) {
+function TabButton({ tab, hideDivider }: { tab: TabInfo; hideDivider?: boolean }) {
   const openMenu = (event: MouseEvent<HTMLElement>): void => {
     event.preventDefault()
     void window.browser.openLayer({ kind: 'context', x: event.clientX, y: event.clientY, tab })
@@ -423,7 +435,7 @@ function TabButton({ tab }: { tab: TabInfo }) {
   return (
     <div
       draggable
-      className={`no-drag mb-0 flex h-8 max-w-56 min-w-28 shrink-0 items-center gap-2 rounded-t-lg px-3 ${tab.active ? 'bg-white' : 'hover:bg-black/5'}`}
+      className={`no-drag relative mb-0 flex h-8 max-w-56 min-w-28 shrink-0 items-center gap-2 rounded-t-lg px-3 ${tab.active ? 'bg-white' : 'hover:bg-black/5'}`}
       onDragStart={(event) => {
         event.dataTransfer.setData('text/plain', tab.id)
         event.dataTransfer.effectAllowed = 'move'
@@ -448,6 +460,7 @@ function TabButton({ tab }: { tab: TabInfo }) {
       <button type="button" className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-left text-sm" onClick={() => void window.browser.activateTab(tab.id)} onContextMenu={openMenu}>
         {tab.title || '新标签页'}
       </button>
+      {!tab.active && !hideDivider && <span className="pointer-events-none absolute -right-1 top-1/2 h-4 w-px -translate-y-1/2 bg-neutral-300" />}
       <Button
         variant="ghost"
         size="icon-xs"
