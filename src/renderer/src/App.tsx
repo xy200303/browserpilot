@@ -146,13 +146,7 @@ function TabStrip({ state }: { state: UiState }) {
     ...state.groups.flatMap((group) => state.tabs.filter((tab) => tab.groupId === group.id && !tab.pinned)),
     ...looseTabs
   ]
-  const dividerHidden = new Set<string>()
-  orderedTabs.forEach((tab, index) => {
-    if (tab.active) {
-      dividerHidden.add(tab.id)
-      if (index > 0) dividerHidden.add(orderedTabs[index - 1].id)
-    }
-  })
+  const lastTabId = orderedTabs.length ? orderedTabs[orderedTabs.length - 1].id : ''
   const [canLeft, setCanLeft] = useState(false)
   const [canRight, setCanRight] = useState(false)
   useEffect(() => {
@@ -196,7 +190,7 @@ function TabStrip({ state }: { state: UiState }) {
         }}
       >
         {pinnedTabs.map((tab) => (
-          <TabButton key={tab.id} tab={tab} hideDivider={dividerHidden.has(tab.id)} />
+          <TabButton key={tab.id} tab={tab} hideDivider={tab.id === lastTabId} />
         ))}
         {state.groups.map((group) => {
           const members = state.tabs.filter((tab) => tab.groupId === group.id && !tab.pinned)
@@ -214,13 +208,13 @@ function TabStrip({ state }: { state: UiState }) {
             >
               <span className="mb-1 max-w-16 truncate px-1 text-xs" style={{ color: group.color }}>{group.name}</span>
               {members.map((tab) => (
-                <TabButton key={tab.id} tab={tab} hideDivider={dividerHidden.has(tab.id)} />
+                <TabButton key={tab.id} tab={tab} hideDivider={tab.id === lastTabId} />
               ))}
             </div>
           )
         })}
         {looseTabs.map((tab) => (
-          <TabButton key={tab.id} tab={tab} hideDivider={dividerHidden.has(tab.id)} />
+          <TabButton key={tab.id} tab={tab} hideDivider={tab.id === lastTabId} />
         ))}
       </div>
       {canRight && (
@@ -460,7 +454,7 @@ function TabButton({ tab, hideDivider }: { tab: TabInfo; hideDivider?: boolean }
       <button type="button" className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-left text-sm" onClick={() => void window.browser.activateTab(tab.id)} onContextMenu={openMenu}>
         {tab.title || '新标签页'}
       </button>
-      {!tab.active && !hideDivider && <span className="pointer-events-none absolute -right-1 top-1/2 h-4 w-px -translate-y-1/2 bg-neutral-300" />}
+      {!hideDivider && <span className="pointer-events-none absolute -right-1 top-1/2 h-4 w-px -translate-y-1/2 bg-neutral-300" />}
       <Button
         variant="ghost"
         size="icon-xs"
