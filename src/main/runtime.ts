@@ -100,5 +100,8 @@ export const bridge = {
   },
   ensureWindow(_envId: string, _headless = false): WindowRuntime {
     throw new Error('窗口还没准备好')
+  },
+  restoreTabView(_tab: TabRuntime): boolean {
+    return false
   }
 }

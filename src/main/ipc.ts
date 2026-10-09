@@ -25,6 +25,7 @@ import {
   reloadTab,
   resolveTab,
   restoreTab,
+  restoreTabView,
   openEnvironment,
   openMarket,
   openDownloadsPage,
@@ -148,6 +149,7 @@ export function wireIpc(): void {
   bridge.layout = layoutWindow
   bridge.ensureWindow = (envId, headless) => openEnvironment(envId, headless ?? false)
   bridge.openTab = (envId, url) => addTab(openEnvironment(envId, windows.get(envId)?.headless ?? false), url || startUrl())
+  bridge.restoreTabView = restoreTabView
 
   ipcMain.handle('state:get', async (event) => {
     const runtime = windowFromSender(event.sender)

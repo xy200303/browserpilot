@@ -475,6 +475,43 @@ export function closeTab(runtime: WindowRuntime, tabId: string): void {
   bridge.broadcast(runtime.envId)
 }
 
+/** 渲染进程崩溃/被销毁后，给标签重建 WebContentsView 并重新加载原地址 */
+export function restoreTabView(tab: TabRuntime): boolean {
+  const runtime = windows.get(tab.envId)
+  if (!runtime || tab.kind !== 'page') return false
+  if (tab.view && !tab.view.webContents.isDestroyed()) return true
+  const old = tab.view
+  const ses = session.fromPartition(`persist:${runtime.envId}`)
+  ses.setUserAgent(chromeUserAgent())
+  const view = new WebContentsView({
+    webPreferences: {
+      session: ses,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false,
+      preload: join(__dirname, '../preload/page.js')
+    }
+  })
+  view.webContents.setUserAgent(chromeUserAgent())
+  tab.view = view
+  if (old) {
+    try {
+      runtime.win.contentView.removeChildView(old)
+    } catch {
+      /* 已经不在树上 */
+    }
+  }
+  runtime.win.contentView.addChildView(view)
+  bindPage(runtime, tab)
+  const active = runtime.activeTabId === tab.id
+  view.setVisible(active)
+  if (active) view.setBounds(runtime.bounds)
+  void view.webContents.loadURL(tab.url)
+  bridge.layout(runtime.envId)
+  return true
+}
+
 export function duplicateTab(runtime: WindowRuntime, tabId: string): TabRuntime | undefined {
   const tab = runtime.tabs.find((item) => item.id === tabId && item.kind === 'page')
   if (!tab) return undefined

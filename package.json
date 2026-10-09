@@ -1,6 +1,6 @@
 {
   "name": "browserpilot",
-  "version": "0.13.11",
+  "version": "0.13.12",
   "private": true,
   "description": "Browser for agents. One process, many environments.",
   "main": "./out/main/index.js",

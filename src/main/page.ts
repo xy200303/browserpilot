@@ -35,6 +35,10 @@ export function normalizeUrl(input: string): string {
 
 function wcOf(tab: TabRuntime): WebContents {
   if (!tab.view) throw new Error('这个标签没有网页')
+  if (tab.view.webContents.isDestroyed()) {
+    // 渲染进程崩溃后 webContents 会失效，重建视图并恢复页面
+    if (!bridge.restoreTabView(tab) || !tab.view) throw new Error('这个标签的页面崩溃了，重试一下')
+  }
   return tab.view.webContents
 }
 
