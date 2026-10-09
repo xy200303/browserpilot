@@ -1,12 +1,12 @@
 import { clipboard, nativeImage, net, type WebContents } from 'electron'
-import { appendFileSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { appendFileSync, mkdirSync, writeFileSync } from 'fs'
 import { execFile } from 'child_process'
 import { join } from 'path'
 import { searchEngineOf, type ActVia, type GestureVia, type Locator } from '@shared/types'
 import { storage } from './services/store'
 import { downloadBegin, downloadDone, downloadFail, downloadProgress } from './services/DownloadService'
 import { acquireDebugger, releaseDebugger, withDebugger } from './services/debugger'
-import { executeMediaPlan, resolveMediaPlan } from './media'
+export { saveMedia, saveMediaInfo } from './media'
 import type { AxRef, TabRuntime } from './runtime'
 import { bridge, windows } from './runtime'
 
@@ -1645,39 +1645,6 @@ export async function inspectElement(tab: TabRuntime, target: { locator?: Locato
   throw new Error('需要定位或坐标')
 }
 
-function sniffExt(buf: Buffer): string {
-  if (buf.length < 12) return ''
-  const head = buf.subarray(0, 12).toString('latin1')
-  if (buf[0] === 0xff && buf[1] === 0xd8) return 'jpg'
-  if (buf[0] === 0x89 && buf[1] === 0x50) return 'png'
-  if (head.startsWith('GIF8')) return 'gif'
-  if (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP') return 'webp'
-  if (head.slice(4, 8) === 'ftyp') return 'mp4'
-  if (head.startsWith('OggS')) return 'ogg'
-  return ''
-}
-
-function extOf(url: string, contentType: string): string {
-  const byType: Record<string, string> = {
-    'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg',
-    'video/mp4': 'mp4', 'video/webm': 'webm', 'audio/mpeg': 'mp3'
-  }
-  for (const [type, ext] of Object.entries(byType)) {
-    if (contentType.includes(type)) return ext
-  }
-  try {
-    const ext = new URL(url).pathname.split('.').pop() || ''
-    if (/^[a-z0-9]{2,5}$/i.test(ext)) return ext.toLowerCase()
-  } catch {
-    /* 不是合法 URL */
-  }
-  return 'bin'
-}
-
-async function downloadWithSession(tab: TabRuntime, url: string, referer?: string, onProgress?: (received: number, total: number) => void): Promise<{ buf: Buffer; contentType: string }> {
-  return downloadUrl(wcOf(tab), url, referer, onProgress)
-}
-
 export async function downloadUrl(wc: WebContents, url: string, referer?: string, onProgress?: (received: number, total: number) => void): Promise<{ buf: Buffer; contentType: string }> {
   const ses = wc.session
   return new Promise((resolve, reject) => {
@@ -1715,107 +1682,6 @@ export async function downloadMedia(tab: TabRuntime, url: string, path: string, 
   } catch {
     await fetchToFile(tab, url, path, onProgress)
   }
-}
-
-export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; point?: { x: number; y: number } }, dir: string, savePath?: string): Promise<{ path: string; kind: string; bytes: number }> {
-  const info = await inspectElement(tab, target)
-  const name = (() => {
-    if ((info.kind === 'video' || info.kind === 'audio') && tab.title) return `${tab.title.replace(/[\/:*?"<>|]/g, '_').slice(0, 60)}`
-    try {
-      if (info.src) {
-        const base = decodeURIComponent(new URL(info.src).pathname.split('/').pop() || '')
-        if (base && !/^[0-9a-f-]{20,}$/i.test(base.replace(/\.[a-z0-9]+$/i, ''))) return base
-      }
-    } catch { /* blob/data 地址 */ }
-    if (tab.title) return `${tab.title.replace(/[\/:*?"<>|]/g, '_').slice(0, 60)}-${info.kind}`
-    return `${info.kind}-${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`
-  })()
-  const dlId = downloadBegin(name, info.src || '')
-  try {
-    const result = await saveMediaInfo(tab, info, dir, savePath, (received, total) => downloadProgress(dlId, received, total))
-    downloadDone(dlId, result.path)
-    return result
-  } catch (error) {
-    downloadFail(dlId, error instanceof Error ? error.message : String(error))
-    throw error
-  }
-}
-
-async function captureElementPng(tab: TabRuntime, rect: { x: number; y: number; w: number; h: number }): Promise<Buffer> {
-  const wc = wcOf(tab)
-  return withDebugger(wc, async (dbg) => {
-    const shot = (await dbg.sendCommand('Page.captureScreenshot', {
-      format: 'png',
-      clip: { x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: rect.w, height: rect.h, scale: 2 }
-    })) as { data: string }
-    return Buffer.from(shot.data, 'base64')
-  })
-}
-
-export async function saveMediaInfo(tab: TabRuntime, info: ElementInfo, dir: string, savePath: string | undefined, onProgress: (received: number, total?: number) => void): Promise<{ path: string; kind: string; bytes: number }> {
-  mkdirSync(dir, { recursive: true })
-  if (info.kind === 'canvas') {
-    const source = info.rect
-      ? `(() => { const el = document.elementFromPoint(${info.rect.x + info.rect.w / 2}, ${info.rect.y + info.rect.h / 2}); const c = el && el.closest ? el.closest('canvas') : null; return c ? c.toDataURL('image/png') : '' })()`
-      : ''
-    const dataUrl = (await evalSource(tab, source)) as string
-    if (!dataUrl.startsWith('data:image/png;base64,')) throw new Error('画布导不出来（可能跨域污染）')
-    const buf = Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64')
-    const path = savePath || join(dir, `canvas-${Date.now()}.png`)
-    writeFileSync(path, buf)
-    return { path, kind: 'canvas', bytes: buf.length }
-  }
-  if (info.kind !== 'image' && info.kind !== 'video' && info.kind !== 'audio') {
-    throw new Error(info.kind === 'link' ? `这是链接不是媒体：${info.href}` : `这个元素是 ${info.kind}，没有可保存的媒体`)
-  }
-  let src = info.src || ''
-  if (info.kind === 'video' && (!src || src.startsWith('blob:'))) {
-    const plan = await resolveMediaPlan(tab)
-    if (!plan) throw new Error('流媒体视频没有直链也没探到音视频轨或清单（m3u8/mpd）。用 page_record_video 录下正在播放的画面')
-    if (plan.kind === 'direct') src = plan.url
-    else return executeMediaPlan(tab, plan, dir, savePath, onProgress)
-  }
-  let buf: Buffer
-  let contentType = ''
-  if (src.startsWith('blob:')) {
-    const base64 = (await evalSource(
-      tab,
-      `fetch(${JSON.stringify(src)}).then((r) => r.arrayBuffer()).then((b) => { const u = new Uint8Array(b); const parts = []; for (let i = 0; i < u.length; i += 32768) parts.push(String.fromCharCode.apply(null, u.subarray(i, i + 32768))); return btoa(parts.join('')) })`
-    )) as string
-    buf = Buffer.from(base64, 'base64')
-  } else if (src.startsWith('data:')) {
-    const comma = src.indexOf(',')
-    contentType = src.slice(5, src.indexOf(';'))
-    buf = Buffer.from(src.slice(comma + 1), 'base64')
-  } else if (/^https?:/.test(src)) {
-    if (/\.(m3u8|mpd)(\?|$)/i.test(src)) throw new Error('这是流媒体清单（m3u8/mpd），不是单个文件，下不了')
-    try {
-      const got = await downloadWithSession(tab, src, undefined, onProgress)
-      buf = got.buf
-      contentType = got.contentType
-    } catch {
-      try {
-        const tmpPath = join(dir, `dl-${Date.now()}.part`)
-        await fetchToFile(tab, src, tmpPath, onProgress)
-        buf = readFileSync(tmpPath)
-        unlinkSync(tmpPath)
-      } catch (second) {
-        if (info.kind === 'image') {
-          // URL 失效或防盗链：直接截这个元素渲染出来的画面
-          buf = await captureElementPng(tab, info.rect)
-          contentType = 'image/png'
-        } else {
-          throw second
-        }
-      }
-    }
-  } else {
-    throw new Error(`不认识这种地址：${src.slice(0, 60)}`)
-  }
-  const ext = sniffExt(buf) || extOf(src, contentType)
-  const path = savePath || join(dir, `${info.kind}-${Date.now()}.${ext}`)
-  writeFileSync(path, buf)
-  return { path, kind: info.kind, bytes: buf.length }
 }
 
 export async function recordVideo(tab: TabRuntime, seconds: number, dir: string, savePath?: string): Promise<{ path: string; bytes: number; seconds: number }> {
