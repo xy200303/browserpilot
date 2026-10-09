@@ -571,7 +571,7 @@ tool('page_inspect', '识别一个元素是什么类型：video、image、canvas
   return { tabId: tabRef.id, ...info }
 })
 
-tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站这类 MSE 流媒体自动抓 DASH 音视频轨，有 ffmpeg 就合并成 mp4，没有就两条轨分开存。目标用 xpath、selector，或坐标 x、y。savePath 给了就存到那个位置，不给就存进媒体目录。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
+tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站(__playinfo__)、抖音(media-video/media-audio)这类 MSE 流媒体自动从性能条目里抓 DASH 音视频轨或渐进 mp4，有 ffmpeg 就合并成 mp4，没有就两条轨分开存。目标用 xpath、selector，或坐标 x、y。savePath 给了就存到那个位置，不给就存进媒体目录。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),

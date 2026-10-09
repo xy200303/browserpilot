@@ -1684,6 +1684,8 @@ export async function downloadUrl(wc: WebContents, url: string, referer?: string
     const req = net.request({ url, session: ses })
     const ref = referer || wc.getURL()
     if (ref) req.setHeader('Referer', ref)
+    const ua = wc.getUserAgent()
+    if (ua) req.setHeader('User-Agent', ua)
     const chunks: Buffer[] = []
     let contentType = ''
     req.on('response', (res) => {
@@ -1736,11 +1738,39 @@ function mergeTracks(videoPath: string, audioPath: string, outPath: string): Pro
   return runFfmpeg(args)
 }
 
+async function downloadDashPair(tab: TabRuntime, streams: StreamPair, dir: string, savePath: string | undefined, onProgress: (received: number, total?: number) => void): Promise<{ path: string; kind: string; bytes: number }> {
+  const stamp = Date.now()
+  const referer = tab.url || undefined
+  const videoPath = join(dir, `video-${stamp}-v.m4s`)
+  await downloadMedia(tab, streams.video, videoPath, referer, onProgress)
+  let audioPath = ''
+  if (streams.audio) {
+    audioPath = join(dir, `video-${stamp}-a.m4s`)
+    await downloadMedia(tab, streams.audio, audioPath, referer, onProgress)
+  }
+  const outPath = savePath || join(dir, `video-${stamp}.mp4`)
+  try {
+    await mergeTracks(videoPath, audioPath, outPath)
+    const { unlinkSync, statSync } = await import('fs')
+    unlinkSync(videoPath)
+    if (audioPath) unlinkSync(audioPath)
+    return { path: outPath, kind: 'video', bytes: statSync(outPath).size }
+  } catch {
+    throw new Error(`没有 ffmpeg 合并音视频轨，两条轨已分别保存：${videoPath}${audioPath ? `、${audioPath}` : ''}`)
+  }
+}
+
 const GENERIC_STREAMS = `(() => {
-  const names = performance.getEntriesByType('resource').map((e) => e.name)
+  const entries = performance.getEntriesByType('resource')
+  const names = entries.map((e) => e.name)
+  const pick = (list) => list[list.length - 1] || ''
+  const biggest = (list) => list.slice().sort((a, b) => (b.transferSize || 0) - (a.transferSize || 0)).map((e) => e.name)[0] || ''
   const m3u8 = names.filter((u) => /\.m3u8(\?|$)/i.test(u))
   const mpd = names.filter((u) => /\.mpd(\?|$)/i.test(u))
-  return { m3u8: m3u8[m3u8.length - 1] || '', mpd: mpd[mpd.length - 1] || '' }
+  const audioOnly = names.filter((u) => /media-audio|audio-only/i.test(u))
+  const videoOnly = entries.filter((e) => /media-video|video-only/i.test(e.name))
+  const progressive = entries.filter((e) => (/\.mp4(\?|$)/i.test(e.name) || /mime_type=video_mp4/i.test(e.name)) && !/media-audio|media-video|audio-only|video-only/i.test(e.name))
+  return { m3u8: pick(m3u8), mpd: pick(mpd), video: biggest(videoOnly), audio: pick(audioOnly), mp4: biggest(progressive) }
 })()`
 
 export async function downloadMedia(tab: TabRuntime, url: string, path: string, referer?: string, onProgress?: (received: number, total?: number) => void): Promise<void> {
@@ -1806,42 +1836,36 @@ export async function saveMediaInfo(tab: TabRuntime, info: ElementInfo, dir: str
   let src = info.src || ''
   if (info.kind === 'video' && (!src || src.startsWith('blob:'))) {
     const streams = await bilibiliStreams(tab)
-    if (streams) {
-      const stamp = Date.now()
-      const referer = tab.url || undefined
-      const videoPath = join(dir, `video-${stamp}-v.m4s`)
-      await downloadMedia(tab, streams.video, videoPath, referer, onProgress)
-      let audioPath = ''
-      if (streams.audio) {
-        audioPath = join(dir, `video-${stamp}-a.m4s`)
-        await downloadMedia(tab, streams.audio, audioPath, referer, onProgress)
+    if (streams) return downloadDashPair(tab, streams, dir, savePath, onProgress)
+    for (let round = 0; round < 10; round += 1) {
+      // 流地址往往要播起来才出现在性能条目里，多探几轮
+      const generic = (await evalSource(tab, GENERIC_STREAMS).catch(() => null)) as { m3u8?: string; mpd?: string; video?: string; audio?: string; mp4?: string } | null
+      if (generic?.video) return downloadDashPair(tab, { video: generic.video, audio: generic.audio || '' }, dir, savePath, onProgress)
+      if (generic?.mp4) {
+        src = generic.mp4
+        break
       }
-      const outPath = savePath || join(dir, `video-${stamp}.mp4`)
-      try {
-        await mergeTracks(videoPath, audioPath, outPath)
-        const { unlinkSync, statSync } = await import('fs')
-        unlinkSync(videoPath)
-        if (audioPath) unlinkSync(audioPath)
-        return { path: outPath, kind: 'video', bytes: statSync(outPath).size }
-      } catch {
-        throw new Error(`没有 ffmpeg 合并音视频轨，两条轨已分别保存：${videoPath}${audioPath ? `、${audioPath}` : ''}`)
-      }
-    }
-    const generic = (await evalSource(tab, GENERIC_STREAMS).catch(() => null)) as { m3u8?: string; mpd?: string } | null
-    const manifest = generic?.m3u8 || generic?.mpd || ''
-    if (manifest) {
-      const stamp = Date.now()
-      const outPath = savePath || join(dir, `video-${stamp}.mp4`)
-      const referer = tab.url || ''
-      const args = ['-y']
-      if (referer) args.push('-headers', `Referer: ${referer}
+      const manifest = generic?.m3u8 || generic?.mpd || ''
+      if (manifest) {
+        const stamp = Date.now()
+        const outPath = savePath || join(dir, `video-${stamp}.mp4`)
+        const referer = tab.url || ''
+        const args = ['-y']
+        if (referer) args.push('-headers', `Referer: ${referer}
 `)
-      args.push('-i', manifest, '-c', 'copy', outPath)
-      await runFfmpeg(args, 10 * 60_000)
-      const { statSync } = await import('fs')
-      return { path: outPath, kind: 'video', bytes: statSync(outPath).size }
+        args.push('-i', manifest, '-c', 'copy', outPath)
+        await runFfmpeg(args, 10 * 60_000)
+        const { statSync } = await import('fs')
+        return { path: outPath, kind: 'video', bytes: statSync(outPath).size }
+      }
+      const attached = (await evalSource(tab, `(() => { const vs = [...document.querySelectorAll('video')].filter((v) => v.currentSrc && !v.currentSrc.startsWith('blob:')).sort((a, b) => (b.videoWidth * b.videoHeight) - (a.videoWidth * a.videoHeight)); return vs[0] ? vs[0].currentSrc : '' })()`).catch(() => '')) as string
+      if (attached) {
+        src = attached
+        break
+      }
+      if (round < 9) await sleep(1500)
     }
-    if (!src) throw new Error('流媒体视频没有直链也没探到清单（m3u8/mpd）。用 page_record_video 录下正在播放的画面')
+    if (!src || src.startsWith('blob:')) throw new Error('流媒体视频没有直链也没探到音视频轨或清单（m3u8/mpd）。用 page_record_video 录下正在播放的画面')
   }
   let buf: Buffer
   let contentType = ''
