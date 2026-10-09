@@ -19,6 +19,7 @@ import {
   closeWorkflowPages,
   closeTabsBelow,
   duplicateTab,
+  emitContextMenu,
   layoutWindow,
   muteTab,
   reloadTab,
@@ -132,6 +133,16 @@ export function broadcast(envId?: string): void {
 }
 
 export function wireIpc(): void {
+  ipcMain.on('page:contextmenu', (event, point: { x: number; y: number }) => {
+    for (const runtime of windows.values()) {
+      const tab = runtime.tabs.find((item) => item.view?.webContents === event.sender)
+      if (tab) {
+        emitContextMenu(runtime, tab, point.x, point.y)
+        return
+      }
+    }
+  })
+
   bridge.broadcast = broadcast
   bridge.layout = layoutWindow
   bridge.ensureWindow = (envId, headless) => openEnvironment(envId, headless ?? false)
