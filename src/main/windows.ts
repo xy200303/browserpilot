@@ -363,7 +363,7 @@ async function saveMediaAs(runtime: WindowRuntime, tab: TabRuntime, params: { sr
   const filePath = /\.[a-z0-9]{2,5}$/i.test(picked.filePath) ? picked.filePath : `${picked.filePath}.${kind}`
   try {
     if ((params.mediaType === 'image' || params.mediaType === 'video' || params.mediaType === 'audio') && params.srcURL) {
-      const dlId = downloadBegin(suggested || params.srcURL.split('/').pop() || params.mediaType, params.srcURL)
+      const dlId = downloadBegin(filePath.split(/[\\/]/).pop() || suggested || params.mediaType, params.srcURL)
       try {
         const saved = await saveMediaInfo(
           tab,

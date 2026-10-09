@@ -138,7 +138,17 @@ export function downloadRetry(id: string): void {
 }
 
 export function registerSessionDownload(item: ElectronDownloadItem, savePath: string): void {
-  const id = downloadBegin(item.getFilename() || '下载文件', item.getURL(), savePath, 0, undefined, item)
+  const fallbackName = (() => {
+    try {
+      const base = decodeURIComponent(new URL(item.getURL()).pathname.split('/').filter(Boolean).pop() || '')
+      if (base) return base
+    } catch {
+      /* 不是合法 URL */
+    }
+    return '下载文件'
+  })()
+  const raw = item.getFilename() || ''
+  const id = downloadBegin(raw.includes('?') || !raw ? fallbackName : raw, item.getURL(), savePath, 0, undefined, item)
   const entry = entryOf(id)
   item.on('updated', (_event, state) => {
     if (!entry) return
