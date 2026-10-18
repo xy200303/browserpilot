@@ -1,0 +1,16 @@
+{
+  "name": "browserpilot-website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "dependencies": {
+    "motion": "^14.3.0"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3"
+  }
+}
