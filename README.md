@@ -5,21 +5,24 @@
 <h1 align="center">BrowserPilot</h1>
 
 <p align="center">
-  <strong>你的浏览器，助手可以接着用。</strong>
+  <strong>你已经登录的浏览器，Agent 接着用。</strong>
 </p>
 
 <p align="center">
-  登录留在本机的一套环境里，人打开窗口之后，<br>
-  Agent 在同一扇窗口里继续操作标签——不用重开浏览器，不用重新登录。
+  登录留在本机的一套环境里。人打开窗口，<br>
+  Agent 在同一扇窗口里继续操作标签：不用重开浏览器，不用重新登录。
 </p>
 
 <p align="center">
+  <a href="https://browser.xyun.dev/">🌐 官网</a> •
+  <a href="https://browser.xyun.dev/guide/quickstart.html">📖 文档</a> •
   <a href="https://github.com/xy200303/browserpilot/releases/latest">📦 下载</a> •
   <a href="https://github.com/xy200303/browserpilot-market">🛒 工作流市场</a> •
   <a href="skills/browserpilot/SKILL.md">🤖 Agent 接入</a>
 </p>
 
 <p align="center">
+  <a href="https://browser.xyun.dev/"><img src="https://img.shields.io/badge/website-browser.xyun.dev-1d4ed8?style=for-the-badge" alt="Website" /></a>
   <a href="https://github.com/xy200303/browserpilot/releases/latest"><img src="https://img.shields.io/github/v/release/xy200303/browserpilot?style=for-the-badge" alt="Release" /></a>
   <img src="https://img.shields.io/badge/Electron-44-47848F?style=for-the-badge&logo=electron&logoColor=white" alt="Electron 44" />
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React 19" />
@@ -120,6 +123,16 @@ npm run deploy:win   # 免安装器：覆盖安装目录并重启
 
 推送到 `main` 会跑类型检查和构建；打上与 `package.json` 版本一致的 tag（如 `v0.13.0`）后，CI 在 Windows / macOS / Linux 三端打包并发布 Release。
 
+官网在 `website/`，本地预览：
+
+```bash
+cd website
+npm install
+npm run dev
+```
+
+官网发布由 `.github/workflows/pages.yml` 负责，推送 `website/**` 后自动构建到 GitHub Pages，线上地址是 [browser.xyun.dev](https://browser.xyun.dev/)。
+
 ## 📁 项目结构
 
 ```
@@ -132,7 +145,8 @@ npm run deploy:win   # 免安装器：覆盖安装目录并重启
 ├── src/renderer/      # React 界面（标签栏、设置、下载、工作流编辑器）
 ├── cli/               # Go 版命令行（与 MCP 同一套工具）
 ├── skills/            # Agent 使用说明（SKILL.md）
-└── .github/           # CI 三平台打包发布
+├── website/           # 官网与文档（VitePress，browser.xyun.dev）
+└── .github/           # CI 三平台打包 + Pages 官网发布
 ```
 
 ---

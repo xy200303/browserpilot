@@ -2,7 +2,7 @@
   "name": "browserpilot",
   "version": "0.13.13",
   "private": true,
-  "description": "Browser for agents. One process, many environments.",
+  "description": "Browser for agents. Isolated login environments, human-in-the-loop, local MCP and workflows.",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
