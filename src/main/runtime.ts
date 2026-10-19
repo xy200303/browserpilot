@@ -41,6 +41,7 @@ export type WindowRuntime = {
   activeTabId: string | null
   closedStack: ClosedTab[]
   screenRecording: boolean
+  screenStartedAt?: number
   lockView?: WebContentsView
   popupView?: WebContentsView
   popupOpen: boolean

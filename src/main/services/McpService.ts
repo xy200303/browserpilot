@@ -40,7 +40,16 @@ function buildMcp(): Server {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: listToolMeta() }))
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const result = await callTool(request.params.name, request.params.arguments)
-    return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] }
+    const { image, ...rest } = result as typeof result & {
+      image?: { mimeType?: string; data?: string }
+    }
+    const content: Array<
+      { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
+    > = [{ type: 'text', text: JSON.stringify(rest) }]
+    if (image?.data && image.mimeType) {
+      content.push({ type: 'image', data: image.data, mimeType: image.mimeType })
+    }
+    return { content }
   })
   return server
 }

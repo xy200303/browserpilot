@@ -533,6 +533,7 @@ export function wireIpc(): void {
     const runtime = windowFromSender(event.sender)
     if (!runtime) return
     runtime.screenRecording = false
+    runtime.screenStartedAt = undefined
     screenStartWaiters.get(runtime.envId)?.reject(new Error(message || '录屏没有开始'))
     screenStartWaiters.delete(runtime.envId)
     broadcast(runtime.envId)
@@ -543,6 +544,7 @@ export function wireIpc(): void {
     if (!runtime) return ''
     if (!payload.mime.includes('mp4') || !(payload.data?.byteLength || payload.data?.length)) {
       runtime.screenRecording = false
+      runtime.screenStartedAt = undefined
       screenWaiters.get(runtime.envId)?.reject(new Error('这次没能写成 mp4'))
       screenWaiters.delete(runtime.envId)
       broadcast(runtime.envId)
@@ -551,6 +553,7 @@ export function wireIpc(): void {
     const path = join(storage.userData(), 'videos', `vid-${createId('clip')}.mp4`)
     writeFileSync(path, Buffer.from(payload.data))
     runtime.screenRecording = false
+    runtime.screenStartedAt = undefined
     screenWaiters.get(runtime.envId)?.resolve(path)
     screenWaiters.delete(runtime.envId)
     broadcast(runtime.envId)

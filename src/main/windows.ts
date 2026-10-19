@@ -80,6 +80,7 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
     activeTabId: null,
     closedStack: [],
     screenRecording: false,
+    screenStartedAt: undefined,
     popupOpen: false,
     popupPayload: null,
     railOpen: false,

@@ -68,7 +68,7 @@ import {
 import { captchaPanelShot, captchaRead, detectCaptcha, solveCaptcha } from '../captcha'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate, workflowWrite } from './RecordService'
 import { netExport, netGet, netList, netMock, netMockOff, netStart, netStop } from './NetService'
-import { writeFileSync, readFileSync } from 'fs'
+import { writeFileSync, readFileSync, statSync } from 'fs'
 
 const tab = z.string().optional()
 const env = z.string().optional()
@@ -102,6 +102,14 @@ function controlOf(tabId?: string, envId?: string): Control {
 
 async function finish(args: { tabId?: string; env?: string }, data: Record<string, unknown>, tabRef?: TabRuntime): Promise<ToolResult> {
   return { ok: data.ok !== false, control: tabRef ? publicControl(tabRef) : controlOf(args.tabId, args.env), ...data }
+}
+
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+function imageOf(path: string): { mimeType: string; data: string; bytes: number } | undefined {
+  const data = readFileSync(path)
+  if (!data.length || data.length > MAX_IMAGE_BYTES) return undefined
+  return { mimeType: 'image/png', data: data.toString('base64'), bytes: data.length }
 }
 
 const tools: Tool[] = []
@@ -694,17 +702,25 @@ tool('page_handoff', '放开页面让用户完成这一步。看页面不会重�
   return { tabId: tabRef.id, message: args.message }
 })
 
-tool('page_screenshot', '截取网页视口。返回图片路径和像素宽高，点击坐标按这张图来。不改变当前是谁在操作。', z.object(pageArgs), async (args) => {
+tool('page_screenshot', '截取网页视口。返回图片、路径和像素宽高；图片同时作为 MCP image 内容返回。宽高只用于页面坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object(pageArgs), async (args) => {
   const tabRef = await pageTab(args, false)
-  const image = await screenshot(tabRef, storage.dir('screenshots'))
-  return { tabId: tabRef.id, path: image.path, width: image.width, height: image.height }
+  const shot = await screenshot(tabRef, storage.dir('screenshots'))
+  return {
+    tabId: tabRef.id,
+    path: shot.path,
+    width: shot.width,
+    height: shot.height,
+    bytes: statSync(shot.path).size,
+    image: imageOf(shot.path)
+  }
 })
 
-tool('screen_start', '开始把这扇有头窗口录成视频。', z.object({ env: env }), async (args) => {
+tool('screen_start', '开始把这扇有头窗口录成视频。maxSeconds 到时自动停，默认 300，最长 3600；一扇窗口同时只录一段。', z.object({ env: env, maxSeconds: z.number().optional() }), async (args) => {
   const envId = String(args.env || DEFAULT_ENV)
   const runtime = openEnvironment(envId, false)
   if (runtime.headless) throw new Error('无头窗口没有画面，先有头打开再录')
   if (runtime.screenRecording) throw new Error('这扇窗口已经在录')
+  const seconds = Math.max(1, Math.min(3600, Number(args.maxSeconds ?? 300)))
   runtime.screenRecording = true
   bridge.broadcast(envId)
   try {
@@ -727,16 +743,25 @@ tool('screen_start', '开始把这扇有头窗口录成视频。', z.object({ en
     })
   } catch (error) {
     runtime.screenRecording = false
+    runtime.screenStartedAt = undefined
     bridge.broadcast(envId)
     throw error
   }
-  return { env: envId }
+  runtime.screenStartedAt = Date.now()
+  const auto = setTimeout(() => {
+    screenTimers.delete(envId)
+    void stopScreen(envId).catch(() => undefined)
+  }, seconds * 1000)
+  screenTimers.set(envId, auto)
+  return { env: envId, maxSeconds: seconds }
 })
 
-tool('screen_stop', '停止录屏并写成 mp4，返回本机路径。', z.object({ env: env }), async (args) => {
-  const envId = String(args.env || DEFAULT_ENV)
+const screenTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+async function stopScreen(envId: string): Promise<{ env: string; path: string; seconds: number; bytes: number }> {
   const runtime = windows.get(envId)
   if (!runtime?.screenRecording) throw new Error('这扇窗口没有在录')
+  const started = runtime.screenStartedAt ?? Date.now()
   const path = await new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
       screenWaiters.delete(envId)
@@ -755,8 +780,33 @@ tool('screen_stop', '停止录屏并写成 mp4，返回本机路径。', z.objec
     runtime.win.webContents.send('screen:stop')
   })
   runtime.screenRecording = false
+  runtime.screenStartedAt = undefined
   bridge.broadcast(envId)
-  return { env: envId, path }
+  const auto = screenTimers.get(envId)
+  if (auto) clearTimeout(auto)
+  screenTimers.delete(envId)
+  return {
+    env: envId,
+    path,
+    seconds: Math.max(0, Math.round((Date.now() - started) / 1000)),
+    bytes: statSync(path).size
+  }
+}
+
+tool('screen_stop', '停止录屏并写成 mp4，返回路径、时长和字节数。', z.object({ env: env }), async (args) => {
+  return stopScreen(String(args.env || DEFAULT_ENV))
+})
+
+tool('screen_status', '查看这扇窗口是否正在录屏，返回开始时间、已录秒数和是否在录。', z.object({ env: env }), async (args) => {
+  const envId = String(args.env || DEFAULT_ENV)
+  const runtime = windows.get(envId)
+  const started = runtime?.screenStartedAt
+  return {
+    env: envId,
+    recording: Boolean(runtime?.screenRecording),
+    startedAt: started ?? null,
+    seconds: started ? Math.max(0, Math.round((Date.now() - started) / 1000)) : 0
+  }
 })
 
 tool('page_source', '读取网页源码。dom 是当前文档，response 是这次导航的原始 HTML。', z.object({
