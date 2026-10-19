@@ -7,6 +7,7 @@ import { DEFAULT_ENV, type ActVia, type Control, type Locator, type WorkflowApp 
 import { createId } from '../ids'
 import { bridge, publicControl, windows, type TabRuntime } from '../runtime'
 import { storage } from './store'
+import { windowPreview } from './WindowPreviewService'
 import {
   activateTab,
   addTab,
@@ -754,6 +755,19 @@ tool('screen_start', '开始把这扇有头窗口录成视频。maxSeconds 到�
   }, seconds * 1000)
   screenTimers.set(envId, auto)
   return { env: envId, maxSeconds: seconds }
+})
+
+tool('window_preview', '把主界面、网页、遮罩和弹层合成一张整窗预览图。包含标签栏、地址栏和正在显示的弹层。返回图片、路径和像素宽高；这是合成预览，不是系统级窗口截图。页面坐标换算仍用 page_screenshot。', z.object({ env: env }), async (args) => {
+  const envId = String(args.env || DEFAULT_ENV)
+  const shot = await windowPreview(envId)
+  return {
+    env: envId,
+    path: shot.path,
+    width: shot.width,
+    height: shot.height,
+    bytes: shot.bytes,
+    image: imageOf(shot.path)
+  }
 })
 
 const screenTimers = new Map<string, ReturnType<typeof setTimeout>>()
