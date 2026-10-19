@@ -46,7 +46,7 @@ const heroChars = heroGroups.map((line) => ({
 }))
 
 const stats = [
-  { value: '67', label: 'MCP 工具', note: 'tool-catalog.ts 的实际工具数' },
+  { value: '69', label: 'MCP 工具', note: 'tool-catalog.ts 的实际工具数' },
   { value: '22', label: '工作流节点', note: '开始/结束/判断/循环都算在内' },
   { value: '200', label: '运行记录上限', note: '界面列表最多显示 50 条' },
   { value: '3', label: '并发与无头窗口', note: '默认各 3，设置里可调' }
@@ -63,7 +63,7 @@ const modes = [
     name: 'Agent 直连',
     lead: '在 Claude Code、Kimi Code、Cursor 里说一句。Agent 通过 MCP 找元素、点击、等待、取结果。一次性任务、还没定型的流程，用这个更直接。',
     items: [
-      { t: '67 个工具', d: '导航、点击、表单、截图、抓包、媒体、验证码都在同一套工具里' },
+      { t: '69 个工具', d: '导航、点击、表单、截图、整窗预览、抓包、媒体、验证码都在同一套工具里' },
       { t: '失败留现场', d: '工具失败自动附 errorShot，Agent 下一轮能看着截图改定位' },
       { t: '不写死 sleep', d: 'page_wait 等元素出现或消失，1–60 秒' },
       { t: '随时接管', d: '页面遮罩上的「接管」一按，控制权回到人' }
@@ -160,6 +160,15 @@ const caps = [
     ]
   },
   {
+    title: '截图与录屏',
+    lead: 'Agent 能看到画面，也能把过程留下。',
+    items: [
+      { t: '网页截图直接回图', d: 'page_screenshot 把截图作为 MCP image 返回，同时给路径、像素宽高和字节数；超大图只给路径。', tool: 'page_screenshot', level: 'yes' },
+      { t: '整窗合成预览', d: '主界面、网页、遮罩、交接提示和弹层合成一张图；只对有头窗口有效，不冒充系统级窗口截图。', tool: 'window_preview', level: 'yes' },
+      { t: '窗口录屏与状态', d: '默认 300 秒自动停，最长 3600；screen_status 查已录秒数，screen_stop 返回路径、时长和字节数。', tool: 'screen_start / screen_status / screen_stop', level: 'yes' }
+    ]
+  },
+  {
     title: '网络与调试',
     lead: '失败时留下现场，不用靠猜。',
     items: [
@@ -222,8 +231,8 @@ const compare = [
 ]
 
 const specs = [
-  { k: '版本', v: '0.13.13（2026-10-09 tag）' },
-  { k: '运行时', v: 'Electron 44 · React 19 · TypeScript 5；Windows 安装包 117.6 MiB，解压后约 460 MB' },
+  { k: '版本', v: '0.14.0（2026-10-19 tag）' },
+  { k: '运行时', v: 'Electron 44 · React 19 · TypeScript 5；Windows 安装包 117.3 MiB，解压后约 460 MB' },
   { k: '驱动方式', v: 'Electron WebContentsView + Chrome DevTools Protocol（Input / DOM / Accessibility / Network）' },
   { k: '定位', v: 'XPath 或 CSS；必须恰好匹配一个；可穿透 Shadow DOM、同源 iframe，顶层找不到时查跨域 iframe' },
   { k: '运行模式', v: '有头优先；无头 = 窗口隐藏（同一 Chromium），默认上限 3 扇，可在设置里调' },
@@ -245,6 +254,15 @@ const shots = [
 
 const changelog = [
   {
+    v: 'v0.14.0',
+    when: '2026-10-19',
+    items: [
+      'page_screenshot 把截图作为 MCP image 返回；文本结果保留路径、像素宽高和字节数。',
+      '新增 window_preview：主界面、网页、遮罩、交接提示和弹层合成一张整窗预览图。',
+      'screen_start 支持 maxSeconds（默认 300，最长 3600）自动停；新增 screen_status；screen_stop 返回时长和字节数。'
+    ]
+  },
+  {
     v: 'v0.13.13',
     when: '2026-10-09',
     items: ['标签栏统一显示分割线，最后一个标签不挂尾线。', '纯界面调整，工具与工作流行为不变。']
@@ -253,11 +271,6 @@ const changelog = [
     v: 'v0.13.12',
     when: '2026-10-09',
     items: ['渲染进程崩溃后，检测 webContents.isDestroyed() 并自动重建视图，恢复页面。', '修复的是崩溃后后续操作全灭的问题；提交记录里 BOSS 循环投递实测 13/13 成功。']
-  },
-  {
-    v: 'v0.13.11',
-    when: '2026-10-09',
-    items: ['标签间加分割线：激活标签及其相邻自动隐藏，Chrome 风格。', '只改标签栏呈现，不影响标签编号与操作。']
   }
 ]
 
@@ -339,12 +352,12 @@ onUnmounted(() => {
       <DotField class="hero-field" :gap="22" :radius="140" :push="34" />
       <div class="inner">
         <a class="notice" href="#changelog">
-          <span class="notice-tag">v0.13.13</span>
-          <span class="notice-text">标签栏分割线统一；上一版修复渲染进程崩溃后的页面恢复</span>
+          <span class="notice-tag">v0.14.0</span>
+          <span class="notice-text">截图直接回给 Agent；新增整窗合成预览与录屏状态</span>
           <span class="notice-arrow" v-html="ICONS.arrow" />
         </a>
         <div class="hero-inner">
-          <span class="hero-kicker">MCP · 67 TOOLS · 0.13.13</span>
+          <span class="hero-kicker">MCP · 69 TOOLS · 0.14.0</span>
           <h1 class="hero-title">
             <span v-for="(line, li) in heroChars" :key="li" :class="['line', line.cls]">
               <span v-for="c in line.chars" :key="c.i" class="ch" :style="{ '--ci': c.i }">{{ c.ch }}</span>
@@ -356,7 +369,7 @@ onUnmounted(() => {
           </p>
           <div class="hero-cta">
             <a v-press class="btn primary big" :href="withBase('/download.html')">
-              下载 v0.13.13
+              下载 v0.14.0
               <span class="arw" v-html="ICONS.arrow" />
             </a>
             <a v-press class="btn ghost" href="#demo">
@@ -641,7 +654,7 @@ onUnmounted(() => {
         <span class="eyebrow reveal"><i>05</i>集成</span>
         <h2 class="display reveal">Agent 走 MCP，<span>人走界面</span></h2>
         <p class="lead reveal">
-          MCP 是主入口，Agent 通过它调用 67 个工具。CLI 包着同一套工具，适合脚本和计划任务。
+          MCP 是主入口，Agent 通过它调用 69 个工具。CLI 包着同一套工具，适合脚本和计划任务。
           应用本身没有定时器。
         </p>
         <div class="integration-grid">
@@ -751,7 +764,7 @@ onUnmounted(() => {
         <span class="eyebrow reveal"><i>08</i>界面</span>
         <h2 class="display reveal">五张界面截图</h2>
         <p class="lead reveal">
-          下面五张都是 0.13.13 在 Windows 上的窗口截图，尺寸 1440 × 900。
+          下面五张都是 0.13.13 在 Windows 上的窗口截图，尺寸 1440 × 900；0.14.0 只改了工具，界面没有变化。
         </p>
         <div class="shots">
           <figure v-for="(s, i) in shots" :key="s.title" class="shot reveal" v-spot :style="{ transitionDelay: (i % 3) * 60 + 'ms' }">
@@ -795,7 +808,7 @@ $ npm run dev</code></pre>
               <li>Windows 安装包未做代码签名。</li>
             </ul>
             <div class="license-note">
-              截至 v0.13.13，仓库没有 LICENSE 文件。源码公开可读，但在作者给出书面许可前，
+              截至 v0.14.0，仓库没有 LICENSE 文件。源码公开可读，但在作者给出书面许可前，
               不要把它当作 MIT / Apache 等开源许可再分发。许可证以仓库实际文件为准。
             </div>
           </div>
@@ -808,7 +821,7 @@ $ npm run dev</code></pre>
         <span class="eyebrow reveal"><i>10</i>更新日志</span>
         <h2 class="display reveal">最近三个版本</h2>
         <p class="lead reveal">
-          只写仓库查得到的提交。这个项目在 2026-10-09 一天发了三个小版本。
+          只写仓库查得到的提交。版本号和日期以 Release tag 为准。
         </p>
         <div class="releases">
           <article v-for="r in changelog" :key="r.v" class="rel reveal" v-lift="2" v-spot>
@@ -863,7 +876,7 @@ $ npm run dev</code></pre>
         </div>
         <p class="footnote">
           源码公开可读，仓库暂未附 LICENSE · 安装包未签名 · © 2026 BrowserPilot<br />
-          页面里的运行录屏与截图来自 v0.13.13 的真实窗口，窗口 1440 × 900。
+          页面里的运行录屏与截图来自 v0.13.13 的真实窗口，窗口 1440 × 900；0.14.0 界面未变。
         </p>
       </div>
     </section>

@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitepress'
 
-const APP_VERSION = '0.13.13'
+const APP_VERSION = '0.14.0'
 const SITE_ORIGIN = 'https://browser.xyun.dev'
 const BASE = '/'
 const SITE_URL = `${SITE_ORIGIN}${BASE}`
@@ -28,7 +28,7 @@ const softwareJsonLd = {
   keywords:
     '浏览器自动化,AI Agent,MCP,工作流,CDP,XPath,登录态,人机协作,网页操作,BrowserPilot',
   featureList:
-    '同窗口人机协作,多套隔离环境,Agent 通过本机 MCP 操作浏览器,工作流一次跑完,标签级抓包,媒体保存,极验滑块识别,CDP 调试'
+    '同窗口人机协作,多套隔离环境,Agent 通过本机 MCP 操作浏览器,工作流一次跑完,标签级抓包,媒体保存,极验滑块识别,CDP 调试,网页截图作为 MCP 图片,整窗合成预览'
 }
 
 const websiteJsonLd = {
@@ -55,7 +55,7 @@ export default defineConfig({
     ['link', { rel: 'apple-touch-icon', href: `${BASE}apple-touch-icon.png` }],
     ['link', { rel: 'stylesheet', href: `${BASE}fonts/noto/noto-sans-sc.css` }],
     ['link', { rel: 'stylesheet', href: `${BASE}fonts/mono/jetbrains-mono.css` }],
-    ['meta', { name: 'keywords', content: 'BrowserPilot,浏览器自动化,AI Agent,MCP,工作流,CDP,登录态,人机协作,网页操作,Electron' }],
+    ['meta', { name: 'keywords', content: 'BrowserPilot,浏览器自动化,AI Agent,MCP,工作流,CDP,登录态,人机协作,网页操作,截图,整窗预览,录屏,Electron' }],
     ['meta', { name: 'author', content: 'xy200303' }],
     ['meta', { name: 'robots', content: 'index, follow, max-image-preview:large, max-snippet:-1' }],
     ['meta', { name: 'theme-color', content: '#f9f9f8' }],

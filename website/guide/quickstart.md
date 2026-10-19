@@ -105,7 +105,7 @@ set BROWSERPILOT_EXE=%LOCALAPPDATA%\Programs\BrowserPilot\BrowserPilot.exe
 "%LOCALAPPDATA%\Programs\BrowserPilot\resources\cli\browserpilot.exe" tools
 ```
 
-`tools` 会列出全部 67 个工具。看参数：
+`tools` 会列出全部 69 个工具。看参数：
 
 ```bat
 "%LOCALAPPDATA%\Programs\BrowserPilot\resources\cli\browserpilot.exe" schema page_click

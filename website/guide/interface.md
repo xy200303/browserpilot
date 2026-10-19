@@ -113,8 +113,14 @@ Agent 不在画布上点。它用 `workflow_write` / `workflow_update` 改图，
 - `page_handoff` 或工作流「交接」节点 → `handoff`，遮罩去掉，顶部留提示；下一步目标出现时重新上锁；没有定位时立即上锁。
 - 锁定只影响当前标签，不影响同一窗口里的其他标签。
 
+## 截图与整窗预览
+
+`page_screenshot` 只截网页视口，返回图片、路径和像素宽高；图片会直接作为 MCP image 交给 Agent，不改变控制权。
+
+要看标签栏、地址栏、网页、遮罩、交接提示和弹层一起的整窗画面，用 `window_preview`。它把这些图层合成为一张图，文件在 `screenshots\preview-<时间戳>.png`。这是合成预览，不是系统级窗口截图；无头窗口会报错。
+
 ## 录屏
 
-菜单里开始/停止录屏，或由 Agent 调 `screen_start` / `screen_stop`。录的是整扇窗口（标签栏、地址栏、网页），写成 mp4 放到 `videos`。只录有头窗口；一扇窗口同时只录一段。
+菜单里开始/停止录屏，或由 Agent 调 `screen_start` / `screen_status` / `screen_stop`。`screen_start` 默认 300 秒自动停，最长 3600 秒，可用 `maxSeconds` 改；`screen_status` 查是否在录和已录秒数。录的是整扇窗口（标签栏、地址栏、网页），写成 mp4 放到 `videos`。只录有头窗口；一扇窗口同时只录一段。
 
 和应用内「窗口录屏」不同，`page_record_video` 录的是页面里正在播放的视频画面，用于抓不到轨的流媒体。

@@ -1,23 +1,23 @@
 ---
 title: 下载与安装
-description: 下载 BrowserPilot 0.13.13：Windows x64、macOS Apple Silicon、Linux x64；含未签名安装提示、系统要求、MCP 端点位置、用户数据目录与备份/卸载说明。
+description: 下载 BrowserPilot 0.14.0：Windows x64、macOS Apple Silicon、Linux x64；含未签名安装提示、系统要求、MCP 端点位置、用户数据目录与备份/卸载说明。
 ---
 
 # 下载与安装
 
-最新版在 [GitHub Releases](https://github.com/xy200303/browserpilot/releases/latest)。当前站点对应 **v0.13.13**。
+最新版在 [GitHub Releases](https://github.com/xy200303/browserpilot/releases/latest)。当前站点对应 **v0.14.0**。
 
 | 平台 | 文件 |
 | ---- | ---- |
-| Windows x64 | `BrowserPilot Setup 0.13.13.exe`、`BrowserPilot-0.13.13-win.zip` |
-| macOS（Apple Silicon） | `BrowserPilot-0.13.13-arm64.dmg`、`BrowserPilot-0.13.13-arm64-mac.zip` |
-| Linux x64 | `BrowserPilot-0.13.13.AppImage`、`browserpilot_0.13.13_amd64.deb` |
+| Windows x64 | `BrowserPilot.Setup.0.14.0.exe`、`BrowserPilot-0.14.0-win.zip` |
+| macOS（Apple Silicon） | `BrowserPilot-0.14.0-arm64.dmg`、`BrowserPilot-0.14.0-arm64-mac.zip` |
+| Linux x64 | `BrowserPilot-0.14.0.AppImage`、`browserpilot_0.14.0_amd64.deb` |
 
 只发布 Windows x64、Linux x64 与 macOS arm64（Apple Silicon）包；没有 32 位，也没有 Intel Mac 版本。CI 在三个平台打包，当前素材与验收在 Windows 完成。
 
 ## Windows
 
-双击安装包按向导安装，向导里可以改安装目录。安装包大约 **118 MB**（117.6 MiB），安装后目录约 460 MB，因为 Electron 与 Chromium 都在包里。
+双击安装包按向导安装，向导里可以改安装目录。安装包大约 **123 MB**（117.3 MiB），安装后目录约 460 MB，因为 Electron 与 Chromium 都在包里。
 
 ::: warning SmartScreen 提示
 安装包没有代码签名。Windows 可能弹出「Windows 已保护你的电脑」——点「**更多信息**」→「**仍要运行**」。
@@ -42,7 +42,7 @@ xattr -cr /Applications/BrowserPilot.app
 ## Linux
 
 - AppImage：`chmod +x` 后直接运行
-- deb：`sudo dpkg -i browserpilot_0.13.13_amd64.deb`
+- deb：`sudo dpkg -i browserpilot_0.14.0_amd64.deb`
 
 Linux 需要图形会话。BrowserPilot 是桌面应用，不是服务器端的 headless 浏览器。
 
@@ -73,7 +73,7 @@ Linux:   ~/.config/BrowserPilot/mcp.json
 
 ## 更新
 
-仓库里没有自动更新器。升级方式是下载新安装包覆盖安装；用户数据目录不动。版本号以 `package.json` 与 Release tag 为准，本页写作 v0.13.13。
+仓库里没有自动更新器。升级方式是下载新安装包覆盖安装；用户数据目录不动。版本号以 `package.json` 与 Release tag 为准，本页写作 v0.14.0。
 
 ## 数据与备份
 
