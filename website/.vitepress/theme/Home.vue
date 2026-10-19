@@ -13,32 +13,32 @@ const ICONS = {
 const steps = [
   {
     n: '01',
-    title: '把目标交给 Agent 或工作流',
-    desc: '在 Claude Code、Kimi Code、Cursor 里说一句要做什么；Agent 通过本机 MCP 调 BrowserPilot 的工具。做通一次后，也可以存成工作流，填参数直接执行。',
+    title: '先说一句，或者填参数',
+    desc: '在 Claude Code、Kimi Code、Cursor 里说一句。Agent 通过本机 MCP 调工具。做通一次后可以存成工作流，下次填参数直接跑。',
     src: '/shots/tasks.png',
     alt: '在 BrowserPilot 里填写工作流参数'
   },
   {
     n: '02',
-    title: '它在同一扇窗口里执行',
-    desc: '打开页面、定位元素、等待渲染、点击与填写。Agent 操作时盖遮罩，点「接管」立刻交还。',
+    title: 'Agent 在同一个窗口里操作',
+    desc: '打开页面、找元素、等渲染、点击和填写。Agent 操作时盖遮罩，点「接管」就交还。',
     src: '/shots/agent-mask.png',
     alt: '页面上覆盖着「Agent 正在操作浏览器」遮罩与接管按钮'
   },
   {
     n: '03',
-    title: '你看结果，或把它存成工作流',
-    desc: '每次运行留下成功/失败、停在哪一步、输出与文件。做通一次的步骤可以写成工作流，之后一次调用跑完。',
+    title: '看结果，决定要不要存下来',
+    desc: '每次运行留下成功或失败、停在哪一步、输出和文件。做通一次后写成工作流，下次调用一次 workflow_run 就跑完整张图。',
     src: '/shots/run-detail.png',
     alt: '运行记录页面，显示输出、条数与 CSV 路径'
   }
 ]
 
 const heroGroups = [
-  { cls: 'desktop-line', text: '让 Agent 用你登录好的浏览器，', base: 0 },
-  { cls: 'desktop-line', text: '把网页上的事做完。', base: 14 },
-  { cls: 'mobile-line', text: '浏览器里的事，', base: 0 },
-  { cls: 'mobile-line', text: '交给 Agent。', base: 7 }
+  { cls: 'desktop-line', text: '你已经登录的浏览器，', base: 0 },
+  { cls: 'desktop-line', text: 'Agent 接着用。', base: 10 },
+  { cls: 'mobile-line', text: '你已经登录，', base: 0 },
+  { cls: 'mobile-line', text: 'Agent 接着点。', base: 5 }
 ]
 const heroChars = heroGroups.map((line) => ({
   cls: line.cls,
@@ -61,7 +61,7 @@ const modes = [
   {
     id: 'agent',
     name: 'Agent 直连',
-    lead: '在 Claude Code、Kimi Code、Cursor 里说一句，Agent 通过 MCP 逐步调用工具：快照、定位、点击、等待、提取。适合一次性任务和还没形成固定流程的事。',
+    lead: '在 Claude Code、Kimi Code、Cursor 里说一句。Agent 通过 MCP 找元素、点击、等待、取结果。一次性任务、还没定型的流程，用这个更直接。',
     items: [
       { t: '67 个工具', d: '导航、点击、表单、截图、抓包、媒体、验证码都在同一套工具里' },
       { t: '失败留现场', d: '工具失败自动附 errorShot，Agent 下一轮能看着截图改定位' },
@@ -74,7 +74,7 @@ const modes = [
   {
     id: 'workflow',
     name: '保存工作流',
-    lead: '做通一次之后，把步骤写成节点图。之后只调用一次 workflow_run，主进程顺着边跑完，不再把每个节点交回给模型。',
+    lead: '做通一次后，把步骤存成节点图。下次调用 workflow_run，主进程一次跑完，不用再让模型重想每一步。',
     items: [
       { t: '22 种节点', d: '打开、点击、填写、判断、循环、提取、导出、CDP、验证码' },
       { t: '参数化', d: '开始节点声明变量，同一张图换输入就能跑不同账号或关键词' },
@@ -102,7 +102,7 @@ const modes = [
 const caps = [
   {
     title: '导航与定位',
-    lead: '先找到，再动手。找不到就报错，不猜。',
+    lead: '点击前先找到元素。找不到就报错，不猜。',
     items: [
       { t: '打开、后退、前进、刷新', d: '地址规整；非 URL 文本走当前搜索引擎。', tool: 'page_navigate', level: 'yes' },
       { t: 'XPath 或 CSS 选择器', d: '点击、输入、选择必须恰好匹配一个；匹配多个直接失败，不取第一条。', tool: 'page_click', level: 'yes' },
@@ -112,7 +112,7 @@ const caps = [
   },
   {
     title: '表单与上传',
-    lead: '把人的输入动作拆成可重放的步骤。',
+    lead: '输入、选择、上传，都按真实操作走。',
     items: [
       { t: '逐键输入与快捷键', d: '默认走 CDP 可信输入；非拉丁字符用 Input.insertText。', tool: 'page_type / page_key', level: 'yes' },
       { t: '选择、粘贴、上传文件', d: '上传直接交给文件控件，不弹系统选择框。', tool: 'page_select / page_upload', level: 'yes' },
@@ -131,7 +131,7 @@ const caps = [
   },
   {
     title: '等待与重试',
-    lead: '不写死 sleep，让页面自己说什么时候好了。',
+    lead: '不写死 sleep。等元素出现再继续。',
     items: [
       { t: '等元素出现或消失', d: '默认 10 秒，最长 60 秒；穿透模式同样可用。', tool: 'page_wait', level: 'yes' },
       { t: '点到目标出现为止', d: '点击后等下一个目标，最多 3 次；滚动/滑动到目标最多 16/20 次。', tool: 'page_click', level: 'yes' },
@@ -141,7 +141,7 @@ const caps = [
   },
   {
     title: '结果提取',
-    lead: '先把页面读成数据，再谈自动化。',
+    lead: '页面上的文字和链接，可以直接读成数据。',
     items: [
       { t: '无障碍树与批量查询', d: '快照只对这一次有效；按同一定位取全部匹配与位置。', tool: 'page_snapshot / page_query', level: 'yes' },
       { t: '读 DOM 或原始响应', d: 'dom 是当前文档，response 是这次导航的 HTML。', tool: 'page_source', level: 'yes' },
@@ -151,7 +151,7 @@ const caps = [
   },
   {
     title: '下载与媒体',
-    lead: '网页触发的下载也接管。',
+    lead: '网页触发的下载也进管理器。',
     items: [
       { t: '下载管理器', d: '进度、暂停/继续、重试、复制链接；所有网页下载进同一列表。', tool: 'will-download', level: 'yes' },
       { t: '图片、音频、视频', d: '直链直接下；B站/抖音/YouTube 抓 DASH 轨合并 mp4；m3u8 交 ffmpeg。', tool: 'page_save_media', level: 'yes' },
@@ -161,7 +161,7 @@ const caps = [
   },
   {
     title: '网络与调试',
-    lead: '出问题时有现场，不靠猜。',
+    lead: '失败时留下现场，不用靠猜。',
     items: [
       { t: '抓包与 HAR', d: '每个标签单独记录；正文与 Cookie 不离开本机。', tool: 'net_start / net_export', level: 'yes' },
       { t: '请求拦截', d: '按 URL 包含规则返回假数据，做接口测试和故障注入。', tool: 'net_mock', level: 'yes' },
@@ -170,7 +170,7 @@ const caps = [
   },
   {
     title: '验证码',
-    lead: '只把能稳定做的写成熟支持。',
+    lead: '能稳定做的才标已支持。',
     items: [
       { t: '极验 v4 滑块', d: 'cv → ddddocr → onnx 三引擎降级；拟人拖拽，失败换图重试。', tool: 'captcha_solve', level: 'yes' },
       { t: '其它类型交给看图 Agent', d: '截图带回坐标映射，自己算点击位置；成功率取决于模型与题型。', tool: 'captcha_panel', level: 'try' },
@@ -264,7 +264,7 @@ const changelog = [
 const faqs = [
   {
     q: '会不会误点付款按钮？',
-    a: '默认没有逐次点击确认——Agent 调 page_click 就会点。需要人把关的步骤，用 page_handoff 或工作流里的「交接」节点：遮罩去掉、页面留提示，人做完下一步才重新上锁。付款、删除、发布这类页面建议放在交接之后，只让 Agent 做只读操作。'
+    a: '默认没有逐次点击确认。Agent 调 page_click 就会点。需要人把关的步骤，用 page_handoff 或工作流里的「交接」节点：遮罩去掉、页面留提示，人做完下一步才重新上锁。付款、删除、发布这类页面，最好放在交接之后，或者只让 Agent 读，不点。'
   },
   {
     q: '登录态怎么保持？换机器怎么办？',
@@ -351,8 +351,8 @@ onUnmounted(() => {
             </span>
           </h1>
           <p class="hero-sub">
-            一套环境一套登录。Agent 在同一扇窗口里点击、填表、等待、提取结果；你随时可以接管。
-            Windows / macOS / Linux，全部在本机。
+            一套环境一套登录。Agent 在同一扇窗口里点击、填表、等待、提取结果；你随时能接管。
+            Windows / macOS / Linux，都在本机。
           </p>
           <div class="hero-cta">
             <a v-press class="btn primary big" :href="withBase('/download.html')">
@@ -407,7 +407,7 @@ onUnmounted(() => {
         <div class="demo-caption">
           <p>
             <strong>一个真实任务：</strong>在 GitHub 的 browser-automation 话题页取前 5 个仓库，导出 CSV。
-            画面从工作流画布开始，经过填写参数、「Agent 正在操作浏览器」的遮罩与页面加载，到运行记录里的条数与文件路径。
+            录屏从工作流画布开始，中间是填写参数、遮罩、页面加载，最后停在运行记录。
           </p>
           <span class="demo-time">35 秒 · 无声循环 · 实录</span>
         </div>
@@ -442,10 +442,9 @@ onUnmounted(() => {
     <section class="section">
       <div class="inner">
         <span class="eyebrow reveal"><i>01</i>怎么工作</span>
-        <h2 class="display reveal">给目标，执行，<span>看结果或接管</span></h2>
+        <h2 class="display reveal">先给任务，<span>再看结果</span></h2>
         <p class="lead reveal">
-          它不是录屏回放，也不是把每一步都交回给模型重新想。做通一次之后，步骤可以存成工作流，
-          下一次只调用一次 workflow_run。
+          做通一次后，步骤可以存成工作流。下次调用一次 workflow_run 就行。
         </p>
         <div ref="railEl" class="pipe-rail" aria-hidden="true">
           <span class="rail-line" />
@@ -469,7 +468,7 @@ onUnmounted(() => {
     <section class="section alt">
       <div class="inner">
         <span class="eyebrow reveal"><i>02</i>能力清单</span>
-        <h2 class="display reveal">能做什么，<span>逐条标证据</span></h2>
+        <h2 class="display reveal">能做什么，<span>哪些还不支持</span></h2>
         <p class="lead reveal">
           每条都对应一个 MCP 工具或一个已实现的界面行为。已支持 = 当前版本可用；实验性 = 有实现但依赖外部条件；
           未支持 = 不承诺，建议交接给人。
@@ -495,7 +494,7 @@ onUnmounted(() => {
     <section class="section tabs-section">
       <div class="inner">
         <span class="eyebrow reveal"><i>·</i>三种用法</span>
-        <h2 class="display reveal">同一套工具，<span>三种用法</span></h2>
+        <h2 class="display reveal">什么时候<span>用哪种</span></h2>
         <p class="lead reveal">
           Agent 直连适合一次性任务；保存工作流适合重复操作；人机协作适合登录、核验和需要人把关的步骤。
         </p>
@@ -538,7 +537,7 @@ onUnmounted(() => {
         <span class="eyebrow reveal"><i>03</i>人在环上</span>
         <h2 class="display reveal">它会停下来，<span>你也能随时打断</span></h2>
         <p class="lead reveal">
-          终端和浏览器自动化最容易让人不放心的是控制权。下面写的是代码里的实际行为，不是承诺。
+          控制权是这类工具最容易被问的地方。下面按代码里的实际行为写。
         </p>
         <div class="loop">
           <div class="reveal">
@@ -565,8 +564,8 @@ onUnmounted(() => {
               </tbody>
             </table>
             <div class="loop-warning">
-              逐次工具调用不会写单独的审计日志。要给业务方交代，用工作流的运行记录（成功/失败、节点、输出、文件、现场截图）
-              和抓包 HAR；这两样是按运行留的，不是按每一次点击留的。
+              逐次工具调用不会写单独的审计日志。如果要把过程给别人看，用工作流的运行记录（成功/失败、节点、输出、文件、现场截图）
+              和抓包 HAR；它们按运行记录，不按每次点击记录。
             </div>
           </div>
           <div class="loop-points">
@@ -608,7 +607,7 @@ onUnmounted(() => {
         <span class="eyebrow reveal"><i>04</i>边界</span>
         <h2 class="display reveal">我们做什么，<span>不做什么</span></h2>
         <p class="lead reveal">
-          主动写清楚不做的部分，比说「什么都能做」更有用。下面每一条都能在代码或发布配置里找到对应。
+          下面这些不做。每条都能在代码或发布配置里找到依据。
         </p>
         <div class="bounds">
           <div class="bound reveal" v-lift="2" v-spot>
@@ -630,7 +629,7 @@ onUnmounted(() => {
               <li><strong>不做内置定时器。</strong>要用定时，自己写系统计划任务调 CLI。</li>
               <li><strong>不做网卡级抓包。</strong>只有标签级 HTTP 记录。</li>
               <li><strong>不代管密码。</strong>登录由人在环境窗口里完成。</li>
-              <li><strong>不做代码签名。</strong>安装包未签名，SmartScreen 与 macOS 拦截按文档处理。</li>
+              <li><strong>安装包没有签名。</strong>SmartScreen 与 macOS 拦截按文档处理。</li>
             </ul>
           </div>
         </div>
@@ -642,8 +641,8 @@ onUnmounted(() => {
         <span class="eyebrow reveal"><i>05</i>集成</span>
         <h2 class="display reveal">Agent 走 MCP，<span>人走界面</span></h2>
         <p class="lead reveal">
-          MCP 是主入口：Agent 通过它调用 67 个工具。CLI 是同一套工具的薄封装，适合脚本与计划任务。
-          应用内没有定时器。
+          MCP 是主入口，Agent 通过它调用 67 个工具。CLI 包着同一套工具，适合脚本和计划任务。
+          应用本身没有定时器。
         </p>
         <div class="integration-grid">
           <article class="codecard reveal" v-spot>
@@ -706,7 +705,7 @@ onUnmounted(() => {
         <span class="eyebrow reveal"><i>06</i>对照</span>
         <h2 class="display reveal">手写脚本、RPA、<span>BrowserPilot</span></h2>
         <p class="lead reveal">
-          三者解决的不是同一类问题。下面只写客观差异，不排名。
+          三种做法解决的问题不完全一样。下面写差异。
         </p>
         <p class="table-hint">窄屏可以左右滑动，查看完整对照。</p>
         <div class="table-wrap reveal">
@@ -732,7 +731,7 @@ onUnmounted(() => {
         <span class="eyebrow reveal"><i>07</i>技术规格</span>
         <h2 class="display reveal">给要评估接入的人</h2>
         <p class="lead reveal">
-          版本、驱动、定位方式、并发、凭据与数据落盘位置。数字来自仓库与当前安装包，不写估测。
+          版本、驱动、定位方式、并发、凭据和数据落盘位置。数字来自仓库和当前安装包。
         </p>
         <div class="table-wrap reveal">
           <table class="specs">
@@ -750,9 +749,9 @@ onUnmounted(() => {
     <section class="section alt">
       <div class="inner">
         <span class="eyebrow reveal"><i>08</i>界面</span>
-        <h2 class="display reveal">真实界面，<span>不是重绘</span></h2>
+        <h2 class="display reveal">五张界面截图</h2>
         <p class="lead reveal">
-          下面五张都来自 0.13.13 的 Windows 运行，统一窗口 1440 × 900。没有 mockup。
+          下面五张都是 0.13.13 在 Windows 上的窗口截图，尺寸 1440 × 900。
         </p>
         <div class="shots">
           <figure v-for="(s, i) in shots" :key="s.title" class="shot reveal" v-spot :style="{ transitionDelay: (i % 3) * 60 + 'ms' }">
@@ -772,9 +771,9 @@ onUnmounted(() => {
     <section class="section">
       <div class="inner">
         <span class="eyebrow reveal"><i>09</i>源码与构建</span>
-        <h2 class="display reveal">自己构建，<span>自己核对</span></h2>
+        <h2 class="display reveal">构建与许可证</h2>
         <p class="lead reveal">
-          主进程、界面、Go CLI 与工作流市场都在公开仓库里。三条命令起本地开发环境。
+          主进程、界面、Go CLI 和工作流市场都在公开仓库里。本地开发环境用三条命令。
         </p>
         <div class="dev-grid">
           <div class="dev-card reveal" v-spot>
@@ -809,7 +808,7 @@ $ npm run dev</code></pre>
         <span class="eyebrow reveal"><i>10</i>更新日志</span>
         <h2 class="display reveal">最近三个版本</h2>
         <p class="lead reveal">
-          只写仓库查得到的提交。这个项目的小版本很密，下面三条都是 2026-10-09 的。
+          只写仓库查得到的提交。这个项目在 2026-10-09 一天发了三个小版本。
         </p>
         <div class="releases">
           <article v-for="r in changelog" :key="r.v" class="rel reveal" v-lift="2" v-spot>

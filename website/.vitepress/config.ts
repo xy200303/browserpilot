@@ -6,7 +6,7 @@ const BASE = '/'
 const SITE_URL = `${SITE_ORIGIN}${BASE}`
 const SITE_NAME = 'BrowserPilot'
 const SITE_DESC =
-  'BrowserPilot 是给 Agent 用的本机浏览器：一套环境一套登录，Agent 在同一扇窗口里点击、填表、等待、提取结果；人随时可以接管。Windows / macOS / Linux，本机 MCP 与工作流。'
+  'BrowserPilot 是给 Agent 用的本机浏览器：一套环境一套登录，Agent 在同一扇窗口里点击、填表、等待、提取结果；人随时能接管。Windows / macOS / Linux，本机 MCP 与工作流。'
 const OG_IMAGE = `${SITE_URL}og-image.png`
 
 const softwareJsonLd = {
@@ -62,7 +62,7 @@ export default defineConfig({
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: SITE_NAME }],
     ['meta', { property: 'og:locale', content: 'zh_CN' }],
-    ['meta', { property: 'og:title', content: 'BrowserPilot — 让 Agent 用你登录好的浏览器' }],
+    ['meta', { property: 'og:title', content: 'BrowserPilot — 你已经登录的浏览器，Agent 接着用' }],
     ['meta', { property: 'og:description', content: SITE_DESC }],
     ['meta', { property: 'og:url', content: SITE_URL }],
     ['meta', { property: 'og:image', content: OG_IMAGE }],
@@ -70,7 +70,7 @@ export default defineConfig({
     ['meta', { property: 'og:image:height', content: '630' }],
     ['meta', { property: 'og:image:alt', content: 'BrowserPilot — 给 Agent 用的本机浏览器' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-    ['meta', { name: 'twitter:title', content: 'BrowserPilot — 让 Agent 用你登录好的浏览器' }],
+    ['meta', { name: 'twitter:title', content: 'BrowserPilot — 你已经登录的浏览器，Agent 接着用' }],
     ['meta', { name: 'twitter:description', content: SITE_DESC }],
     ['meta', { name: 'twitter:image', content: OG_IMAGE }],
     ['script', { type: 'application/ld+json' }, JSON.stringify(softwareJsonLd)],
