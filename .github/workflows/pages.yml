@@ -37,7 +37,6 @@ jobs:
       - uses: actions/configure-pages@v5
         with:
           enablement: true
-          cname: browser.xyun.dev
       - uses: actions/upload-pages-artifact@v3
         with:
           path: website/.vitepress/dist
