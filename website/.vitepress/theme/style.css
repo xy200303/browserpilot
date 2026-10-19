@@ -1082,3 +1082,6 @@ body:has(.landing) .VPLocalNav { display: none; }
   .hero-title .mobile-line { display: block; }
   .hero-title { font-size: 38px; }
 }
+
+/* 顶栏使用应用图标：略放大，让地球与金色横线在 24px 附近仍可辨认 */
+.VPNavBarTitle .logo { width: 26px; height: 26px; }
