@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { withBase } from 'vitepress'
-import { EASE, loadMotion, prefersReduced } from './motion/engine'
+import DotField from './components/DotField.vue'
+import SignalStrip from './components/SignalStrip.vue'
+import { setupLanding } from './motion/setupLanding'
 
 const ICONS = {
   arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>',
@@ -29,6 +31,71 @@ const steps = [
     desc: '每次运行留下成功/失败、停在哪一步、输出与文件。做通一次的步骤可以写成工作流，之后一次调用跑完。',
     src: '/shots/run-detail.png',
     alt: '运行记录页面，显示输出、条数与 CSV 路径'
+  }
+]
+
+const heroGroups = [
+  { cls: 'desktop-line', text: '让 Agent 用你登录好的浏览器，', base: 0 },
+  { cls: 'desktop-line', text: '把网页上的事做完。', base: 14 },
+  { cls: 'mobile-line', text: '浏览器里的事，', base: 0 },
+  { cls: 'mobile-line', text: '交给 Agent。', base: 7 }
+]
+const heroChars = heroGroups.map((line) => ({
+  cls: line.cls,
+  chars: [...line.text].map((ch, i) => ({ ch, i: line.base + i }))
+}))
+
+const stats = [
+  { value: '67', label: 'MCP 工具', note: 'tool-catalog.ts 的实际工具数' },
+  { value: '22', label: '工作流节点', note: '开始/结束/判断/循环都算在内' },
+  { value: '200', label: '运行记录上限', note: '界面列表最多显示 50 条' },
+  { value: '3', label: '并发与无头窗口', note: '默认各 3，设置里可调' }
+]
+
+const marquee = [
+  '导航与定位', '表单与上传', '多标签与环境', '等待与重试', '结果提取',
+  '下载与媒体', '标签级抓包', '极验滑块', '本机 MCP', '工作流回放'
+]
+
+const modes = [
+  {
+    id: 'agent',
+    name: 'Agent 直连',
+    lead: '在 Claude Code、Kimi Code、Cursor 里说一句，Agent 通过 MCP 逐步调用工具：快照、定位、点击、等待、提取。适合一次性任务和还没形成固定流程的事。',
+    items: [
+      { t: '67 个工具', d: '导航、点击、表单、截图、抓包、媒体、验证码都在同一套工具里' },
+      { t: '失败留现场', d: '工具失败自动附 errorShot，Agent 下一轮能看着截图改定位' },
+      { t: '不写死 sleep', d: 'page_wait 等元素出现或消失，1–60 秒' },
+      { t: '随时接管', d: '页面遮罩上的「接管」一按，控制权回到人' }
+    ],
+    to: '/guide/quickstart.html',
+    toText: '看快速上手'
+  },
+  {
+    id: 'workflow',
+    name: '保存工作流',
+    lead: '做通一次之后，把步骤写成节点图。之后只调用一次 workflow_run，主进程顺着边跑完，不再把每个节点交回给模型。',
+    items: [
+      { t: '22 种节点', d: '打开、点击、填写、判断、循环、提取、导出、CDP、验证码' },
+      { t: '参数化', d: '开始节点声明变量，同一张图换输入就能跑不同账号或关键词' },
+      { t: '批量', d: 'workflow_batch 多行输入，并发最多 3' },
+      { t: '可导出', d: '整张图是 JSON，能导入导出，也能放进市场' }
+    ],
+    to: '/guide/concepts.html',
+    toText: '看核心概念'
+  },
+  {
+    id: 'loop',
+    name: '人机协作',
+    lead: '登录、短信、人工核验这些步骤不硬做。交接节点会去掉遮罩、留一句提示，等下一步目标出现再重新上锁。',
+    items: [
+      { t: '三种控制状态', d: 'agent / handoff / shared，页面表现各不相同' },
+      { t: '交接最多 10 分钟', d: '下一个节点有定位时等待；没有定位会立即重新上锁' },
+      { t: '接管不暂停', d: '人和 Agent 同时操作，工作流返回 takenOver: true' },
+      { t: '凭据留在环境', d: '登录在 persist 分区，导出 Cookie 是明文，只在本机用' }
+    ],
+    to: '/guide/interface.html',
+    toText: '看界面说明'
   }
 ]
 
@@ -229,65 +296,47 @@ const faqs = [
   }
 ]
 
-let observer: IntersectionObserver | null = null
+const heroEl = ref<HTMLElement | null>(null)
+const demoFrame = ref<HTMLElement | null>(null)
+const progressEl = ref<HTMLElement | null>(null)
+const railEl = ref<HTMLElement | null>(null)
+const tabsEl = ref<HTMLElement | null>(null)
+const panelEl = ref<HTMLElement | null>(null)
+const finalEl = ref<HTMLElement | null>(null)
+const spotEl = ref<HTMLElement | null>(null)
+const mode = ref('agent')
+let stopLanding: (() => void) | null = null
 
 onMounted(async () => {
-  const ld = document.createElement('script')
-  ld.id = 'faq-jsonld'
-  ld.type = 'application/ld+json'
-  ld.textContent = JSON.stringify({
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: faqs.map((f) => ({
-      '@type': 'Question',
-      name: f.q,
-      acceptedAnswer: { '@type': 'Answer', text: f.a }
-    }))
-  })
-  document.head.appendChild(ld)
-
-  if (prefersReduced()) return
-  const M = await loadMotion().catch(() => null)
-  if (!M || !('IntersectionObserver' in window)) return
-  const { animate } = M
-  const targets = Array.from(document.querySelectorAll<HTMLElement>('.reveal'))
-  for (const el of targets) {
-    if (el.getBoundingClientRect().top > window.innerHeight * 0.94) el.classList.add('reveal-pre')
+  try {
+    stopLanding = await setupLanding({
+      heroEl,
+      demoFrame,
+      progressEl,
+      railEl,
+      tabsEl,
+      panelEl,
+      finalEl,
+      spotEl,
+      mode,
+      faqs
+    })
+  } catch {
+    stopLanding = null
   }
-  const show = (el: HTMLElement) => {
-    el.classList.remove('reveal-pre')
-    animate(el, { opacity: [0, 1], y: [10, 0] }, { duration: 0.62, easing: EASE })
-  }
-  observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue
-        observer?.unobserve(entry.target)
-        show(entry.target as HTMLElement)
-      }
-    },
-    { threshold: 0.12, rootMargin: '0px 0px -6% 0px' }
-  )
-  for (const el of targets) {
-    if (el.classList.contains('reveal-pre')) observer.observe(el)
-  }
-  const fallback = window.setTimeout(() => {
-    for (const el of Array.from(document.querySelectorAll<HTMLElement>('.reveal-pre'))) {
-      if (el.getBoundingClientRect().top < window.innerHeight * 1.1) show(el)
-    }
-  }, 2500)
-  onUnmounted(() => window.clearTimeout(fallback))
 })
 
 onUnmounted(() => {
-  observer?.disconnect()
-  document.getElementById('faq-jsonld')?.remove()
+  stopLanding?.()
 })
+
 </script>
 
 <template>
   <div class="landing">
-    <section class="hero">
+    <div ref="progressEl" class="progress" aria-hidden="true" />
+    <section ref="heroEl" class="hero">
+      <DotField class="hero-field" :gap="22" :radius="140" :push="34" />
       <div class="inner">
         <a class="notice" href="#changelog">
           <span class="notice-tag">v0.13.13</span>
@@ -297,10 +346,9 @@ onUnmounted(() => {
         <div class="hero-inner">
           <span class="hero-kicker">MCP · 67 TOOLS · 0.13.13</span>
           <h1 class="hero-title">
-            <span class="line desktop-line">让 Agent 用你<span class="nowrap">登录</span>好的浏览器，</span>
-            <span class="line desktop-line">把网页上的事做完。</span>
-            <span class="line mobile-line">浏览器里的事，</span>
-            <span class="line mobile-line">交给 Agent。</span>
+            <span v-for="(line, li) in heroChars" :key="li" :class="['line', line.cls]">
+              <span v-for="c in line.chars" :key="c.i" class="ch" :style="{ '--ci': c.i }">{{ c.ch }}</span>
+            </span>
           </h1>
           <p class="hero-sub">
             一套环境一套登录。Agent 在同一扇窗口里点击、填表、等待、提取结果；你随时可以接管。
@@ -331,11 +379,13 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+      <SignalStrip class="hero-signal" :height="64" :lines="3" />
     </section>
 
     <section id="demo" class="demo">
       <div class="inner">
-        <div class="demo-frame">
+        <div class="demo-frame-wrap">
+          <div ref="demoFrame" class="demo-frame">
           <div class="window">
             <div class="window-bar">
               <i /><i /><i />
@@ -351,6 +401,7 @@ onUnmounted(() => {
               preload="none"
               aria-label="BrowserPilot 真实运行录屏：在 GitHub 话题页取前 5 个仓库并导出 CSV"
             />
+          </div>
           </div>
         </div>
         <div class="demo-caption">
@@ -368,6 +419,26 @@ onUnmounted(() => {
       </div>
     </section>
 
+    <section class="statband">
+      <div class="inner">
+        <ul class="stats">
+          <li v-for="(s, i) in stats" :key="s.label" class="stat reveal" :style="{ transitionDelay: i * 70 + 'ms' }">
+            <strong>{{ s.value }}</strong>
+            <span class="stat-label">{{ s.label }}</span>
+            <span class="stat-note">{{ s.note }}</span>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-track">
+        <span v-for="(w, i) in [...marquee, ...marquee]" :key="i" class="marquee-word">
+          {{ w }}<i>·</i>
+        </span>
+      </div>
+    </div>
+
     <section class="section">
       <div class="inner">
         <span class="eyebrow reveal"><i>01</i>怎么工作</span>
@@ -376,8 +447,12 @@ onUnmounted(() => {
           它不是录屏回放，也不是把每一步都交回给模型重新想。做通一次之后，步骤可以存成工作流，
           下一次只调用一次 workflow_run。
         </p>
+        <div ref="railEl" class="pipe-rail" aria-hidden="true">
+          <span class="rail-line" />
+          <span v-for="n in 3" :key="n" class="rail-dot" />
+        </div>
         <div class="steps">
-          <figure v-for="s in steps" :key="s.n" class="step reveal" v-lift="2">
+          <figure v-for="s in steps" :key="s.n" class="step reveal" v-lift="2" v-spot>
             <div class="window sm">
               <div class="window-bar"><i /><i /><i /><span>BrowserPilot</span></div>
               <img :src="withBase(s.src)" :alt="s.alt" loading="lazy" />
@@ -400,7 +475,7 @@ onUnmounted(() => {
           未支持 = 不承诺，建议交接给人。
         </p>
         <div class="caps">
-          <article v-for="c in caps" :key="c.title" class="cap reveal" v-lift="2">
+          <article v-for="c in caps" :key="c.title" class="cap reveal" v-lift="2" v-spot>
             <h3>{{ c.title }}</h3>
             <p class="cap-lead">{{ c.lead }}</p>
             <ul>
@@ -413,6 +488,47 @@ onUnmounted(() => {
               </li>
             </ul>
           </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section tabs-section">
+      <div class="inner">
+        <span class="eyebrow reveal"><i>·</i>三种用法</span>
+        <h2 class="display reveal">同一套工具，<span>三种用法</span></h2>
+        <p class="lead reveal">
+          Agent 直连适合一次性任务；保存工作流适合重复操作；人机协作适合登录、核验和需要人把关的步骤。
+        </p>
+        <div ref="tabsEl" class="tabs reveal" role="tablist">
+          <button
+            v-for="m in modes"
+            :key="m.id"
+            v-press
+            type="button"
+            role="tab"
+            :aria-selected="mode === m.id"
+            :class="['tab', mode === m.id && 'on']"
+            @click="mode = m.id"
+          >
+            {{ m.name }}
+          </button>
+          <span class="tab-bar" aria-hidden="true" />
+        </div>
+        <div ref="panelEl" class="track-panel reveal" v-spot>
+          <template v-for="m in modes" :key="m.id">
+            <div v-if="mode === m.id" class="track-body">
+              <p class="track-lead">{{ m.lead }}</p>
+              <ul class="track-items">
+                <li v-for="it in m.items" :key="it.t">
+                  <strong>{{ it.t }}</strong>
+                  <span>{{ it.d }}</span>
+                </li>
+              </ul>
+              <a class="track-link" :href="withBase(m.to)">
+                {{ m.toText }} <span v-html="ICONS.arrow" />
+              </a>
+            </div>
+          </template>
         </div>
       </div>
     </section>
@@ -454,28 +570,28 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="loop-points">
-            <div class="loop-point reveal">
+            <div class="loop-point reveal" v-spot>
               <h4>接管不暂停</h4>
               <p>
                 人点「接管」或 Agent 调 <code>page_unlock</code> 后，控制权变成 shared，任务继续。
                 工作流返回 <code>takenOver: true</code>，Agent 应该重新读页面再决定下一步。
               </p>
             </div>
-            <div class="loop-point reveal">
+            <div class="loop-point reveal" v-spot>
               <h4>需要人做一步时</h4>
               <p>
                 用 <code>page_handoff</code> 或工作流「交接」节点。窗口如果是无头的，会先显示出来；
                 交接节点会等下一个目标出现，最长 10 分钟；下一个节点没有定位时会立即重新上锁。
               </p>
             </div>
-            <div class="loop-point reveal">
+            <div class="loop-point reveal" v-spot>
               <h4>凭据留在本机</h4>
               <p>
                 登录态在 Electron 的 persist 分区；MCP 只监听 127.0.0.1，Bearer 令牌写在本机
                 <code>mcp.json</code>。应用不把 Cookie 发给云端。
               </p>
             </div>
-            <div class="loop-point reveal">
+            <div class="loop-point reveal" v-spot>
               <h4>导出的 Cookie 是明文</h4>
               <p>
                 <code>env_export</code> 是给换机用的，文件里是完整 Cookie。只在本机传递，不要贴到对话、
@@ -495,7 +611,7 @@ onUnmounted(() => {
           主动写清楚不做的部分，比说「什么都能做」更有用。下面每一条都能在代码或发布配置里找到对应。
         </p>
         <div class="bounds">
-          <div class="bound reveal" v-lift="2">
+          <div class="bound reveal" v-lift="2" v-spot>
             <h3>做</h3>
             <ul>
               <li><strong>本机桌面运行。</strong>一套环境一扇窗口，登录留在分区里，关窗不丢。</li>
@@ -530,7 +646,7 @@ onUnmounted(() => {
           应用内没有定时器。
         </p>
         <div class="integration-grid">
-          <article class="codecard reveal">
+          <article class="codecard reveal" v-spot>
             <header><h3>MCP 客户端配置</h3><span>streamable HTTP</span></header>
             <pre><code>{
   "mcpServers": {
@@ -546,7 +662,7 @@ onUnmounted(() => {
               <code>%APPDATA%\BrowserPilot\mcp.json</code> 里的 token；不要贴到对话或仓库。
             </p>
           </article>
-          <article class="codecard reveal">
+          <article class="codecard reveal" v-spot>
             <header><h3>CLI</h3><span>Windows</span></header>
             <pre><code>"%LOCALAPPDATA%\Programs\BrowserPilot\resources\cli\browserpilot.exe" tools
 "%LOCALAPPDATA%\Programs\BrowserPilot\resources\cli\browserpilot.exe" schema page_click
@@ -556,7 +672,7 @@ onUnmounted(() => {
               <code>%APPDATA%</code> 路径读 mcp.json；macOS / Linux 用 MCP。
             </p>
           </article>
-          <article class="codecard reveal">
+          <article class="codecard reveal" v-spot>
             <header><h3>批量输入</h3><span>workflow_batch</span></header>
             <pre><code>{
   "workflow": "GitHub 话题速览",
@@ -570,7 +686,7 @@ onUnmounted(() => {
               并发上限 3。每行仍是一次完整的工作流运行，各自有运行记录；默认一行一行来。
             </p>
           </article>
-          <article class="codecard reveal">
+          <article class="codecard reveal" v-spot>
             <header><h3>系统计划任务</h3><span>不是内置功能</span></header>
             <pre><code>set BROWSERPILOT_EXE=%LOCALAPPDATA%\Programs\BrowserPilot\BrowserPilot.exe
 "%LOCALAPPDATA%\Programs\BrowserPilot\resources\cli\browserpilot.exe" ^
@@ -639,7 +755,7 @@ onUnmounted(() => {
           下面五张都来自 0.13.13 的 Windows 运行，统一窗口 1440 × 900。没有 mockup。
         </p>
         <div class="shots">
-          <figure v-for="(s, i) in shots" :key="s.title" class="shot reveal" :style="{ transitionDelay: (i % 3) * 60 + 'ms' }">
+          <figure v-for="(s, i) in shots" :key="s.title" class="shot reveal" v-spot :style="{ transitionDelay: (i % 3) * 60 + 'ms' }">
             <div class="window sm">
               <div class="window-bar"><i /><i /><i /><span>BrowserPilot</span></div>
               <img :src="withBase(s.src)" :alt="s.title" loading="lazy" />
@@ -661,7 +777,7 @@ onUnmounted(() => {
           主进程、界面、Go CLI 与工作流市场都在公开仓库里。三条命令起本地开发环境。
         </p>
         <div class="dev-grid">
-          <div class="dev-card reveal">
+          <div class="dev-card reveal" v-spot>
             <h3>三条命令</h3>
             <pre><code>$ git clone https://github.com/xy200303/browserpilot
 $ npm install
@@ -696,7 +812,7 @@ $ npm run dev</code></pre>
           只写仓库查得到的提交。这个项目的小版本很密，下面三条都是 2026-10-09 的。
         </p>
         <div class="releases">
-          <article v-for="r in changelog" :key="r.v" class="rel reveal" v-lift="2">
+          <article v-for="r in changelog" :key="r.v" class="rel reveal" v-lift="2" v-spot>
             <div class="rel-head">
               <span class="rel-v">{{ r.v }}</span>
               <span class="rel-when">{{ r.when }}</span>
@@ -731,7 +847,8 @@ $ npm run dev</code></pre>
       </div>
     </section>
 
-    <section class="final">
+    <section ref="finalEl" class="final">
+      <div ref="spotEl" class="spot" aria-hidden="true" />
       <div class="final-inner reveal">
         <h2 class="display">下载，接上你的 Agent，<span>让它跑一遍</span></h2>
         <p class="final-sub">

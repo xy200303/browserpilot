@@ -1,7 +1,7 @@
 import DefaultTheme from 'vitepress/theme'
 import type { Theme } from 'vitepress'
 import Home from './Home.vue'
-import { vLift, vPress } from './motion/directives'
+import { vLift, vPress, vSpot } from './motion/directives'
 import './style.css'
 
 export default {
@@ -10,5 +10,6 @@ export default {
     app.component('Home', Home)
     app.directive('press', vPress)
     app.directive('lift', vLift)
+    app.directive('spot', vSpot)
   }
 } satisfies Theme

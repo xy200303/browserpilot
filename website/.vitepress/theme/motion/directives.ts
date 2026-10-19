@@ -65,3 +65,28 @@ export const vLift: Directive<HTMLElement, number | undefined> = {
     teardowns.delete(el)
   }
 }
+
+/** v-spot：把指针位置写进元素上的 --mx / --my，供 CSS 画卡片内跟随高光。 */
+export const vSpot: Directive<HTMLElement> = {
+  mounted(el) {
+    let raf = 0
+    const move = (e: PointerEvent) => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        const r = el.getBoundingClientRect()
+        el.style.setProperty('--mx', `${e.clientX - r.left}px`)
+        el.style.setProperty('--my', `${e.clientY - r.top}px`)
+      })
+    }
+    el.addEventListener('pointermove', move, { passive: true })
+    teardowns.set(el, () => {
+      if (raf) cancelAnimationFrame(raf)
+      el.removeEventListener('pointermove', move)
+    })
+  },
+  unmounted(el) {
+    teardowns.get(el)?.()
+    teardowns.delete(el)
+  }
+}
