@@ -1,12 +1,22 @@
 Windows、macOS 和 Linux 安装包。命令行 `browserpilot` 打进安装包的 `cli` 目录。
 
-## v0.14.0 新增
+## v0.16.0 新增
 
-- `page_screenshot` 把截图作为 MCP image 内容返回；文本结果仍带路径、像素宽高和字节数。
-- 新增 `window_preview`：把主界面、网页、遮罩、交接提示和弹层合成一张整窗预览图。
-- `screen_start` 支持 `maxSeconds`，默认 300 秒、最长 3600 秒自动停止；新增 `screen_status`；`screen_stop` 返回时长和字节数。
+- 截图默认带坐标网格（`grid`，传 `false` 或 `0` 关闭）。网页截图用视口坐标，应用截图用内容区坐标，刻度可以直接当点击坐标用。
+- 局部截图（元素、区域、应用局部）左上角标出裁剪起点 `(x, y)`，刻度仍是绝对坐标，不需要自己加偏移。
+- `page_screenshot` 支持元素截图和区域截图；`window_preview` 支持 `x`、`y`、`width`、`height` 局部截图。
+- 新增 `edgeOnly: true`：只画四边刻度，不铺满整张图，适合内容密集的局部截图。
+- 网格颜色按每 32px 小块的背景自动计算（OKLCH 色相 + APCA 对比度）：亮底深线、暗底浅线，避免和背景撞色；网格是截图后合成的，不往页面里注入任何东西。
+- 媒体保存（`page_save_media`、`page_record_video`）和窗口录屏默认落到系统下载目录（Windows 的「下载」、macOS / Linux 的 Downloads），可在设置里改。
+- Electron 升级到 45.2.3，修复 Linux 上打开菜单时出现不可见透明层、界面卡死的问题。
+
+## 修复
+
+- 整窗预览的网格坐标和网页坐标混用的问题。
+- 局部截图起点为 `(0, 0)` 时没有角标的问题。
+- 数字标签的描边颜色污染网格线，导致同一张图里红白混杂的问题。
 
 ## 说明
 
-- `window_preview` 是合成预览，不是系统级窗口截图；无头窗口没有画面。
 - 安装包没有代码签名。
+- 截图网格默认开启，`page_screenshot` / `window_preview` 都默认在图片上合成，不改变页面。
