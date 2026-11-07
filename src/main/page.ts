@@ -1,5 +1,5 @@
 import { clipboard, nativeImage, net, type WebContents } from 'electron'
-import { appendFileSync, mkdirSync, writeFileSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import { execFile } from 'child_process'
 import { join } from 'path'
 import { searchEngineOf, type ActVia, type GestureVia, type Locator } from '@shared/types'
@@ -1695,6 +1695,10 @@ export async function downloadMedia(tab: TabRuntime, url: string, path: string, 
 }
 
 export async function recordVideo(tab: TabRuntime, seconds: number, dir: string, savePath?: string): Promise<{ path: string; bytes: number; seconds: number }> {
+  if (savePath && existsSync(savePath) && statSync(savePath).isDirectory()) {
+    dir = savePath
+    savePath = undefined
+  }
   const runtime = windows.get(tab.envId)
   if (runtime && !runtime.headless) {
     if (runtime.win.isMinimized()) runtime.win.restore()
@@ -1731,7 +1735,7 @@ export async function recordVideo(tab: TabRuntime, seconds: number, dir: string,
   if (armed !== 'recording') throw new Error(armed === 'no video' ? '页面上没有 video 元素' : '这个环境录不了（captureStream 或编码器不可用）')
   const path = savePath || join(dir, `record-${Date.now()}.webm`)
   writeFileSync(path, Buffer.alloc(0))
-  const dlId = downloadBegin(`录制 ${tab.title || '视频'}`, tab.url)
+  const dlId = downloadBegin(`录制 ${tab.title || '视频'}`, tab.url, '', 0, undefined, undefined, tab.envId)
   let bytes = 0
   try {
     bytes = await pullChunks(tab, '__bpRec', path, Date.now() + ms + 15_000, (received) => downloadProgress(dlId, received))
@@ -1743,7 +1747,6 @@ export async function recordVideo(tab: TabRuntime, seconds: number, dir: string,
   }
   downloadDone(dlId, path)
   if (bytes === 0) throw new Error('录出来是空的：视频可能没播起来')
-  const { statSync } = await import('fs')
   return { path, bytes: statSync(path).size, seconds: Math.round(ms / 1000) }
 }
 

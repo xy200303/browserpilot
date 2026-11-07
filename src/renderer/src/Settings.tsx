@@ -391,6 +391,17 @@ function General({ state }: { state: UiState }) {
             </SelectContent>
           </Select>
         </Row>
+        <Row title="下载位置" detail="网页里点下载按钮存到哪里。不改就放在应用数据目录的 downloads 里；Agent 存的图片、视频走这里之外，由它自己指定。">
+          <div className="flex items-center gap-2">
+            <span className="max-w-64 truncate text-xs text-muted-foreground" title={settings.downloadDir || '默认目录'}>
+              {settings.downloadDir || '默认目录'}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => void window.browser.pickDownloadDir()}>选择…</Button>
+            {settings.downloadDir && (
+              <Button variant="ghost" size="sm" onClick={() => void window.browser.updateSettings({ downloadDir: '' })}>恢复默认</Button>
+            )}
+          </div>
+        </Row>
         <Row title="MCP" detail="只听 127.0.0.1。关掉后再打开会换一次端口上的服务。">
           <Switch checked={settings.mcpEnabled} onCheckedChange={(mcpEnabled) => void window.browser.updateSettings({ mcpEnabled })} />
         </Row>

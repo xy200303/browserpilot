@@ -23,6 +23,7 @@ export type Settings = {
   port: number
   batchConcurrency: number
   headlessLimit: number
+  downloadDir: string
 }
 
 export type SiteInfo = {
@@ -207,6 +208,7 @@ export type DownloadItem = {
   name: string
   url: string
   path: string
+  envId?: string
   totalBytes: number
   receivedBytes: number
   state: 'progressing' | 'paused' | 'completed' | 'failed' | 'cancelled'
@@ -251,5 +253,6 @@ export const defaultSettings = (): Settings => ({
   mcpEnabled: true,
   port: 39221,
   batchConcurrency: 3,
-  headlessLimit: 3
+  headlessLimit: 3,
+  downloadDir: ''
 })

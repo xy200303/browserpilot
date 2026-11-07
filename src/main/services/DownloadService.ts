@@ -1,12 +1,15 @@
-import { clipboard, shell, type DownloadItem as ElectronDownloadItem, type WebContents } from 'electron'
+import { clipboard, shell, type DownloadItem as ElectronDownloadItem } from 'electron'
+import { mkdirSync } from 'fs'
 import { createId } from '../ids'
 import { bridge } from '../runtime'
+import { storage } from './store'
 
 export type DownloadItem = {
   id: string
   name: string
   url: string
   path: string
+  envId?: string
   totalBytes: number
   receivedBytes: number
   state: 'progressing' | 'paused' | 'completed' | 'failed' | 'cancelled'
@@ -36,10 +39,25 @@ export function listDownloads(): DownloadItem[] {
   return order.map((id) => entries.get(id)!.item).filter(Boolean)
 }
 
-export function downloadBegin(name: string, url: string, path = '', totalBytes = 0, retry?: () => void, native?: ElectronDownloadItem): string {
+export function downloadTargetDir(): string {
+  const custom = storage.settings.downloadDir.trim()
+  if (custom) {
+    try {
+      mkdirSync(custom, { recursive: true })
+      return custom
+    } catch {
+      // 自定义目录不可用（盘符拔掉、无权限）时退回默认目录，不让下载直接失败
+    }
+  }
+  const dir = storage.dir('downloads')
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+export function downloadBegin(name: string, url: string, path = '', totalBytes = 0, retry?: () => void, native?: ElectronDownloadItem, envId?: string): string {
   const id = createId('dl')
   entries.set(id, {
-    item: { id, name, url, path, totalBytes, receivedBytes: 0, state: 'progressing', startedAt: Date.now() },
+    item: { id, name, url, path, envId, totalBytes, receivedBytes: 0, state: 'progressing', startedAt: Date.now() },
     native,
     retry
   })
@@ -137,7 +155,7 @@ export function downloadRetry(id: string): void {
   if (entry?.retry) entry.retry()
 }
 
-export function registerSessionDownload(item: ElectronDownloadItem, savePath: string): void {
+export function registerSessionDownload(item: ElectronDownloadItem, savePath: string, envId?: string): void {
   const fallbackName = (() => {
     try {
       const base = decodeURIComponent(new URL(item.getURL()).pathname.split('/').filter(Boolean).pop() || '')
@@ -148,7 +166,7 @@ export function registerSessionDownload(item: ElectronDownloadItem, savePath: st
     return '下载文件'
   })()
   const raw = item.getFilename() || ''
-  const id = downloadBegin(raw.includes('?') || !raw ? fallbackName : raw, item.getURL(), savePath, 0, undefined, item)
+  const id = downloadBegin(raw.includes('?') || !raw ? fallbackName : raw, item.getURL(), savePath, 0, undefined, item, envId)
   const entry = entryOf(id)
   item.on('updated', (_event, state) => {
     if (!entry) return

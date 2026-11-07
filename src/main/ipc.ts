@@ -7,7 +7,7 @@ import { storage } from './services/store'
 import { buildEnvPrompt, buildTabPrompt } from './services/PromptService'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate } from './services/RecordService'
 import { installMarketFile, installMarketUrl, listMarket } from './services/MarketService'
-import { downloadCopyLink, downloadOpen, downloadPause, downloadResume, downloadRetry, downloadShow, downloadCancel, downloadsClear } from './services/DownloadService'
+import { downloadCopyLink, downloadOpen, downloadPause, downloadResume, downloadRetry, downloadShow, downloadCancel, downloadTargetDir, downloadsClear } from './services/DownloadService'
 import { windows } from './runtime'
 import { bridge } from './runtime'
 import {
@@ -384,6 +384,21 @@ export function wireIpc(): void {
 
   ipcMain.handle('group:assign', async (_event, input: { tabId: string; groupId?: string | null }) => {
     return callTool('tab_group', input)
+  })
+
+  ipcMain.handle('settings:pickDownloadDir', async (event) => {
+    const runtime = windowFromSender(event.sender)
+    const options = {
+      title: '选择下载目录',
+      defaultPath: storage.settings.downloadDir || downloadTargetDir(),
+      properties: ['openDirectory', 'createDirectory'] as 'openDirectory'[]
+    }
+    const picked = runtime ? await dialog.showOpenDialog(runtime.win, options) : await dialog.showOpenDialog(options)
+    if (picked.canceled || !picked.filePaths[0]) return { canceled: true }
+    storage.settings = { ...storage.settings, downloadDir: picked.filePaths[0] }
+    storage.saveSettings()
+    broadcast()
+    return { canceled: false, dir: picked.filePaths[0] }
   })
 
   ipcMain.handle('settings:update', async (_event, patch: Partial<Settings>) => {

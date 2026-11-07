@@ -104,6 +104,7 @@ const api = {
   createGroup: (input: { name: string; color?: string }): Promise<unknown> => ipcRenderer.invoke('group:create', input),
   assignGroup: (input: { tabId: string; groupId?: string | null }): Promise<unknown> => ipcRenderer.invoke('group:assign', input),
   updateSettings: (patch: Partial<Settings>): Promise<void> => ipcRenderer.invoke('settings:update', patch),
+  pickDownloadDir: (): Promise<{ canceled: boolean; dir?: string }> => ipcRenderer.invoke('settings:pickDownloadDir'),
   exportWorkflow: (id: string): Promise<{ canceled: boolean; path?: string; name?: string }> => ipcRenderer.invoke('workflow:export', id),
   importWorkflow: (): Promise<{ canceled: boolean; workflow?: string; name?: string }> => ipcRenderer.invoke('workflow:import'),
   deleteWorkflow: (id: string): Promise<{ id: string; name: string }> => ipcRenderer.invoke('workflow:delete', id),

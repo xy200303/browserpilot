@@ -1,4 +1,4 @@
-import { mkdirSync } from 'fs'
+import { mkdirSync, statSync } from 'fs'
 import type { TabRuntime } from '../runtime'
 import { inspectElement } from '../page'
 import { downloadBegin, downloadDone, downloadFail, downloadProgress } from '../services/DownloadService'
@@ -25,6 +25,14 @@ const handlers: Partial<Record<ElementInfo['kind'], MediaHandler>> = {
   audio: audioHandler
 }
 
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 export async function saveMediaInfo(tab: TabRuntime, info: ElementInfo, dir: string, savePath: string | undefined, onProgress: MediaProgress): Promise<MediaSaved> {
   mkdirSync(dir, { recursive: true })
   const handler = handlers[info.kind]
@@ -35,6 +43,11 @@ export async function saveMediaInfo(tab: TabRuntime, info: ElementInfo, dir: str
 }
 
 export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; point?: { x: number; y: number } }, dir: string, savePath?: string): Promise<MediaSaved> {
+  // savePath 指向已存在的目录时按目录处理，文件名沿用默认命名
+  if (savePath && isDirectory(savePath)) {
+    dir = savePath
+    savePath = undefined
+  }
   const info = await inspectElement(tab, target)
   const name = (() => {
     if ((info.kind === 'video' || info.kind === 'audio') && tab.title) return `${tab.title.replace(/[\/:*?"<>|]/g, '_').slice(0, 60)}`
@@ -47,7 +60,7 @@ export async function saveMedia(tab: TabRuntime, target: { locator?: Locator; po
     if (tab.title) return `${tab.title.replace(/[\/:*?"<>|]/g, '_').slice(0, 60)}-${info.kind}`
     return `${info.kind}-${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`
   })()
-  const dlId = downloadBegin(name, info.src || '')
+  const dlId = downloadBegin(name, info.src || '', '', 0, undefined, undefined, tab.envId)
   try {
     const result = await saveMediaInfo(tab, info, dir, savePath, (received, total) => downloadProgress(dlId, received, total))
     downloadDone(dlId, result.path)

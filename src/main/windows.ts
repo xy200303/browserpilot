@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, Menu, session, WebContentsView } from 'electron'
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
+import { appendFileSync, existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { DEFAULT_ENV, type LayerPayload, type SuggestPayload } from '@shared/types'
 import { chromeUserAgent } from './ua'
@@ -16,7 +16,7 @@ import {
   type TabRuntime,
   type WindowRuntime
 } from './runtime'
-import { downloadBegin, downloadDone, downloadFail, downloadProgress, registerSessionDownload } from './services/DownloadService'
+import { downloadBegin, downloadDone, downloadFail, downloadProgress, downloadTargetDir, registerSessionDownload } from './services/DownloadService'
 import { inspectElement, isSendingToPage, saveMedia, saveMediaInfo, sendCdp, startUrl, watchDocument, type ElementInfo } from './page'
 
 const LOCK_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:rgba(32,33,36,.45);font-family:Segoe UI,sans-serif;color:#fff"><div style="text-align:center"><div style="font-size:18px">Agent 正在操作浏览器</div><button id="take" style="margin-top:16px;padding:8px 18px;border:0;border-radius:8px;background:#fff;color:#202124;font-size:14px">接管</button></div></body></html>`
@@ -563,7 +563,7 @@ async function saveMediaAs(runtime: WindowRuntime, tab: TabRuntime, params: { sr
   const filePath = /\.[a-z0-9]{2,5}$/i.test(picked.filePath) ? picked.filePath : `${picked.filePath}.${kind}`
   try {
     if ((params.mediaType === 'image' || params.mediaType === 'video' || params.mediaType === 'audio') && params.srcURL) {
-      const dlId = downloadBegin(filePath.split(/[\\/]/).pop() || suggested || params.mediaType, params.srcURL)
+      const dlId = downloadBegin(filePath.split(/[\\/]/).pop() || suggested || params.mediaType, params.srcURL, '', 0, undefined, undefined, runtime.envId)
       try {
         const saved = await saveMediaInfo(
           tab,
@@ -945,12 +945,11 @@ export function beginAgentAction(tab: TabRuntime): void {
 
 const watchedSessions = new Set<Electron.Session>()
 
-function watchDownloads(ses: Electron.Session): void {
+function watchDownloads(ses: Electron.Session, envId: string): void {
   if (watchedSessions.has(ses)) return
   watchedSessions.add(ses)
   ses.on('will-download', (_event, item) => {
-    const dir = storage.dir('downloads')
-    mkdirSync(dir, { recursive: true })
+    const dir = downloadTargetDir()
     const name = item.getFilename() || '下载文件'
     let target = join(dir, name)
     let n = 1
@@ -960,13 +959,13 @@ function watchDownloads(ses: Electron.Session): void {
       n += 1
     }
     item.setSavePath(target)
-    registerSessionDownload(item, target)
+    registerSessionDownload(item, target, envId)
   })
 }
 
 function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
   const wc = tab.view!.webContents
-  watchDownloads(wc.session)
+  watchDownloads(wc.session, runtime.envId)
   bindShortcuts(wc, runtime.envId)
   watchDocument(wc, (html) => {
     tab.documentHtml = html

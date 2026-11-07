@@ -1,12 +1,14 @@
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { session } from 'electron'
+import { mkdirSync } from 'fs'
 import { rm } from 'fs/promises'
-import { join } from 'path'
+import { isAbsolute, join } from 'path'
 import { DEFAULT_ENV, type ActVia, type Control, type Locator, type WorkflowApp } from '@shared/types'
 import { createId } from '../ids'
 import { bridge, publicControl, windows, type TabRuntime } from '../runtime'
 import { storage } from './store'
+import { downloadTargetDir, listDownloads } from './DownloadService'
 import { windowPreview } from './WindowPreviewService'
 import {
   activateTab,
@@ -17,7 +19,6 @@ import {
   closeTab,
   closeWorkflowPages,
   openEnvironment,
-  openSettingsPage,
   resolveTab,
   shareControl,
   showAgentMask
@@ -586,7 +587,7 @@ tool('page_inspect', '识别一个元素是什么类型：video、image、canvas
   return { tabId: tabRef.id, ...info }
 })
 
-tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站(__playinfo__)、抖音(media-video/media-audio)、YouTube(ytInitialPlayerResponse)这类流媒体自动抓 DASH 音视频轨合并 mp4；m3u8/mpd 清单（央视、AcFun、优酷等）用 ffmpeg 拉流转 mp4；搜狐这类分段 mp4 按已加载的分段顺序合并（长视频只下到自己播到的部分，要完整就配合 page_record_video）；播放器在 Web Worker 里拉流（腾讯等）时用 CDP 网络嗅探兜底，必要时自动重载页面从头抓清单。目标用 xpath、selector，或坐标 x、y。savePath 给了就存到那个位置，不给就存进媒体目录。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
+tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站(__playinfo__)、抖音(media-video/media-audio)、YouTube(ytInitialPlayerResponse)这类流媒体自动抓 DASH 音视频轨合并 mp4；m3u8/mpd 清单（央视、AcFun、优酷等）用 ffmpeg 拉流转 mp4；搜狐这类分段 mp4 按已加载的分段顺序合并（长视频只下到自己播到的部分，要完整就配合 page_record_video）；播放器在 Web Worker 里拉流（腾讯等）时用 CDP 网络嗅探兜底，必要时自动重载页面从头抓清单。目标用 xpath、selector，或坐标 x、y。savePath 传文件路径就存成那个文件，传已存在的目录就存进目录（文件名自动取），不给就存进媒体目录。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -605,6 +606,60 @@ tool('page_save_media', '把元素上的图片、视频、音频或画布保存�
   const savePath = typeof args.savePath === 'string' && args.savePath ? String(args.savePath) : undefined
   const saved = await saveMedia(tabRef, point ? { point: mapPoint(tabRef, point.x, point.y, point.shot) } : { locator: located }, storage.dir('media'), savePath)
   return { tabId: tabRef.id, ...saved }
+})
+
+tool('download_list', '列出本次运行期间的本机下载记录（重启后清空，文件本身还在），每条给 name、path（存到哪）、state、bytes、url、env：网页里点下载按钮触发的下载、page_save_media 和 page_record_video 存的文件、右键另存的媒体都在里面。带 wait（秒，最长 120）就先等正在进行的下载结束再返回，用来确认「点了下载按钮之后到底存到哪」。失败的条目带 error。', z.object({
+  env: env,
+  wait: z.number().optional()
+}), async (args) => {
+  const envId = typeof args.env === 'string' && args.env ? args.env : undefined
+  const pick = () => listDownloads().filter((item) => !envId || item.envId === envId)
+  const waitMs = Math.max(0, Math.min(120, Number(args.wait ?? 0))) * 1000
+  const deadline = Date.now() + waitMs
+  while (waitMs > 0 && Date.now() < deadline) {
+    if (!pick().some((item) => item.state === 'progressing' || item.state === 'paused')) break
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  const items = pick()
+  return {
+    downloads: items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      env: item.envId,
+      path: item.path,
+      url: item.url,
+      state: item.state,
+      bytes: item.receivedBytes,
+      totalBytes: item.totalBytes,
+      error: item.error,
+      startedAt: item.startedAt,
+      doneAt: item.doneAt
+    })),
+    pending: items.filter((item) => item.state === 'progressing' || item.state === 'paused').length,
+    dir: downloadTargetDir()
+  }
+})
+
+tool('download_dir', '查看或修改浏览器下载目录。不带 dir 返回当前目录；带 dir（本机绝对路径）就改掉，之后网页里点下载按钮触发的下载都存到那里，目录不存在会自动建。传 dir 为空或 "default" 恢复默认目录。page_save_media、page_record_video 的 savePath 仍然逐个文件覆盖这里。', z.object({
+  dir: z.string().optional()
+}), async (args) => {
+  const input = typeof args.dir === 'string' ? args.dir.trim() : ''
+  if (input && input !== 'default') {
+    if (!isAbsolute(input)) throw new Error(`需要绝对路径，比如 D:\\下载：${input}`)
+    try {
+      mkdirSync(input, { recursive: true })
+    } catch {
+      throw new Error(`建不了这个目录：${input}`)
+    }
+    storage.settings.downloadDir = input
+    storage.saveSettings()
+    bridge.broadcast()
+  } else if (input === 'default') {
+    storage.settings.downloadDir = ''
+    storage.saveSettings()
+    bridge.broadcast()
+  }
+  return { dir: downloadTargetDir(), custom: Boolean(storage.settings.downloadDir) }
 })
 
 tool('page_record_video', '把页面里正在播放的视频录下来：用 captureStream + MediaRecorder 录渲染出来的画面，重编码成 webm。seconds 是录多少秒（默认 10，最长 3600），会自动开始播放。任何能播的站都能录（B站、腾讯等流媒体也行），代价是要实时播完。m3u8 追台等直链/流媒体抓轨用 page_save_media，又快又无损。', z.object({
@@ -1272,7 +1327,3 @@ export async function callTool(name: string, raw: unknown): Promise<ToolResult> 
   }
 }
 
-export function openSettings(envId: string): void {
-  const runtime = windows.get(envId)
-  if (runtime) openSettingsPage(runtime, '环境')
-}

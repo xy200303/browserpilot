@@ -74,6 +74,7 @@ export type BrowserApi = {
   createGroup: (input: { name: string; color?: string }) => Promise<unknown>
   assignGroup: (input: { tabId: string; groupId?: string | null }) => Promise<unknown>
   updateSettings: (patch: Partial<Settings>) => Promise<void>
+  pickDownloadDir: () => Promise<{ canceled: boolean; dir?: string }>
   exportWorkflow: (id: string) => Promise<{ canceled: boolean; path?: string; name?: string }>
   importWorkflow: () => Promise<{ canceled: boolean; workflow?: string; name?: string }>
   deleteWorkflow: (id: string) => Promise<{ id: string; name: string }>
