@@ -68,6 +68,30 @@ export type TabInfo = {
   control: Control
 }
 
+export type SuggestionKind = 'search' | 'history' | 'bookmark' | 'tab'
+
+export type AddressSuggestion = {
+  key: string
+  kind: SuggestionKind
+  title: string
+  url: string
+  favicon?: string
+  titleIndices: number[]
+  urlIndices: number[]
+  tabId?: string
+  hibernated?: boolean
+  score: number
+}
+
+export type SuggestionFilters = { history: boolean; bookmarks: boolean; tabs: boolean }
+
+export type SuggestPayload = {
+  items: AddressSuggestion[]
+  highlight: number
+  filters: SuggestionFilters
+  query: string
+}
+
 export type TabError = { code: number; description: string; url: string }
 
 export type HistoryEntry = {
@@ -197,6 +221,7 @@ export type LayerPayload =
   | { kind: 'workflow'; id: string }
   | { kind: 'tabs' }
   | { kind: 'bookmarks'; x: number; y: number }
+  | { kind: 'suggest' }
 
 export type Locator = { selector?: string; xpath?: string; pierce?: boolean }
 

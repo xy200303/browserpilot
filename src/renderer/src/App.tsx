@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react'
-import { ArrowLeft, ArrowRight, Bookmark, ChevronLeft, ChevronRight, Clock3, Download, FolderOpen, Minus, Moon, MoreVertical, PanelTop, Plus, RotateCw, Search, Square, Star, TriangleAlert, Volume2, VolumeX, Workflow, X } from 'lucide-react'
-import { searchEngineOf, type DownloadItem, type HistoryEntry, type TabInfo, type UiState } from '../../shared/types'
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from 'react'
+import { ArrowLeft, ArrowRight, Bookmark, ChevronLeft, ChevronRight, Download, FolderOpen, Minus, Moon, MoreVertical, Plus, RotateCw, Square, Star, TriangleAlert, Volume2, VolumeX, Workflow, X } from 'lucide-react'
+import { searchEngineOf, type AddressSuggestion, type DownloadItem, type HistoryEntry, type SuggestionFilters, type TabInfo, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { MarketPage } from './MarketPage'
 import { SettingsPage } from './Settings'
@@ -298,20 +298,7 @@ function LoadProgress({ tab }: { tab: TabInfo | undefined }) {
   )
 }
 
-type SuggestionKind = 'search' | 'history' | 'bookmark' | 'tab'
-type Suggestion = {
-  key: string
-  kind: SuggestionKind
-  title: string
-  url: string
-  favicon?: string
-  titleIndices: number[]
-  urlIndices: number[]
-  tabId?: string
-  hibernated?: boolean
-  score: number
-}
-type SuggestionFilters = { history: boolean; bookmarks: boolean; tabs: boolean }
+type SuggestionKind = AddressSuggestion['kind']
 
 function fuzzyMatch(text: string, query: string): { score: number; indices: number[] } | null {
   const haystack = text.toLowerCase()
@@ -341,20 +328,6 @@ function fuzzyMatch(text: string, query: string): { score: number; indices: numb
   return { score, indices }
 }
 
-function highlightText(text: string, indices: number[], className: string): ReactNode {
-  if (!indices.length) return text
-  const nodes: ReactNode[] = []
-  let last = 0
-  for (const index of indices) {
-    if (index < last || index >= text.length) continue
-    if (index > last) nodes.push(text.slice(last, index))
-    nodes.push(<mark key={index} className={'rounded-sm px-0 text-inherit ' + className}>{text[index]}</mark>)
-    last = index + 1
-  }
-  if (last < text.length) nodes.push(text.slice(last))
-  return nodes
-}
-
 function scoreSuggestion(kind: SuggestionKind, title: string, url: string, query: string, recency: number): { score: number; titleIndices: number[]; urlIndices: number[] } | null {
   const titleMatch = query ? fuzzyMatch(title, query) : { score: 0, indices: [] }
   const urlMatch = query ? fuzzyMatch(url, query) : { score: 0, indices: [] }
@@ -363,26 +336,6 @@ function scoreSuggestion(kind: SuggestionKind, title: string, url: string, query
   const kindBonus = kind === 'bookmark' ? 4 : kind === 'tab' ? 2 : 0
   const age = Math.min(3, Math.max(0, (recency - (Date.now() - 7 * 86400000)) / (7 * 86400000) * 3))
   return { score: base + kindBonus + age, titleIndices: titleMatch?.indices ?? [], urlIndices: urlMatch?.indices ?? [] }
-}
-
-function suggestionLabel(kind: SuggestionKind): string {
-  if (kind === 'search') return '搜索'
-  if (kind === 'bookmark') return '书签'
-  if (kind === 'history') return '历史'
-  return '标签'
-}
-
-function FilterChip({ active, label, children, onClick }: { active: boolean; label: string; children: ReactNode; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      className={'flex items-center gap-1 rounded px-1.5 py-0.5 ' + (active ? 'bg-neutral-200 text-neutral-800' : 'text-neutral-400 hover:bg-neutral-100')}
-      onClick={onClick}
-    >
-      {children}
-      {label}
-    </button>
-  )
 }
 
 function AddressBar({
@@ -406,12 +359,14 @@ function AddressBar({
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [highlight, setHighlight] = useState(-1)
   const [filters, setFilters] = useState<SuggestionFilters>({ history: true, bookmarks: true, tabs: true })
+  const formRef = useRef<HTMLFormElement>(null)
+  const suggestOpenRef = useRef(false)
 
   const suggestions = useMemo(() => {
     const query = address.trim()
     const now = Date.now()
     const engine = searchEngineOf(state.settings.searchEngine)
-    const list: Suggestion[] = []
+    const list: AddressSuggestion[] = []
     if (query) {
       list.push({
         key: 'search',
@@ -460,7 +415,7 @@ function AddressBar({
     setHighlight(-1)
     void window.browser.navigate(url)
   }
-  const select = (item: Suggestion): void => {
+  const select = (item: AddressSuggestion): void => {
     if (item.kind === 'tab' && item.tabId) {
       void window.browser.activateTab(item.tabId)
       setSuggestOpen(false)
@@ -469,15 +424,50 @@ function AddressBar({
     }
     choose(item.url)
   }
-  const toggleFilter = (key: keyof SuggestionFilters): void => {
-    setFilters((current) => ({ ...current, [key]: !current[key] }))
-    setHighlight(-1)
-  }
-
   useEffect(() => {
     setSuggestOpen(false)
     setHighlight(-1)
   }, [active?.id, active?.url])
+
+  useEffect(() => {
+    const onDown = (event: globalThis.MouseEvent): void => {
+      if (formRef.current && !formRef.current.contains(event.target as Node)) {
+        setSuggestOpen(false)
+        setHighlight(-1)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [])
+
+  useEffect(() => {
+    if (!suggestOpen || builtin) {
+      if (suggestOpenRef.current) {
+        suggestOpenRef.current = false
+        window.browser.hideSuggestions()
+      }
+      return
+    }
+    suggestOpenRef.current = true
+    window.browser.updateSuggestions({ items: suggestions, highlight, filters, query: address })
+  }, [suggestOpen, builtin, suggestions, highlight, filters, address])
+
+  useEffect(() => {
+    const offHide = window.browser.onSuggestHide(() => {
+      suggestOpenRef.current = false
+      setSuggestOpen(false)
+      setHighlight(-1)
+    })
+    const offFilter = window.browser.onSuggestFilter((key) => {
+      setFilters((current) => ({ ...current, [key]: !current[key] }))
+      setHighlight(-1)
+    })
+    return () => {
+      offHide()
+      offFilter()
+      window.browser.hideSuggestions()
+    }
+  }, [])
 
   return (
     <>
@@ -493,6 +483,7 @@ function AddressBar({
           else void window.browser.reload()
         }}>{active?.loading ? <X /> : <RotateCw />}</Button>
         <form
+          ref={formRef}
           className="mx-1 flex min-w-0 flex-1 items-center gap-2"
           onSubmit={(event) => {
             event.preventDefault()
@@ -518,9 +509,6 @@ function AddressBar({
               if (builtin) return
               loadHistory()
               setSuggestOpen(true)
-            }}
-            onBlur={() => {
-              setTimeout(() => setSuggestOpen(false), 120)
             }}
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown') {
@@ -578,51 +566,6 @@ function AddressBar({
           <MoreVertical />
         </Button>
       </div>
-      {suggestOpen && !builtin && (
-        <div className="mx-2 overflow-hidden rounded-b-lg border border-t-0 border-neutral-200 bg-white shadow-sm" onMouseDown={(event) => event.preventDefault()}>
-          <div className="max-h-72 overflow-y-auto">
-            {suggestions.length === 0 && (
-              <p className="px-3 py-6 text-center text-sm text-neutral-500">没有匹配的记录</p>
-            )}
-            {suggestions.map((item, index) => (
-              <button
-                key={item.key}
-                type="button"
-                className={'flex w-full items-center gap-2 px-3 py-2 text-left ' + (index === highlight ? 'bg-neutral-100' : 'hover:bg-neutral-50')}
-                onMouseEnter={() => setHighlight(index)}
-                onClick={() => select(item)}
-              >
-                <span className="grid h-4 w-4 shrink-0 place-items-center">
-                  {item.kind === 'search' ? (
-                    <Search size={13} className="text-neutral-500" />
-                  ) : item.kind === 'bookmark' ? (
-                    <Star size={13} className="text-amber-500" />
-                  ) : item.kind === 'history' ? (
-                    <Clock3 size={13} className="text-neutral-400" />
-                  ) : item.hibernated ? (
-                    <Moon size={13} className="text-neutral-400" />
-                  ) : item.favicon ? (
-                    <img src={item.favicon} alt="" className="h-4 w-4 rounded-sm object-cover" />
-                  ) : (
-                    <PanelTop size={13} className="text-neutral-400" />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-neutral-900">{highlightText(item.title, item.titleIndices, 'bg-amber-100')}</span>
-                  <span className="block truncate text-xs text-neutral-400">{highlightText(item.url, item.urlIndices, 'bg-blue-100 text-blue-600')}</span>
-                </span>
-                <span className="shrink-0 text-[10px] text-neutral-400">{suggestionLabel(item.kind)}</span>
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-1 border-t border-neutral-100 px-2 py-1.5 text-[11px] text-neutral-500">
-            <span className="pr-0.5">筛选搜索：</span>
-            <FilterChip active={filters.history} label="历史记录" onClick={() => toggleFilter('history')}><Clock3 size={12} /></FilterChip>
-            <FilterChip active={filters.bookmarks} label="收藏夹" onClick={() => toggleFilter('bookmarks')}><Star size={12} /></FilterChip>
-            <FilterChip active={filters.tabs} label="标签页" onClick={() => toggleFilter('tabs')}><PanelTop size={12} /></FilterChip>
-          </div>
-        </div>
-      )}
     </>
   )
 }

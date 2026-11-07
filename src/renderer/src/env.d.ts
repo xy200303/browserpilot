@@ -1,4 +1,4 @@
-import type { HistoryEntry, LayerPayload, Settings, UiState, WorkflowEdge, WorkflowNode } from '../../shared/types'
+import type { HistoryEntry, LayerPayload, Settings, SuggestPayload, UiState, WorkflowEdge, WorkflowNode } from '../../shared/types'
 
 type RunLog = { id: string; workflowId: string; at: number; ok: boolean; node?: string; title?: string; error?: string; screenshot?: string; outputs?: Record<string, unknown>; files?: string[] }
 
@@ -51,6 +51,13 @@ export type BrowserApi = {
   deleteHistory: (id: string) => Promise<void>
   clearHistory: () => Promise<void>
   openHistory: (url: string) => Promise<void>
+  updateSuggestions: (payload: SuggestPayload) => void
+  hideSuggestions: () => void
+  pickSuggestion: (key: string) => void
+  toggleSuggestFilter: (key: 'history' | 'bookmarks' | 'tabs') => void
+  onSuggestData: (callback: (payload: SuggestPayload) => void) => () => void
+  onSuggestHide: (callback: () => void) => () => void
+  onSuggestFilter: (callback: (key: 'history' | 'bookmarks' | 'tabs') => void) => () => void
   openBookmarksPage: () => Promise<void>
   toggleBookmark: () => Promise<{ bookmarked: boolean }>
   deleteBookmark: (id: string) => Promise<void>

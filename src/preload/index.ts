@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { HistoryEntry, LayerPayload, Settings, UiState, WorkflowEdge, WorkflowNode } from '../shared/types'
+import type { HistoryEntry, LayerPayload, Settings, SuggestPayload, UiState, WorkflowEdge, WorkflowNode } from '../shared/types'
 
 const api = {
   getState: (): Promise<UiState | null> => ipcRenderer.invoke('state:get'),
@@ -70,6 +70,25 @@ const api = {
   deleteHistory: (id: string): Promise<void> => ipcRenderer.invoke('history:delete', id),
   clearHistory: (): Promise<void> => ipcRenderer.invoke('history:clear'),
   openHistory: (url: string): Promise<void> => ipcRenderer.invoke('history:open', url),
+  updateSuggestions: (payload: SuggestPayload): void => ipcRenderer.send('suggest:update', payload),
+  hideSuggestions: (): void => ipcRenderer.send('suggest:hide'),
+  pickSuggestion: (key: string): void => ipcRenderer.send('suggest:pick', key),
+  toggleSuggestFilter: (key: 'history' | 'bookmarks' | 'tabs'): void => ipcRenderer.send('suggest:filter', key),
+  onSuggestData: (callback: (payload: SuggestPayload) => void): (() => void) => {
+    const listener = (_event: unknown, payload: SuggestPayload): void => callback(payload)
+    ipcRenderer.on('suggest:data', listener)
+    return () => ipcRenderer.removeListener('suggest:data', listener)
+  },
+  onSuggestHide: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('suggest:hide-ui', listener)
+    return () => ipcRenderer.removeListener('suggest:hide-ui', listener)
+  },
+  onSuggestFilter: (callback: (key: 'history' | 'bookmarks' | 'tabs') => void): (() => void) => {
+    const listener = (_event: unknown, key: 'history' | 'bookmarks' | 'tabs'): void => callback(key)
+    ipcRenderer.on('suggest:filter-ui', listener)
+    return () => ipcRenderer.removeListener('suggest:filter-ui', listener)
+  },
   openBookmarksPage: (): Promise<void> => ipcRenderer.invoke('menu:bookmarks'),
   toggleBookmark: (): Promise<{ bookmarked: boolean }> => ipcRenderer.invoke('bookmarks:toggle'),
   deleteBookmark: (id: string): Promise<void> => ipcRenderer.invoke('bookmarks:delete', id),

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, clipboard, dialog, Menu, session, WebContentsView } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { DEFAULT_ENV, type LayerPayload } from '@shared/types'
+import { DEFAULT_ENV, type LayerPayload, type SuggestPayload } from '@shared/types'
 import { chromeUserAgent } from './ua'
 import { createId } from './ids'
 import { BOOKMARKS_PAGE, DOWNLOADS_PAGE, HISTORY_PAGE, MARKET_PAGE, RUNS_PAGE, SETTINGS_PAGE, workflowPage } from '@shared/market'
@@ -184,6 +184,9 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
   void loadPopup(popupView)
   popupView.webContents.on('did-finish-load', () => {
     if (runtime.popupOpen && runtime.popupPayload) popupView.webContents.send('layer:show', runtime.popupPayload)
+    if (runtime.popupPayload?.kind === 'suggest' && runtime.suggestPayload) {
+      popupView.webContents.send('suggest:data', runtime.suggestPayload)
+    }
   })
   const railView = new WebContentsView({
     webPreferences: {
@@ -602,7 +605,26 @@ export function openBookmarksPage(runtime: WindowRuntime): TabRuntime {
   return openBuiltin(runtime, 'bookmarks', '书签', BOOKMARKS_PAGE)
 }
 
+export function showSuggestions(runtime: WindowRuntime, payload: SuggestPayload): void {
+  runtime.suggestPayload = payload
+  runtime.popupPayload = { kind: 'suggest' }
+  runtime.popupOpen = true
+  layoutWindow(runtime.envId)
+  runtime.popupView?.webContents.send('layer:show', { kind: 'suggest' })
+  runtime.popupView?.webContents.send('suggest:data', payload)
+}
+
+export function hideSuggestions(runtime: WindowRuntime): void {
+  if (runtime.popupPayload?.kind !== 'suggest') return
+  runtime.popupOpen = false
+  runtime.popupPayload = null
+  runtime.suggestPayload = undefined
+  layoutWindow(runtime.envId)
+  runtime.win.webContents.send('suggest:hide-ui')
+}
+
 export function showPopup(runtime: WindowRuntime, payload: LayerPayload): void {
+  runtime.suggestPayload = undefined
   runtime.popupPayload = payload
   runtime.popupOpen = true
   layoutWindow(runtime.envId)
@@ -825,7 +847,11 @@ export function layoutWindow(envId: string): void {
   if (!popup) return
   if (runtime.popupOpen) {
     const [width, height] = runtime.win.getContentSize()
-    popup.setBounds({ x: 0, y: 0, width, height })
+    if (runtime.popupPayload?.kind === 'suggest') {
+      popup.setBounds({ x: 0, y: runtime.bounds.y, width, height: Math.max(1, height - runtime.bounds.y) })
+    } else {
+      popup.setBounds({ x: 0, y: 0, width, height })
+    }
     popup.setVisible(true)
     runtime.win.contentView.removeChildView(popup)
     runtime.win.contentView.addChildView(popup)

@@ -1,5 +1,5 @@
 import type { BrowserWindow, WebContentsView } from 'electron'
-import type { Control, LayerPayload, TabError } from '@shared/types'
+import type { Control, LayerPayload, TabError, SuggestPayload } from '@shared/types'
 
 export type InternalControl = 'free' | 'agent' | 'shared' | 'handoff'
 
@@ -49,6 +49,7 @@ export type WindowRuntime = {
   popupView?: WebContentsView
   popupOpen: boolean
   popupPayload: LayerPayload | null
+  suggestPayload?: SuggestPayload
   railView?: WebContentsView
   railOpen: boolean
   railPinned: boolean

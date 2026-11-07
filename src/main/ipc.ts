@@ -1,7 +1,7 @@
 import { clipboard, dialog, ipcMain, session, app } from 'electron'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
-import type { LayerPayload, Settings, UiState, WorkflowEdge, WorkflowNode, WorkflowParam } from '@shared/types'
+import type { LayerPayload, Settings, SuggestPayload, UiState, WorkflowEdge, WorkflowNode, WorkflowParam } from '@shared/types'
 import { DEFAULT_ENV, searchEngines } from '@shared/types'
 import { workflowPage } from '@shared/market'
 import type { StoredEnv } from './services/StorageService'
@@ -36,6 +36,8 @@ import {
   hibernateTab,
   hibernateOtherTabs,
   showPopup,
+  showSuggestions,
+  hideSuggestions,
   openRunsPage,
   openSettingsPage,
   openWorkflowPage,
@@ -200,6 +202,7 @@ export function wireIpc(): void {
       next = { ...payload, x: payload.x + box.x, y: payload.y + box.y }
     }
     runtime.popupPayload = next
+    runtime.suggestPayload = undefined
     runtime.popupOpen = true
     layoutWindow(runtime.envId)
     runtime.popupView.webContents.send('layer:show', next)
@@ -228,7 +231,39 @@ export function wireIpc(): void {
     if (!runtime) return
     runtime.popupOpen = false
     runtime.popupPayload = null
+    runtime.suggestPayload = undefined
     layoutWindow(runtime.envId)
+  })
+
+  ipcMain.on('suggest:update', (event, payload: SuggestPayload) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) showSuggestions(runtime, payload)
+  })
+
+  ipcMain.on('suggest:hide', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) hideSuggestions(runtime)
+  })
+
+  ipcMain.on('suggest:pick', (event, key: string) => {
+    const runtime = windowFromSender(event.sender)
+    const item = runtime?.suggestPayload?.items.find((entry) => entry.key === key)
+    if (!runtime || !item) return
+    hideSuggestions(runtime)
+    if (item.kind === 'tab' && item.tabId) {
+      activateTab(runtime, item.tabId)
+      runtime.win.webContents.focus()
+      return
+    }
+    openBookmark(runtime, item.url)
+    runtime.win.webContents.focus()
+  })
+
+  ipcMain.on('suggest:filter', (event, key: 'history' | 'bookmarks' | 'tabs') => {
+    const runtime = windowFromSender(event.sender)
+    if (!runtime) return
+    runtime.win.webContents.send('suggest:filter-ui', key)
+    runtime.win.webContents.focus()
   })
 
   ipcMain.handle('chrome:navigate', async (event, url: string) => {
