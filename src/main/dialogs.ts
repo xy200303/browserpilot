@@ -1,5 +1,6 @@
 import type { WebContents } from 'electron'
 import { holdDebugger, onDebuggerMessage } from './services/debugger'
+import { recordConsole } from './console-log'
 
 export type PageDialog = {
   type: string
@@ -35,6 +36,20 @@ export function watchDialogs(wc: WebContents, tabId: string): void {
   states.set(tabId, state)
   holdDebugger(wc)
   onDebuggerMessage(wc, (method, params) => {
+    if (method === 'Runtime.exceptionThrown') {
+      const details = (params as { exceptionDetails?: { text?: string; url?: string; lineNumber?: number; exception?: { description?: string } } }).exceptionDetails
+      if (!details) return
+      const description = details.exception?.description ?? details.text ?? 'Uncaught'
+      recordConsole(state.wc, {
+        level: 'error',
+        message: 'Uncaught ' + description.split('\n')[0],
+        line: (details.lineNumber ?? 0) + 1,
+        source: details.url,
+        stack: description,
+        at: Date.now()
+      })
+      return
+    }
     if (method !== 'Page.javascriptDialogOpening') return
     const raw = params as { type?: string; message?: string; defaultPrompt?: string; url?: string }
     const type = String(raw.type ?? 'alert')
@@ -69,6 +84,7 @@ export function watchDialogs(wc: WebContents, tabId: string): void {
     void wc.debugger.sendCommand('Page.enable').catch(() => {
       state.enabled = false
     })
+    void wc.debugger.sendCommand('Runtime.enable').catch(() => undefined)
   }
   wc.on('dom-ready', enable)
   wc.on('did-finish-load', enable)

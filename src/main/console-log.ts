@@ -5,6 +5,7 @@ export type ConsoleEntry = {
   message: string
   line?: number
   source?: string
+  stack?: string
   at: number
 }
 
@@ -32,6 +33,25 @@ export function watchConsole(wc: WebContents): void {
     if (list.length > 300) list.length = 300
   }) as never)
   wc.once('destroyed', () => logs.delete(wc.id))
+}
+
+export function recordConsole(wc: WebContents, entry: ConsoleEntry): void {
+  const list = logs.get(wc.id)
+  if (!list) return
+  const normalize = (text: string): string => text.replace('Uncaught (in promise) ', 'Uncaught ')
+  const duplicate = list.find(
+    (item) =>
+      normalize(item.message) === normalize(entry.message) &&
+      (item.source ?? '') === (entry.source ?? '') &&
+      item.line === entry.line &&
+      Math.abs(item.at - entry.at) < 500
+  )
+  if (duplicate) {
+    if (entry.stack && !duplicate.stack) duplicate.stack = entry.stack
+    return
+  }
+  list.unshift(entry)
+  if (list.length > 300) list.length = 300
 }
 
 export function consoleFor(wc: WebContents): ConsoleEntry[] {

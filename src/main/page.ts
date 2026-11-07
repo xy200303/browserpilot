@@ -1547,6 +1547,10 @@ export async function evalSource(tab: TabRuntime, source: string): Promise<unkno
   })
   try {
     return await Promise.race([wcOf(tab).executeJavaScript(source, true), timeout])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes('Script failed to execute')) throw new Error(message + ' 具体错误看 page_console')
+    throw error
   } finally {
     if (timer) clearTimeout(timer)
   }

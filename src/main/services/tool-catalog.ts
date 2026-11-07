@@ -1233,7 +1233,7 @@ tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这�
   }
 })
 
-tool('page_console', '读取这个标签的控制台输出和 JS 错误（最近 300 条，新的在前）。页面点不动、按钮报错、脚本没反应时先看这里。action=clear 清空。', z.object({
+tool('page_console', '读取这个标签的控制台输出和 JS 错误（最近 300 条，新的在前）。未捕获异常和 Promise 拒绝会带 stack，页面点不动、按钮报错、脚本没反应时先看这里。action=clear 清空。', z.object({
   tabId: z.string(),
   action: z.enum(['list', 'clear']).optional(),
   limit: z.number().optional()
