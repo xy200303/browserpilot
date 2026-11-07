@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import { randomBytes } from 'crypto'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { chmodSync, readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -90,6 +90,13 @@ export async function startMcp(): Promise<void> {
     url: `http://127.0.0.1:${port}/mcp`,
     token
   }, null, 2))
+  if (process.platform !== 'win32') {
+    try {
+      chmodSync(endpointFile(), 0o600)
+    } catch {
+      /* 文件系统不支持权限时忽略 */
+    }
+  }
 }
 
 export async function stopMcp(): Promise<void> {

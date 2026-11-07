@@ -5,6 +5,7 @@ import {
   markPasswordUsed,
   clearPasswords,
   listPasswords,
+  passwordStorageStatus,
   removePassword,
   revealPassword,
   savePassword
@@ -43,6 +44,8 @@ export function registerPasswordIpc(): void {
     if (!own || own !== origin) return
     markPasswordUsed(found.runtime.envId, own)
   })
+
+  ipcMain.handle('passwords:status', () => passwordStorageStatus())
 
   ipcMain.handle('passwords:list', (event) => {
     const runtime = windowFromSender(event.sender)

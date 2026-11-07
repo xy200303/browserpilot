@@ -11,7 +11,7 @@ import { bridge, publicControl, windows, type TabRuntime } from '../runtime'
 import { storage } from './store'
 import { downloadCancel, downloadCopyLink, downloadForget, downloadOpen, downloadPause, downloadResume, downloadShow, downloadTargetDir, downloadsClear, listDownloads } from './DownloadService'
 import { clearPasswords } from './PasswordService'
-import { listPasswords } from './PasswordService'
+import { listPasswords, passwordStorageStatus } from './PasswordService'
 import { answerPendingDialog, dialogPolicy, pendingDialog, recentDialogs, setDialogPolicy } from '../dialogs'
 import { clearConsole, consoleFor } from '../console-log'
 import { connectInfo, copyConnectInfo } from './ConnectService'
@@ -633,7 +633,7 @@ tool('password_list', '列出这套环境保存的登录账号，只有站点和
   env: env
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
-  return { env: envId, passwords: listPasswords(envId) }
+  return { env: envId, passwords: listPasswords(envId), storage: passwordStorageStatus() }
 })
 
 const SETTING_KEYS = ['tabLayout', 'searchEngine', 'passwordSave', 'passwordAutofill', 'batchConcurrency', 'headlessLimit', 'toolMode'] as const

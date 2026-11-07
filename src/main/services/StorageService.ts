@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs'
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import {
   DEFAULT_ENV,
@@ -136,6 +136,13 @@ export class StorageService {
 
   savePasswords(): void {
     writeJson('passwords.json', this.passwords)
+    if (process.platform !== 'win32') {
+      try {
+        chmodSync(file('passwords.json'), 0o600)
+      } catch {
+        /* 文件系统不支持权限时忽略 */
+      }
+    }
   }
 
   addRun(run: RunLog): void {

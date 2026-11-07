@@ -26,11 +26,24 @@ function decrypt(secret: string): string {
   return ''
 }
 
-export function passwordEncryptionAvailable(): boolean {
+export type PasswordStorageStatus = { available: boolean; secure: boolean; backend?: string }
+
+// Linux 上有没有钥匙环由桌面环境决定：Ubuntu 服务器/minimal 安装常常没有，
+// 这时 Chromium 会退回 basic_text（固定密钥，等同本机编码），要如实告诉用户
+export function passwordStorageStatus(): PasswordStorageStatus {
   try {
-    return safeStorage.isEncryptionAvailable()
+    const available = safeStorage.isEncryptionAvailable()
+    let backend: string | undefined
+    if (process.platform === 'linux') {
+      try {
+        backend = safeStorage.getSelectedStorageBackend()
+      } catch {
+        backend = undefined
+      }
+    }
+    return { available, secure: available && backend !== 'basic_text', backend }
   } catch {
-    return false
+    return { available: false, secure: false }
   }
 }
 
@@ -53,10 +66,11 @@ export function listPasswords(envId: string): PasswordEntry[] {
     .map(view)
 }
 
-export function revealPassword(id: string): { origin: string; username: string; password: string } | null {
+export function revealPassword(id: string): { origin: string; username: string; password: string; locked: boolean } | null {
   const item = storage.passwords.find((entry) => entry.id === id)
   if (!item) return null
-  return { origin: item.origin, username: item.username, password: decrypt(item.secret) }
+  const password = decrypt(item.secret)
+  return { origin: item.origin, username: item.username, password, locked: !password }
 }
 
 export function savePassword(envId: string, origin: string, username: string, secret: string): PasswordEntry | null {

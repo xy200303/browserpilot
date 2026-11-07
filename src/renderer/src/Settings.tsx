@@ -368,11 +368,25 @@ function Privacy({ state }: { state: UiState }) {
 function Passwords({ state }: { state: UiState }) {
   const [items, setItems] = useState<PasswordEntry[]>([])
   const [revealed, setRevealed] = useState<Record<string, string>>({})
+  const [vault, setVault] = useState<{ available: boolean; secure: boolean; backend?: string } | null>(null)
   useEffect(() => {
     let alive = true
     void window.browser.listPasswords().then((list) => {
       if (alive) setItems(list)
     })
+    return () => {
+      alive = false
+    }
+  }, [state.envId])
+
+  useEffect(() => {
+    let alive = true
+    void window.browser
+      .passwordStorageStatus()
+      .then((status) => {
+        if (alive) setVault(status)
+      })
+      .catch(() => undefined)
     return () => {
       alive = false
     }
@@ -393,12 +407,27 @@ function Passwords({ state }: { state: UiState }) {
       return
     }
     const got = await window.browser.revealPassword(item.id)
-    if (got) setRevealed((previous) => ({ ...previous, [item.id]: got.password }))
+    if (got) setRevealed((previous) => ({ ...previous, [item.id]: got.locked ? '（解不出来：系统密钥环不可用或已经变化）' : got.password }))
   }
 
   return (
     <section>
       <Heading title="密码" detail="网页登录时自动记下账号密码，下次打开同一个网站自动填入。按环境隔离，只保存在本机。" />
+      <Card>
+        <Row
+          title="密码保护"
+          detail={!vault ? '检查系统密钥…' : vault.secure ? '系统密钥环已启用' + (vault.backend ? '（' + vault.backend + '）' : '') : '系统没有可用的密钥环，密码只做本机编码'}
+        >
+          <span className={vault && !vault.secure ? 'text-xs text-amber-700' : 'text-xs text-muted-foreground'}>
+            {!vault ? '检查中' : vault.secure ? '已加密' : '未加密'}
+          </span>
+        </Row>
+        {vault && !vault.secure && (
+          <p className="px-4 pb-3 text-xs leading-relaxed text-amber-700">
+            Ubuntu 服务器这类没有 gnome-keyring / kwallet 的系统会走这条路：文件还在本机，但能读到这个用户目录的人就能解出密码。建议关掉「自动保存」，或装好密钥环后重启应用；已经保存的密码在这里删掉即可。
+          </p>
+        )}
+      </Card>
       <Card>
         <Row title="自动保存" detail="提交登录表单时记下来。关掉后不再新增，已保存的仍然可以填。">
           <Switch checked={state.settings.passwordSave} onCheckedChange={(passwordSave) => void window.browser.updateSettings({ passwordSave })} />
