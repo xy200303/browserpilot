@@ -69,6 +69,14 @@ export function wireIpc(): void {
 
   bridge.broadcast = broadcast
   bridge.layout = layoutWindow
+  bridge.activateTab = (tabId: string) => {
+    for (const runtime of windows.values()) {
+      if (runtime.tabs.some((item) => item.id === tabId)) {
+        activateTab(runtime, tabId)
+        return
+      }
+    }
+  }
   bridge.ensureWindow = (envId, headless) => openEnvironment(envId, headless ?? false)
   bridge.openTab = (envId, url) => addTab(openEnvironment(envId, windows.get(envId)?.headless ?? false), url || startUrl())
   bridge.restoreTabView = restoreTabView

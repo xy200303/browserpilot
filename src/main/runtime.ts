@@ -100,6 +100,7 @@ export function activePage(win: WindowRuntime): TabRuntime | undefined {
 export const bridge = {
   broadcast(_envId?: string): void {},
   layout(_envId: string): void {},
+  activateTab(_tabId: string): void {},
   openTab(_envId: string, _url?: string): TabRuntime {
     throw new Error('窗口还没准备好')
   },

@@ -56,6 +56,7 @@ import {
   hoverPoint,
   inspectElement,
   locatorCenter,
+  locatorGesturePoint,
   locatorLabel,
   mapPoint,
   navigate,
@@ -916,7 +917,7 @@ tool('page_drag', '按住一个点或元素，按 dx、dy 精确拖拽，轨迹�
   } else {
     const located = locatorFrom(args)
     if (!located) throw new Error('需要 xpath 或 selector，或起点坐标 x 和 y')
-    start = await locatorCenter(tabRef, located)
+    start = await locatorGesturePoint(tabRef, located)
   }
   const moved = await dragPage(tabRef, gestureVia(args.via), start, Number(args.dx), Number(args.dy))
   return { tabId: tabRef.id, from: moved.from, to: moved.to }
