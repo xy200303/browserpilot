@@ -33,6 +33,10 @@ export function RailApp() {
   }
 
   const hide = (): void => {
+    if (menu) {
+      if (timer.current) window.clearTimeout(timer.current)
+      return
+    }
     if (timer.current) window.clearTimeout(timer.current)
     timer.current = window.setTimeout(() => {
       if (pinned.current) return
@@ -68,6 +72,7 @@ export function RailApp() {
                 if (!expanded) {
                   event.preventDefault()
                   show()
+                  setMenu(true)
                 }
               }}
             >
