@@ -34,7 +34,7 @@ browserpilot call workflow_run --json-file args.json
 
 ## 操作
 
-环境编号是 `env-`。默认环境是 `env-default`，名称是「默认」，不能删除。没写 `env` 就用它。人新建的窗口都是有头的。`env_open` 才可以 `headless: true`。关掉窗口不清登录。
+环境编号是 `env-`。默认环境是 `env-default`，名称是「默认」，不能删除。没写 `env` 就用它。人新建的窗口都是有头的。`env_open` 才可以 `headless: true`。关掉窗口不清登录。新建环境用 `env_create`，`name` 写环境名，`remark` 必填，写清这套环境用来做什么；之后用 `env_update` 改名或改备注。
 
 标签编号是 `tab-`，全局唯一，关掉后不复用。只给 `tab-` 就能在所有窗口里找到。找不到就失败，不要另开一个标签。所有工具的标签参数都叫 `tabId`，不叫 `tab`。传错参数名会直接报错并列出合法参数。
 

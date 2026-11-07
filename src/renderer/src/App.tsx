@@ -244,12 +244,28 @@ function WindowButtons({ maximized }: { maximized: boolean }) {
   )
 }
 
+function EnvNameButton({ state, className }: { state: UiState; className: string }) {
+  return (
+    <button
+      type="button"
+      className={'no-drag truncate rounded px-2 text-sm text-neutral-500 hover:bg-black/5 ' + className}
+      title="编辑环境名称和备注"
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect()
+        void window.browser.openLayer({ kind: 'env', envId: state.envId, x: rect.left, y: rect.bottom })
+      }}
+    >
+      {state.envName}
+    </button>
+  )
+}
+
 function TitleRow({ state }: { state: UiState }) {
   const buttons = <WindowButtons maximized={state.maximized} />
   if (state.layout === 'left') {
     return (
       <div className="drag flex h-10 items-center bg-[#f3f3f3] pl-3" onDoubleClick={() => void window.browser.toggleMaximize()}>
-        <span className="drag pointer-events-none truncate text-sm text-neutral-600">{state.envName}</span>
+        <EnvNameButton state={state} className="max-w-48" />
         <div className="drag h-full min-w-8 flex-1" />
         {buttons}
       </div>
@@ -259,7 +275,7 @@ function TitleRow({ state }: { state: UiState }) {
     <div className="drag flex h-10 items-end bg-[#f3f3f3] pl-2" onDoubleClick={() => void window.browser.toggleMaximize()}>
       <TabStrip state={state} />
       <div className="drag h-full w-3 shrink-0" />
-      <span className="drag pointer-events-none max-w-32 self-center truncate px-2 text-sm text-neutral-500">{state.envName}</span>
+      <EnvNameButton state={state} className="max-w-32 self-center" />
       {buttons}
     </div>
   )

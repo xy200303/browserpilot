@@ -195,15 +195,17 @@ tool('env_list', '列出环境编号、名称、备注、窗口是否开着、�
   })))
 }))
 
-tool('env_create', '新建一套空环境，并打开一扇有头窗口。', z.object({
-  name: z.string(),
-  remark: z.string().optional()
+tool('env_create', '新建一套空环境，并打开一扇有头窗口。remark 必填，写清这套环境用来做什么（例如「客户 A 的后台」「知乎账号 2」），方便以后识别。', z.object({
+  name: z.string().min(1),
+  remark: z.string().min(1)
 }), async (args) => {
   const id = createId('env')
-  storage.envs.push({ id, name: String(args.name), remark: String(args.remark ?? ''), sites: [] })
+  const name = String(args.name).trim()
+  const remark = String(args.remark).trim()
+  storage.envs.push({ id, name, remark, sites: [] })
   storage.saveEnvs()
   openEnvironment(id, false)
-  return { env: id }
+  return { env: id, name, remark }
 })
 
 tool('env_open', '打开已有环境的窗口。人打开时用有头。批量可传 headless true。', z.object({

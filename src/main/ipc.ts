@@ -391,7 +391,7 @@ export function wireIpc(): void {
   })
 
   ipcMain.handle('env:create', async (_event, input: { name?: string; remark?: string }) => {
-    return callTool('env_create', { name: input.name || '新环境', remark: input.remark || '' })
+    return callTool('env_create', { name: input.name || '新环境', remark: input.remark?.trim() || '未填写备注' })
   })
 
   ipcMain.handle('env:open', async (_event, envId: string) => callTool('env_open', { env: envId, headless: false }))

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { ChevronDown, Clock3, Moon, PanelTop, Search, Settings2, Star, X } from 'lucide-react'
 import type { AddressSuggestion, LayerPayload, SuggestPayload, TabInfo, UiState } from '../../shared/types'
 import { Button } from '@/components/ui/button'
@@ -74,6 +74,7 @@ export function PopupApp() {
       {layer.kind === 'tabs' && state && <TabSearch state={state} close={close} />}
       {layer.kind === 'bookmarks' && state && <BookmarksPanel x={layer.x} y={layer.y} state={state} close={close} />}
       {layer.kind === 'suggest' && suggestData && <SuggestionsPanel data={suggestData} />}
+      {layer.kind === 'env' && state && <EnvPanel x={layer.x} y={layer.y} envId={layer.envId} state={state} close={close} />}
     </div>
   )
 }
@@ -242,6 +243,55 @@ function SuggestionsPanel({ data }: { data: SuggestPayload }) {
           onClick={() => window.browser.toggleSuggestFilter('tabs')}
         ><PanelTop size={12} />标签页</button>
       </div>
+    </div>
+  )
+}
+
+function EnvPanel({ x, y, envId, state, close }: { x: number; y: number; envId: string; state: UiState; close: () => void }) {
+  const env = state.envs.find((item) => item.id === envId)
+  const [name, setName] = useState(env?.name ?? '')
+  const [remark, setRemark] = useState(env?.remark ?? '')
+  const [saving, setSaving] = useState(false)
+  const width = 320
+  const left = Math.min(Math.max(8, x), window.innerWidth - width - 8)
+  const top = Math.min(Math.max(y + 6, 88), Math.max(8, window.innerHeight - 260))
+
+  if (!env) {
+    return (
+      <div className="absolute z-20 rounded-xl border border-neutral-200 bg-white p-4 text-sm shadow-xl" style={{ left, top, width }}>
+        找不到这套环境。
+      </div>
+    )
+  }
+
+  const save = async (event: FormEvent): Promise<void> => {
+    event.preventDefault()
+    const next = name.trim()
+    if (!next) return
+    setSaving(true)
+    await window.browser.updateEnv({ env: envId, name: next, remark: remark.trim() })
+    setSaving(false)
+    close()
+  }
+
+  return (
+    <div className="absolute z-20 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xl" style={{ left, top, width }}>
+      <form className="grid gap-3 p-3" onSubmit={(event) => void save(event)}>
+        <div className="text-sm font-medium">编辑环境</div>
+        <label className="grid gap-1 text-xs text-neutral-500">
+          名称
+          <Input value={name} onChange={(event) => setName(event.target.value)} autoFocus />
+        </label>
+        <label className="grid gap-1 text-xs text-neutral-500">
+          备注
+          <Input value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="这套环境用来做什么" />
+        </label>
+        <p className="text-[10px] text-neutral-400">{envId}</p>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={close}>取消</Button>
+          <Button type="submit" disabled={!name.trim() || saving}>{saving ? '保存中…' : '保存'}</Button>
+        </div>
+      </form>
     </div>
   )
 }

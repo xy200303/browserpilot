@@ -224,6 +224,7 @@ export type LayerPayload =
   | { kind: 'tabs' }
   | { kind: 'bookmarks'; x: number; y: number }
   | { kind: 'suggest' }
+  | { kind: 'env'; envId: string; x: number; y: number }
 
 export type Locator = { selector?: string; xpath?: string; pierce?: boolean }
 
