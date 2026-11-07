@@ -490,6 +490,15 @@ function General({ state }: { state: UiState }) {
             )}
           </div>
         </Row>
+        <Row title="工具列表" detail="Agent 能看到的工具。按需搜索只先给核心工具，其它用 search_tools 查；全部则一次给全，占上下文更多。">
+          <Select value={settings.toolMode} onValueChange={(value) => void window.browser.updateSettings({ toolMode: value as 'full' | 'search' })}>
+            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="search">按需搜索</SelectItem>
+              <SelectItem value="full">全部</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
         <Row title="MCP" detail="只听 127.0.0.1。关掉后再打开会换一次端口上的服务。">
           <Switch checked={settings.mcpEnabled} onCheckedChange={(mcpEnabled) => void window.browser.updateSettings({ mcpEnabled })} />
         </Row>

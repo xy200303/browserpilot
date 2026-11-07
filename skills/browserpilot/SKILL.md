@@ -32,6 +32,12 @@ browserpilot call workflow_run --json-file args.json
 
 中文参数写进 UTF-8 的 JSON 文件，用 `--json-file`。不要在命令行里手写带中文的 `--json`。
 
+## 找工具
+
+工具默认按需加载：一开始只看到核心工具，其它先 `search_tools` 搜——`query` 会匹配名称、描述和分组，多个词用空格分隔（全部命中才算），`page` / `page_size` 翻页，传 `name` 取单个工具的完整定义。结果里带参数 schema，查到后直接用 name 调用，不用猜参数。
+
+命令行 `browserpilot tools` 始终列全量；设置 > 通用里的「工具列表」可以切回「全部」，让所有工具一次出现在上下文里。
+
 ## 操作
 
 环境编号是 `env-`。默认环境是 `env-default`，名称是「默认」，不能删除。没写 `env` 就用它。人新建的窗口都是有头的。`env_open` 才可以 `headless: true`。关掉窗口不清登录。新建环境用 `env_create`，`name` 写环境名，`remark` 必填，写清这套环境用来做什么；之后用 `env_update` 改名或改备注。

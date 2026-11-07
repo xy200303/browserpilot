@@ -26,6 +26,7 @@ export type Settings = {
   downloadDir: string
   passwordSave: boolean
   passwordAutofill: boolean
+  toolMode: 'full' | 'search'
 }
 
 export type SiteInfo = {
@@ -268,5 +269,6 @@ export const defaultSettings = (): Settings => ({
   headlessLimit: 3,
   downloadDir: '',
   passwordSave: true,
-  passwordAutofill: true
+  passwordAutofill: true,
+  toolMode: 'search'
 })

@@ -212,12 +212,43 @@ func parseRPC(raw []byte) (map[string]any, error) {
 	return payload, nil
 }
 
-func printTools() error {
-	result, err := rpc("tools/list", map[string]any{})
+func fullTools() ([]any, error) {
+	ep, err := loadEndpoint()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	tools, _ := result["tools"].([]any)
+	req, err := http.NewRequest(http.MethodGet, ep.URL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+ep.Token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(res.Body)
+	var payload struct {
+		Tools []any `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	if len(payload.Tools) == 0 {
+		return nil, fmt.Errorf("没有拿到工具列表")
+	}
+	return payload.Tools, nil
+}
+
+func printTools() error {
+	tools, err := fullTools()
+	if err != nil {
+		result, rpcErr := rpc("tools/list", map[string]any{})
+		if rpcErr != nil {
+			return rpcErr
+		}
+		tools, _ = result["tools"].([]any)
+	}
 	for _, item := range tools {
 		tool, _ := item.(map[string]any)
 		fmt.Printf("%s\t%s\n", tool["name"], tool["description"])
@@ -226,11 +257,14 @@ func printTools() error {
 }
 
 func printSchema(name string) error {
-	result, err := rpc("tools/list", map[string]any{})
+	tools, err := fullTools()
 	if err != nil {
-		return err
+		result, rpcErr := rpc("tools/list", map[string]any{})
+		if rpcErr != nil {
+			return rpcErr
+		}
+		tools, _ = result["tools"].([]any)
 	}
-	tools, _ := result["tools"].([]any)
 	for _, item := range tools {
 		tool, _ := item.(map[string]any)
 		if tool["name"] == name {

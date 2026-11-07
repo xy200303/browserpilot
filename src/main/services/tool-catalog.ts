@@ -213,6 +213,91 @@ function tool(name: string, description: string, schema: z.ZodTypeAny, run: Tool
   tools.push({ name, description, schema, run })
   if (schema instanceof z.ZodObject) shapes.set(name, schema.shape)
 }
+const TOOL_GROUPS: Array<[string, string]> = [
+  ['env_', '环境'],
+  ['tab_', '标签'],
+  ['group_', '分组'],
+  ['page_', '页面'],
+  ['screen_', '录屏'],
+  ['workflow_', '工作流'],
+  ['net_', '网络'],
+  ['captcha_', '验证码'],
+  ['bookmark_', '书签'],
+  ['history_', '历史'],
+  ['session_', '会话'],
+  ['cookie_', 'Cookie'],
+  ['download_', '下载'],
+  ['clipboard_', '剪贴板'],
+  ['settings_', '设置'],
+  ['permission_', '权限'],
+  ['password_', '密码'],
+  ['search_', '工具检索']
+]
+
+function groupOf(name: string): string {
+  return TOOL_GROUPS.find(([prefix]) => name.startsWith(prefix))?.[1] ?? '其它'
+}
+
+function rankTool(name: string, tokens: string[]): number {
+  if (!tokens.length) return 0
+  const lower = name.toLowerCase()
+  if (tokens.every((token) => lower === token)) return 0
+  if (tokens.every((token) => lower.startsWith(token))) return 1
+  if (tokens.every((token) => lower.includes(token))) return 2
+  return 3
+}
+
+tool('search_tools', '按关键词搜工具，名称、描述、分组都会匹配，空格分隔多个词（全部命中才算）。分页返回 total / page / page_size，每条带参数 schema，查到后直接用 name 调用即可。传 name 精确取一个工具的完整定义；不传关键词就按目录顺序列全部。工具很多时先搜再用，不要凭记忆猜参数。', z.object({
+  query: z.string().optional(),
+  name: z.string().optional(),
+  page: z.number().optional(),
+  page_size: z.number().optional()
+}), async (args) => {
+  const schemaOf = (toolName: string): unknown => {
+    const meta = tools.find((item) => item.name === toolName)
+    if (!meta) return undefined
+    try {
+      return zodToJsonSchema(meta.schema, { target: 'jsonSchema7' })
+    } catch {
+      return undefined
+    }
+  }
+  if (typeof args.name === 'string' && args.name) {
+    const wanted = args.name.trim().toLowerCase()
+    const exact = tools.find((item) => item.name.toLowerCase() === wanted)
+    if (!exact) throw new Error(`没有这个工具：${args.name}。用 search_tools 传 query 先搜`)
+    return {
+      tool: { name: exact.name, group: groupOf(exact.name), description: exact.description, inputSchema: schemaOf(exact.name) }
+    }
+  }
+  const query = String(args.query ?? '').trim()
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
+  const pageSize = Math.max(1, Math.min(50, Number(args.page_size ?? 10)))
+  const matched = tools
+    .filter((item) => {
+      if (!tokens.length) return true
+      const hay = `${item.name} ${item.description} ${groupOf(item.name)}`.toLowerCase()
+      return tokens.every((token) => hay.includes(token))
+    })
+    .sort((a, b) => rankTool(a.name, tokens) - rankTool(b.name, tokens) || a.name.localeCompare(b.name))
+  const pages = Math.max(1, Math.ceil(matched.length / pageSize))
+  const page = Math.max(1, Math.min(pages, Number(args.page ?? 1)))
+  const slice = matched.slice((page - 1) * pageSize, page * pageSize)
+  return {
+    query,
+    total: matched.length,
+    page,
+    page_size: pageSize,
+    pages,
+    tools: slice.map((item) => ({
+      name: item.name,
+      group: groupOf(item.name),
+      description: item.description,
+      inputSchema: schemaOf(item.name)
+    }))
+  }
+})
+
 
 export function shapeOf(name: string): z.ZodRawShape {
   return shapes.get(name) ?? {}
@@ -484,7 +569,7 @@ tool('password_list', '列出这套环境保存的登录账号，只有站点和
   return { env: envId, passwords: listPasswords(envId) }
 })
 
-const SETTING_KEYS = ['tabLayout', 'searchEngine', 'passwordSave', 'passwordAutofill', 'batchConcurrency', 'headlessLimit'] as const
+const SETTING_KEYS = ['tabLayout', 'searchEngine', 'passwordSave', 'passwordAutofill', 'batchConcurrency', 'headlessLimit', 'toolMode'] as const
 
 function pickSettings(): Record<string, unknown> {
   return {
@@ -493,19 +578,21 @@ function pickSettings(): Record<string, unknown> {
     passwordSave: storage.settings.passwordSave,
     passwordAutofill: storage.settings.passwordAutofill,
     batchConcurrency: storage.settings.batchConcurrency,
-    headlessLimit: storage.settings.headlessLimit
+    headlessLimit: storage.settings.headlessLimit,
+    toolMode: storage.settings.toolMode
   }
 }
 
 tool('settings_get', '读取浏览器设置：标签栏位置、搜索引擎、密码开关、批量并发、无头窗口上限。端口和 MCP 开关属于本机服务配置，不在这里。', z.object({}), async () => ({ settings: pickSettings() }))
 
-tool('settings_set', '改浏览器设置。只支持 tabLayout（top/left）、searchEngine、passwordSave、passwordAutofill、batchConcurrency、headlessLimit。改完立即生效。', z.object({
+tool('settings_set', '改浏览器设置。只支持 tabLayout（top/left）、searchEngine、passwordSave、passwordAutofill、batchConcurrency、headlessLimit、toolMode（full / search）。改完立即生效。', z.object({
   tabLayout: z.enum(['top', 'left']).optional(),
   searchEngine: z.string().optional(),
   passwordSave: z.boolean().optional(),
   passwordAutofill: z.boolean().optional(),
   batchConcurrency: z.number().optional(),
-  headlessLimit: z.number().optional()
+  headlessLimit: z.number().optional(),
+  toolMode: z.enum(['full', 'search']).optional()
 }), async (args) => {
   const patch: Record<string, unknown> = {}
   for (const key of SETTING_KEYS) {
@@ -1846,6 +1933,27 @@ tool('cookie_remove', '删 Cookie：给 url + name 删一条；给 domain 删这
 
 export const screenWaiters = new Map<string, { resolve: (path: string) => void; reject: (error: Error) => void }>()
 export const screenStartWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void }>()
+
+const CORE_TOOLS = new Set([
+  'search_tools',
+  'env_list',
+  'env_open',
+  'tab_list',
+  'tab_open',
+  'page_navigate',
+  'page_snapshot',
+  'page_click',
+  'page_type',
+  'page_wait',
+  'page_script',
+  'page_screenshot',
+  'page_unlock'
+])
+
+export function advertisedToolMeta(mode: string): { name: string; description: string; inputSchema: unknown }[] {
+  const all = listToolMeta()
+  return mode === 'search' ? all.filter((item) => CORE_TOOLS.has(item.name)) : all
+}
 
 export function listToolMeta(): { name: string; description: string; inputSchema: unknown }[] {
   return tools.map((item) => ({

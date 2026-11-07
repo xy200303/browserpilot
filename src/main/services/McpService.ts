@@ -6,7 +6,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { storage } from './store'
-import { callTool, listToolMeta } from './tool-catalog'
+import { advertisedToolMeta, callTool, listToolMeta } from './tool-catalog'
 
 let httpServer: ReturnType<typeof createServer> | null = null
 let token = randomBytes(24).toString('hex')
@@ -37,7 +37,7 @@ function readBody(req: IncomingMessage): Promise<unknown> {
 
 function buildMcp(): Server {
   const server = new Server({ name: 'browserpilot', version: '0.1.0' }, { capabilities: { tools: {} } })
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: listToolMeta() }))
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: advertisedToolMeta(storage.settings.toolMode) }))
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const result = await callTool(request.params.name, request.params.arguments)
     const { image, ...rest } = result as typeof result & {
