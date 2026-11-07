@@ -448,8 +448,8 @@ function after(task: Promise<unknown>, close: () => void): void {
 function WindowMenu({ x, y, state, close }: { x: number; y: number; state: UiState; close: () => void }) {
   return (
     <AnchoredMenu x={x} y={y} align="end" className="w-52">
-      <DropdownMenuItem onSelect={() => after(window.browser.createEnv({ name: '新环境' }), close)}>新创建窗口</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => after(window.browser.copyEnv(), close)}>复制环境编号</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.createEnv({ name: '新环境' }), close)}>新建环境</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.copyEnv(), close)}>复制 Agent 提示词</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => after(window.browser.devtools(), close)}>开发者工具</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => after(window.browser.toggleScreen(), close)}>{state.screenRecording ? '停止录屏' : '开始录屏'}</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => after(window.browser.openHistoryPage(), close)}>历史记录</DropdownMenuItem>

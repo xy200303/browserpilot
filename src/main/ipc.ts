@@ -387,7 +387,23 @@ export function wireIpc(): void {
 
   ipcMain.handle('env:copy', (event) => {
     const runtime = windowFromSender(event.sender)
-    if (runtime) clipboard.writeText(runtime.envId)
+    if (!runtime) return
+    const env = storage.envs.find((item) => item.id === runtime.envId)
+    const name = env?.name || runtime.envId
+    const remark = env?.remark?.trim() || '未填写'
+    const prompt = [
+      '你现在使用 BrowserPilot（给 Agent 用的本机浏览器）执行任务。',
+      '',
+      '软件名称：BrowserPilot',
+      '环境名称：' + name,
+      '环境编号：' + runtime.envId,
+      '环境备注：' + remark,
+      '',
+      '请通过 BrowserPilot 的 MCP 工具操作这套环境，不要另开 Chrome 或其它浏览器。',
+      '调用工具时传 env: "' + runtime.envId + '"；如果这套环境里已经有标签，也可以只传 tabId。',
+      '需要人登录、过验证码或确认时用 page_handoff，做完后调用 page_unlock。'
+    ].join('\n')
+    clipboard.writeText(prompt)
   })
 
   ipcMain.handle('env:create', async (_event, input: { name?: string; remark?: string }) => {
