@@ -2,9 +2,9 @@ import { nativeImage, type NativeImage, type WebContents } from 'electron'
 
 export type GridDrawOptions = {
   step: number
-  // 网格坐标原点的偏移（CSS 像素）；每种截图都以自己的左上角为 0，一般不用传
-  offsetX?: number
-  offsetY?: number
+  // 这张图左上角对应的坐标值：整页/整窗截图是 0，局部截图是裁剪起点在页面里的坐标
+  originX?: number
+  originY?: number
   // 这张图覆盖的 CSS 尺寸，用来把图片像素换算回 CSS 坐标
   spanWidth: number
   spanHeight: number
@@ -20,15 +20,15 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
   if (step < 5 || size.width < 2 || size.height < 2) return image
   const spanWidth = Math.max(1, Number(options.spanWidth) || size.width)
   const spanHeight = Math.max(1, Number(options.spanHeight) || size.height)
-  const offsetX = Number(options.offsetX) || 0
-  const offsetY = Number(options.offsetY) || 0
+  const originX = Number(options.originX) || 0
+  const originY = Number(options.originY) || 0
 
   try {
     const dataUrl = image.toDataURL()
     const script = `(async () => {
       const STEP = ${step}
-      const OFFX = ${offsetX}
-      const OFFY = ${offsetY}
+      const ORIGIN_X = ${originX}
+      const ORIGIN_Y = ${originY}
       const SPANW = ${spanWidth}
       const SPANH = ${spanHeight}
       const img = new Image()
@@ -45,6 +45,7 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
       const font = Math.max(9, Math.min(16, Math.round(10 * Math.min(sx, sy))))
       ctx.font = font + 'px ui-monospace, SFMono-Regular, Menlo, monospace'
       ctx.textBaseline = 'top'
+      const hasChip = ORIGIN_X !== 0 || ORIGIN_Y !== 0
       const label = (text, x, y) => {
         ctx.lineWidth = 3
         ctx.strokeStyle = 'rgba(255,255,255,0.88)'
@@ -53,29 +54,33 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
         ctx.fillStyle = 'rgba(185,28,28,0.95)'
         ctx.fillText(text, x, y)
       }
-      const labelY = Math.max(0, Math.min(canvas.height - font - 2, OFFY * sy))
-      const labelX = Math.max(0, Math.min(canvas.width - font * 4, OFFX * sx))
+      if (hasChip) {
+        const chip = Math.round(ORIGIN_X) + ',' + Math.round(ORIGIN_Y)
+        const tw = ctx.measureText(chip).width
+        ctx.fillStyle = 'rgba(255,255,255,0.86)'
+        ctx.fillRect(0, 0, tw + 4, font + 4)
+        ctx.fillStyle = 'rgba(185,28,28,0.95)'
+        ctx.fillText(chip, 2, 2)
+      }
+      const labelY = 2
+      const labelX = 2
       ctx.strokeStyle = 'rgba(220,38,38,0.25)'
       ctx.lineWidth = 1
-      const firstX = Math.ceil((0 - OFFX) / STEP) * STEP
-      for (let gx = firstX; (OFFX + gx) * sx <= canvas.width - 1; gx += STEP) {
-        const x = (OFFX + gx) * sx
-        if (x < 0) continue
+      for (let gx = 0; gx * sx <= canvas.width - 1; gx += STEP) {
+        const x = gx * sx
         ctx.beginPath()
         ctx.moveTo(Math.round(x) + 0.5, 0)
         ctx.lineTo(Math.round(x) + 0.5, canvas.height)
         ctx.stroke()
-        label(String(gx), Math.min(canvas.width - font * 3, Math.round(x) + 3), labelY + 1)
+        if (!(hasChip && gx === 0)) label(String(Math.round(ORIGIN_X + gx)), Math.min(canvas.width - font * 3, Math.round(x) + 3), labelY + 1)
       }
-      const firstY = Math.ceil((0 - OFFY) / STEP) * STEP
-      for (let gy = firstY; (OFFY + gy) * sy <= canvas.height - 1; gy += STEP) {
-        const y = (OFFY + gy) * sy
-        if (y < 0) continue
+      for (let gy = 0; gy * sy <= canvas.height - 1; gy += STEP) {
+        const y = gy * sy
         ctx.beginPath()
         ctx.moveTo(0, Math.round(y) + 0.5)
         ctx.lineTo(canvas.width, Math.round(y) + 0.5)
         ctx.stroke()
-        label(String(gy), labelX + 2, Math.min(canvas.height - font - 1, Math.round(y) + 2))
+        if (!(hasChip && gy === 0)) label(String(Math.round(ORIGIN_Y + gy)), labelX + 2, Math.min(canvas.height - font - 1, Math.round(y) + 2))
       }
       return canvas.toDataURL('image/png')
     })()`

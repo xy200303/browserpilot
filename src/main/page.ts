@@ -2493,8 +2493,8 @@ export async function screenshotRegion(
       if (runtime) {
         output = await drawGrid(runtime.win.webContents, image, {
           step: grid,
-          offsetX: -x,
-          offsetY: -y,
+          originX: x,
+          originY: y,
           spanWidth: width,
           spanHeight: height
         })

@@ -1201,7 +1201,7 @@ tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单
   return { tabId: tabRef.id }
 })
 
-tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这个元素（会先滚进视口）；传 x、y、width、height 时截这块区域；都不传截整个视口。默认在图上叠加 100px 红色坐标网格和刻度，方便把看到的点换算成 x/y；grid 传 false 或 0 关闭，传数字改间距（10–500）。只影响图片、不改页面。返回图片、路径和像素宽高，图片同时作为 MCP image 内容返回。宽高只用于页面坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object({
+tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这个元素（会先滚进视口）；传 x、y、width、height 时截这块区域；都不传截整个视口。默认在图上叠加 100px 红色坐标网格和刻度：整页截图从视口左上角标起，元素/区域截图从图的左上角标起、角上写着裁剪起点坐标；刻度可直接当 x/y 用。grid 传 false 或 0 关闭，传数字改间距（10–500）。网格是截图后合成的，不碰页面。返回图片、路径和像素宽高，图片同时作为 MCP image 内容返回。宽高只用于页面坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
