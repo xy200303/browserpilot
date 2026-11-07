@@ -27,6 +27,42 @@ export type GridPalette = {
 }
 
 const SAMPLE_TARGET = 4000
+const BLOCK = 32
+// 1px 细线的可读下限，比正文的 4.5 宽松；深色底上的暗红会在这个值以下，从而换白线
+const MIN_LINE_CONTRAST = 3.5
+
+type LineKey = '0' | '1' | '2' | '3'
+
+const LINE_RGB: Record<LineKey, string> = {
+  '0': '185,28,28',
+  '1': '29,78,216',
+  '2': '255,255,255',
+  '3': '0,0,0'
+}
+
+function channel(v: number): number {
+  const c = v / 255
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+}
+
+/** WCAG 2.1 相对亮度。 */
+function luminance(r: number, g: number, b: number): number {
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+}
+
+/** WCAG 对比度，1 表示完全一样，21 是黑白。 */
+function contrast(a: number, b: number): number {
+  const hi = Math.max(a, b)
+  const lo = Math.min(a, b)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+const LINE_LUM: Record<LineKey, number> = {
+  '0': luminance(185, 28, 28),
+  '1': luminance(29, 78, 216),
+  '2': 1,
+  '3': 0
+}
 
 function alphaFor(step: number): number {
   return step >= 50 ? 0.44 : step >= 20 ? 0.34 : 0.28
@@ -92,6 +128,78 @@ function averageColor(image: NativeImage): { r: number; g: number; b: number } |
   return { r: r / n, g: g / n, b: b / n }
 }
 
+/** 位图可能按设备像素放大（scaleFactor > 1），用它换算真实像素宽高。 */
+function pixelSize(image: NativeImage, data: Buffer): { width: number; height: number } {
+  const size = image.getSize()
+  const pixels = Math.floor(data.length / 4)
+  if (data.length === size.width * size.height * 4) return { width: size.width, height: size.height }
+  const scale = Math.sqrt(pixels / Math.max(1, size.width * size.height))
+  const width = Math.max(1, Math.round(size.width * scale))
+  return { width, height: Math.max(1, Math.floor(pixels / width)) }
+}
+
+/**
+ * 把画面切成 32px 小块并标出该用哪条线色。
+ * 先试全局主色；某块背景和主色对比不够时，才在红/蓝/白/黑里挑对比最高的。
+ * 这样白底仍然是红线，只有深色图片、深色卡片这些局部会换成白线/黑线。
+ */
+export function lineToneMap(image: NativeImage, primary: LineKey): { bw: number; bh: number; flags: string } | undefined {
+  const data = image.toBitmap()
+  if (data.length < 4) return undefined
+  const { width, height } = pixelSize(image, data)
+  const bw = Math.ceil(width / BLOCK)
+  const bh = Math.ceil(height / BLOCK)
+  if (bw <= 0 || bh <= 0) return undefined
+  const red = new Float32Array(bw * bh)
+  const green = new Float32Array(bw * bh)
+  const blue = new Float32Array(bw * bh)
+  const counts = new Uint32Array(bw * bh)
+  for (let y = 0; y < height; y += 4) {
+    const row = Math.floor(y / BLOCK) * bw
+    for (let x = 0; x < width; x += 4) {
+      const i = (y * width + x) * 4
+      if (i + 3 >= data.length) continue
+      const cell = row + Math.floor(x / BLOCK)
+      if (cell >= bw * bh) continue
+      blue[cell] += data[i]
+      green[cell] += data[i + 1]
+      red[cell] += data[i + 2]
+      counts[cell] += 1
+    }
+  }
+  const primaryLum = LINE_LUM[primary]
+  let flags = ''
+  for (let i = 0; i < counts.length; i += 1) {
+    const n = counts[i] > 0 ? counts[i] : 1
+    const lum = luminance(red[i] / n, green[i] / n, blue[i] / n)
+    if (contrast(lum, primaryLum) >= MIN_LINE_CONTRAST) {
+      flags += primary
+      continue
+    }
+    let best: LineKey = primary
+    let bestContrast = 0
+    for (const key of ['0', '1', '2', '3'] as LineKey[]) {
+      const value = contrast(lum, LINE_LUM[key])
+      if (value > bestContrast) {
+        bestContrast = value
+        best = key
+      }
+    }
+    flags += best
+  }
+  return { bw, bh, flags }
+}
+
+function lineColors(step: number): Record<LineKey, { rgb: string; alpha: number }> {
+  const base = alphaFor(step)
+  return {
+    '0': { rgb: LINE_RGB['0'], alpha: base },
+    '1': { rgb: LINE_RGB['1'], alpha: base + 0.06 },
+    '2': { rgb: LINE_RGB['2'], alpha: base + 0.11 },
+    '3': { rgb: LINE_RGB['3'], alpha: base + 0.06 }
+  }
+}
+
 /**
  * 按背景自动选色：深底用白线，饱和的中低亮底色用白线，
  * 浅红/粉底用蓝线（红线和背景撞色），其余用红线。
@@ -123,8 +231,12 @@ export async function renderGrid(wc: WebContents, image: NativeImage, options: G
   const originX = Number(options.originX) || 0
   const originY = Number(options.originY) || 0
   const showOrigin = Boolean(options.showOrigin)
+  const edgeOnly = Boolean(options.edgeOnly)
   const labelStep = Math.max(step, Math.round(Number(options.labelStep) || 0) || 100)
   const palette = chooseGridPalette(image, step)
+  const primary: LineKey = palette.name === 'blue' ? '1' : palette.name === 'light' ? '2' : '0'
+  const tone = lineToneMap(image, primary)
+  const colors = lineColors(step)
 
   try {
     const dataUrl = image.toDataURL()
@@ -135,12 +247,13 @@ export async function renderGrid(wc: WebContents, image: NativeImage, options: G
       const ORIGIN_Y = ${originY}
       const SPANW = ${spanWidth}
       const SPANH = ${spanHeight}
-      const LINE_RGB = ${JSON.stringify(palette.lineRgb)}
-      const LINE_ALPHA = ${palette.lineAlpha}
-      const LABEL_RGBA = ${JSON.stringify(palette.labelRgba)}
-      const HALO_RGBA = ${JSON.stringify(palette.haloRgba)}
       const CHIP_BG = ${JSON.stringify(palette.chipBg)}
       const CHIP_FG = ${JSON.stringify(palette.chipFg)}
+      const BLOCK = ${BLOCK}
+      const TONE_W = ${tone?.bw ?? 0}
+      const TONE_H = ${tone?.bh ?? 0}
+      const TONE = ${JSON.stringify(tone?.flags ?? '')}
+      const LINE_COLORS = ${JSON.stringify(colors)}
       const img = new Image()
       img.src = ${JSON.stringify(dataUrl)}
       await img.decode()
@@ -157,71 +270,90 @@ export async function renderGrid(wc: WebContents, image: NativeImage, options: G
       ctx.font = font + 'px ui-monospace, SFMono-Regular, Menlo, monospace'
       ctx.textBaseline = 'top'
       const hasChip = ${showOrigin ? 'true' : 'false'}
-      const EDGE_ONLY = ${options.edgeOnly ? 'true' : 'false'}
+      const EDGE_ONLY = ${edgeOnly ? 'true' : 'false'}
       const tick = Math.max(3, Math.round(6 * Math.min(sx, sy)))
       const longTick = tick * 2
+      // 取所在小块的线色；没有明暗图时退回主色
+      const keyAt = (x, y) => {
+        if (TONE_W <= 0 || TONE_H <= 0 || !TONE) return ${JSON.stringify(primary)}
+        const bx = Math.min(TONE_W - 1, Math.max(0, Math.floor(x / BLOCK)))
+        const by = Math.min(TONE_H - 1, Math.max(0, Math.floor(y / BLOCK)))
+        return TONE[by * TONE_W + bx] || ${JSON.stringify(primary)}
+      }
+      const paintSegment = (vertical, fixed, from, to, key) => {
+        const color = LINE_COLORS[key] || LINE_COLORS[${JSON.stringify(primary)}]
+        ctx.strokeStyle = 'rgba(' + color.rgb + ',' + color.alpha + ')'
+        ctx.beginPath()
+        if (vertical) {
+          ctx.moveTo(Math.round(fixed) + 0.5, from)
+          ctx.lineTo(Math.round(fixed) + 0.5, to)
+        } else {
+          ctx.moveTo(from, Math.round(fixed) + 0.5)
+          ctx.lineTo(to, Math.round(fixed) + 0.5)
+        }
+        ctx.stroke()
+      }
+      const paintRun = (vertical, fixed, from, to) => {
+        // 竖线固定 x、横线固定 y；另一个方向决定这段落在哪个小块
+        paintSegment(vertical, fixed, from, to, keyAt(vertical ? fixed : from, vertical ? from : fixed))
+      }
+      // 相邻小块同色时合成一段，纯色页面一条线只 stroke 一次
+      const paintLine = (vertical, fixed) => {
+        const total = vertical ? canvas.height : canvas.width
+        let at = 0
+        while (at < total) {
+          const key = keyAt(vertical ? fixed : at, vertical ? at : fixed)
+          let end = Math.min(total, (Math.floor(at / BLOCK) + 1) * BLOCK)
+          while (end < total && keyAt(vertical ? fixed : end, vertical ? end : fixed) === key) {
+            end = Math.min(total, end + BLOCK)
+          }
+          paintSegment(vertical, fixed, at, end, key)
+          at = end
+        }
+      }
       const label = (text, x, y) => {
-        // 标签用描边打底，必须 save/restore，否则会改掉线条的 strokeStyle
+        // 标签跟着所在小块的线色走，白底上就不会出现白字
+        const key = keyAt(x, y)
+        const color = LINE_COLORS[key] || LINE_COLORS[${JSON.stringify(primary)}]
         ctx.save()
         ctx.font = font + 'px ui-monospace, SFMono-Regular, Menlo, monospace'
         ctx.textBaseline = 'top'
         ctx.lineWidth = 3
-        ctx.strokeStyle = HALO_RGBA
+        ctx.strokeStyle = key === '2' ? 'rgba(0,0,0,0.62)' : 'rgba(255,255,255,0.9)'
         ctx.strokeText(text, x, y)
         ctx.lineWidth = 1
-        ctx.fillStyle = LABEL_RGBA
+        ctx.fillStyle = 'rgba(' + color.rgb + ',0.96)'
         ctx.fillText(text, x, y)
         ctx.restore()
       }
 
-      ctx.strokeStyle = 'rgba(' + LINE_RGB + ',' + LINE_ALPHA + ')'
       ctx.lineWidth = 1
       // 数字按「第几条线」抽稀，保证标签一定落在线上
       const labelEvery = Math.max(1, Math.round(LABEL_STEP / STEP))
       let indexX = 0
       for (let gx = 0; gx * sx <= canvas.width - 1; gx += STEP) {
-        const x = Math.round(gx * sx) + 0.5
-        const isLabel = indexX % labelEvery === 0
+        const x = gx * sx
         if (EDGE_ONLY) {
-          const len = isLabel ? longTick : tick
-          ctx.beginPath()
-          ctx.moveTo(x, 0)
-          ctx.lineTo(x, len)
-          ctx.stroke()
-          ctx.beginPath()
-          ctx.moveTo(x, canvas.height - len)
-          ctx.lineTo(x, canvas.height)
-          ctx.stroke()
+          const len = indexX % labelEvery === 0 ? longTick : tick
+          paintRun(true, x, 0, len)
+          paintRun(true, x, canvas.height - len, canvas.height)
         } else {
-          ctx.beginPath()
-          ctx.moveTo(x, 0)
-          ctx.lineTo(x, canvas.height)
-          ctx.stroke()
+          paintLine(true, x)
         }
-        if (isLabel && !(hasChip && gx === 0)) label(String(Math.round(ORIGIN_X + gx)), Math.min(canvas.width - font * 3, Math.round(x) + 3), 3)
+        if (indexX % labelEvery === 0 && !(hasChip && gx === 0)) label(String(Math.round(ORIGIN_X + gx)), Math.min(canvas.width - font * 3, Math.round(x) + 3), 3)
         indexX += 1
       }
       let indexY = 0
       for (let gy = 0; gy * sy <= canvas.height - 1; gy += STEP) {
-        const y = Math.round(gy * sy) + 0.5
-        const isLabel = indexY % labelEvery === 0
+        const y = gy * sy
         if (EDGE_ONLY) {
-          const len = isLabel ? longTick : tick
-          ctx.beginPath()
-          ctx.moveTo(0, y)
-          ctx.lineTo(len, y)
-          ctx.stroke()
-          ctx.beginPath()
-          ctx.moveTo(canvas.width - len, y)
-          ctx.lineTo(canvas.width, y)
-          ctx.stroke()
+          const len = indexY % labelEvery === 0 ? longTick : tick
+          paintRun(false, y, 0, len)
+          paintRun(false, y, canvas.width - len, canvas.width)
         } else {
-          ctx.beginPath()
-          ctx.moveTo(0, y)
-          ctx.lineTo(canvas.width, y)
-          ctx.stroke()
+          paintLine(false, y)
         }
-        if (isLabel && !(hasChip && gy === 0)) label(String(Math.round(ORIGIN_Y + gy)), 4, Math.min(canvas.height - font - 1, Math.round(y) + 2))
+        if (indexY % labelEvery === 0 && !(hasChip && gy === 0)) label(String(Math.round(ORIGIN_Y + gy)), 4, Math.min(canvas.height - font - 1, Math.round(y) + 2))
         indexY += 1
       }
       // 角标最后画，盖在线条和数字上面
