@@ -2495,6 +2495,7 @@ export async function screenshotRegion(
           step: grid,
           originX: x,
           originY: y,
+          showOrigin: true,
           spanWidth: width,
           spanHeight: height
         })

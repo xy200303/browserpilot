@@ -5,6 +5,8 @@ export type GridDrawOptions = {
   // 这张图左上角对应的坐标值：整页/整窗截图是 0，局部截图是裁剪起点在页面里的坐标
   originX?: number
   originY?: number
+  // 局部截图固定显示角标（包括 0,0），整页/整窗不显示
+  showOrigin?: boolean
   // 这张图覆盖的 CSS 尺寸，用来把图片像素换算回 CSS 坐标
   spanWidth: number
   spanHeight: number
@@ -22,6 +24,7 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
   const spanHeight = Math.max(1, Number(options.spanHeight) || size.height)
   const originX = Number(options.originX) || 0
   const originY = Number(options.originY) || 0
+  const showOrigin = Boolean(options.showOrigin)
 
   try {
     const dataUrl = image.toDataURL()
@@ -45,7 +48,7 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
       const font = Math.max(9, Math.min(16, Math.round(10 * Math.min(sx, sy))))
       ctx.font = font + 'px ui-monospace, SFMono-Regular, Menlo, monospace'
       ctx.textBaseline = 'top'
-      const hasChip = ORIGIN_X !== 0 || ORIGIN_Y !== 0
+      const hasChip = ${showOrigin ? 'true' : 'false'}
       const label = (text, x, y) => {
         ctx.lineWidth = 3
         ctx.strokeStyle = 'rgba(255,255,255,0.88)'
