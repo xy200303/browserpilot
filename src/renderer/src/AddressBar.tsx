@@ -299,7 +299,7 @@ export function AddressBar({
           <Bookmark />
         </Button>
         <Button variant="ghost" size="icon" className="no-drag relative" title="下载" onClick={() => void window.browser.openDownloads()}><Download />{state.downloads.some((d) => d.state === 'progressing') && <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-blue-600" />}</Button>
-        <Button variant="ghost" className="no-drag" title="工作流" onClick={() => void window.browser.openMarket()}><Workflow />工作流</Button>
+        <Button variant="ghost" size="icon" className="no-drag" title="工作流" onClick={() => void window.browser.openMarket()}><Workflow /></Button>
         {state.screenRecording && <span className="rounded-md bg-destructive px-1.5 py-0.5 text-xs text-white">录屏</span>}
         <Button
           variant="ghost"
