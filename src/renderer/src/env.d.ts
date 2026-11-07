@@ -9,6 +9,7 @@ export type BrowserApi = {
   onOpenFind: (callback: () => void) => () => void
   onCloseFind: (callback: () => void) => () => void
   onBuiltinReload: (callback: (tabId: string) => void) => () => void
+  onFocusRailSearch: (callback: () => void) => () => void
   setBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
   navigate: (url: string) => Promise<void>
   back: () => Promise<void>

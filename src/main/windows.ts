@@ -623,6 +623,20 @@ export function hideSuggestions(runtime: WindowRuntime): void {
   runtime.win.webContents.send('suggest:hide-ui')
 }
 
+export function focusTabSearch(runtime: WindowRuntime): void {
+  if (runtime.headless) return
+  if (storage.settings.tabLayout === 'left') {
+    runtime.popupOpen = false
+    runtime.popupPayload = null
+    runtime.suggestPayload = undefined
+    runtime.railOpen = true
+    layoutWindow(runtime.envId)
+    runtime.railView?.webContents.send('focus-rail-search')
+    return
+  }
+  showPopup(runtime, { kind: 'tabs' })
+}
+
 export function showPopup(runtime: WindowRuntime, payload: LayerPayload): void {
   runtime.suggestPayload = undefined
   runtime.popupPayload = payload
@@ -1169,7 +1183,7 @@ function bindShortcuts(wc: Electron.WebContents, envId: string): void {
       return
     }
     if (ctrl && input.shift && key === 'a') {
-      showPopup(runtime, { kind: 'tabs' })
+      focusTabSearch(runtime)
       handled()
       return
     }

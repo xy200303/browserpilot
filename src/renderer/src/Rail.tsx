@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
-import { ChevronDown, Pin, Plus, X } from 'lucide-react'
+import { ChevronDown, Pin, Plus, Search, X } from 'lucide-react'
 import type { TabInfo, UiState } from '../../shared/types'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 export function RailApp() {
   const [state, setState] = useState<UiState | null>(null)
   const [open, setOpen] = useState(false)
-  const [menu, setMenu] = useState(false)
+  const [query, setQuery] = useState('')
+  const [focusSearch, setFocusSearch] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
   const pinned = useRef(false)
   const timer = useRef<number | null>(null)
   const expanded = open || Boolean(state?.railPinned)
@@ -21,6 +22,20 @@ export function RailApp() {
     return window.browser.onState(setState)
   }, [])
 
+  useEffect(() => {
+    return window.browser.onFocusRailSearch(() => {
+      setOpen(true)
+      void window.browser.setRailOpen(true)
+      setFocusSearch(true)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!expanded || !focusSearch || !searchRef.current) return
+    searchRef.current.focus()
+    setFocusSearch(false)
+  }, [expanded, focusSearch])
+
   useEffect(() => () => {
     if (timer.current) window.clearTimeout(timer.current)
   }, [])
@@ -32,53 +47,42 @@ export function RailApp() {
     void window.browser.setRailOpen(true)
   }
 
+  const expandSearch = (): void => {
+    if (timer.current) window.clearTimeout(timer.current)
+    setOpen(true)
+    if (!pinned.current) void window.browser.setRailOpen(true)
+    setFocusSearch(true)
+  }
+
   const hide = (): void => {
+    if (query.trim() || document.activeElement === searchRef.current) return
     if (timer.current) window.clearTimeout(timer.current)
     timer.current = window.setTimeout(() => {
       if (pinned.current) return
       setOpen(false)
-      setMenu(false)
       void window.browser.setRailOpen(false)
     }, 200)
   }
 
   if (!state) return <div className="h-full bg-[#f3f3f3]" />
 
-  const pinnedTabs = state.tabs.filter((tab) => tab.pinned)
-  const loose = state.tabs.filter((tab) => !tab.pinned && !tab.groupId)
-  const closeOthers = (): void => {
-    const keep = state.tabs.find((tab) => tab.active)?.id
-    for (const tab of state.tabs) {
-      if (tab.id !== keep) void window.browser.closeTab(tab.id)
-    }
-    setMenu(false)
-  }
-
+  const keyword = query.trim().toLowerCase()
+  const visible = (tab: TabInfo): boolean => !keyword || (tab.title || '').toLowerCase().includes(keyword) || (tab.url || '').toLowerCase().includes(keyword)
+  const pinnedTabs = state.tabs.filter((tab) => tab.pinned).filter(visible)
+  const loose = state.tabs.filter((tab) => !tab.pinned && !tab.groupId).filter(visible)
+  const matchCount = state.tabs.filter(visible).length
   return (
     <div className={`flex h-full flex-col bg-[#f3f3f3] ${expanded ? 'w-64' : 'w-12'}`} onMouseEnter={show} onMouseLeave={hide}>
       <div className="relative flex h-9 shrink-0 items-center">
-        <DropdownMenu open={menu && expanded} onOpenChange={(value) => expanded && setMenu(value)}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              title="标签选项"
-              className="size-9 w-12 rounded-md"
-              onClick={(event) => {
-                if (!expanded) {
-                  event.preventDefault()
-                  show()
-                }
-              }}
-            >
-              <ChevronDown />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-40">
-            <DropdownMenuItem onSelect={() => void window.browser.newTab()}>新建标签页</DropdownMenuItem>
-            <DropdownMenuItem onSelect={closeOthers}>关闭其他标签</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button
+          variant="ghost"
+          size="icon"
+          title="展开标签搜索"
+          className="size-9 w-12 rounded-md"
+          onClick={expandSearch}
+        >
+          <ChevronDown />
+        </Button>
         {expanded && (
           <Button
             variant="ghost"
@@ -92,6 +96,48 @@ export function RailApp() {
         )}
       </div>
 
+      {expanded && (
+        <div className="mx-2 mb-2 flex h-8 shrink-0 items-center gap-1 rounded-lg bg-white px-2">
+          <Search size={14} className="shrink-0 text-neutral-400" />
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                setQuery('')
+                event.currentTarget.blur()
+                if (!state.railPinned) {
+                  setOpen(false)
+                  void window.browser.setRailOpen(false)
+                }
+                return
+              }
+              if (event.key === 'Enter') {
+                const keyword = query.trim().toLowerCase()
+                const first = state.tabs.find((tab) => !keyword || (tab.title || '').toLowerCase().includes(keyword) || (tab.url || '').toLowerCase().includes(keyword))
+                if (first) void window.browser.activateTab(first.id)
+              }
+            }}
+            placeholder="搜索标签页"
+            className="min-w-0 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-neutral-400"
+          />
+          {query && (
+            <button
+              type="button"
+              title="清除"
+              className="grid size-5 shrink-0 place-items-center rounded text-neutral-400 hover:bg-black/5"
+              onClick={() => {
+                setQuery('')
+                searchRef.current?.focus()
+              }}
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      )}
+
       {pinnedTabs.length > 0 && (
         <div className="shrink-0">
           {pinnedTabs.map((tab) => (
@@ -103,7 +149,7 @@ export function RailApp() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
         {state.groups.map((group) => {
-          const tabs = state.tabs.filter((tab) => tab.groupId === group.id && !tab.pinned)
+          const tabs = state.tabs.filter((tab) => tab.groupId === group.id && !tab.pinned).filter(visible)
           if (!tabs.length) return null
           return (
             <div key={group.id} className="mb-1">
@@ -129,6 +175,7 @@ export function RailApp() {
         {loose.map((tab) => (
           <RailTab key={tab.id} tab={tab} expanded={expanded} />
         ))}
+        {keyword && matchCount === 0 && <p className="px-3 py-4 text-xs text-neutral-400">没有匹配的标签</p>}
       </div>
 
       <Button

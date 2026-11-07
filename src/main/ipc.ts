@@ -38,6 +38,7 @@ import {
   showPopup,
   showSuggestions,
   hideSuggestions,
+  focusTabSearch,
   openRunsPage,
   openSettingsPage,
   openWorkflowPage,
@@ -601,7 +602,7 @@ export function wireIpc(): void {
 
   ipcMain.handle('menu:tabSearch', (event) => {
     const runtime = windowFromSender(event.sender)
-    if (runtime) showPopup(runtime, { kind: 'tabs' })
+    if (runtime) focusTabSearch(runtime)
   })
 
   ipcMain.handle('bookmarks:toggle', (event) => {
