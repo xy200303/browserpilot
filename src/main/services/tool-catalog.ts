@@ -234,6 +234,68 @@ const TOOL_GROUPS: Array<[string, string]> = [
   ['search_', '工具检索']
 ]
 
+const TOOL_KEYWORDS: Record<string, string> = {
+  env_close: '关窗 关闭窗口 关掉窗口 保留登录',
+  env_headless: '无头 有头 后台 隐藏窗口 显示窗口',
+  env_delete: '删环境 清登录',
+  env_export: '导出登录 导出cookie',
+  env_import: '导入登录 恢复登录',
+  tab_restore: '恢复标签 重开标签 撤销关闭 刚关的标签',
+  tab_duplicate: '复制标签 克隆标签',
+  tab_close_others: '关闭其他标签 只留一个',
+  tab_mute: '静音 取消静音',
+  group_delete: '删分组 解散分组',
+  page_screenshot: '截图 截屏 元素截图 区域截图 screenshot 拍图',
+  page_snapshot: '快照 无障碍树 snapshot a11y',
+  page_dialog: '弹窗 对话框 确认框 alert confirm prompt',
+  page_console: '控制台 console 报错 js错误 日志',
+  page_find: '页内查找 查找文字 ctrl+f find',
+  page_hover: '悬停 悬浮 移上去 hover',
+  page_click: '点击 双击 右键 click dblclick',
+  page_type: '输入 填写 打字 type',
+  page_wait: '等待 等元素 wait',
+  page_wait_load: '等加载 加载完成 页面加载完',
+  page_save_media: '保存图片 保存视频 下载媒体 抓图 存媒体',
+  page_record_video: '录像 录制视频 录屏视频',
+  page_upload: '上传文件 文件选择',
+  page_script: '执行脚本 js eval',
+  page_source: '源码 html 源码文本',
+  page_hit: '命中元素 坐标反查',
+  page_watch: '盯元素 等变化 监听元素',
+  download_list: '下载记录 下载列表 文件在哪 落盘路径',
+  download_dir: '下载目录 保存位置 改下载路径',
+  download_action: '暂停下载 继续下载 取消下载 重试下载 打开文件',
+  bookmark_add: '加书签 收藏 保存网址',
+  bookmark_list: '书签 收藏夹',
+  bookmark_remove: '删书签',
+  history_list: '历史记录 浏览记录 访问记录',
+  history_remove: '删历史 清历史',
+  session_list: '会话列表 标签快照',
+  session_save: '保存会话 快照标签',
+  session_restore: '恢复会话 打开上次标签 恢复标签组',
+  session_clear: '清会话',
+  cookie_list: 'cookie 登录态 会话凭证',
+  cookie_set: '写cookie 设置cookie',
+  cookie_remove: '删cookie 清cookie',
+  clipboard_read: '剪贴板 读取剪贴板 复制内容',
+  clipboard_write: '写剪贴板 复制到剪贴板',
+  settings_get: '设置 配置 读取设置',
+  settings_set: '改设置 配置',
+  permission_list: '权限 站点权限 摄像头 麦克风 通知 位置',
+  password_list: '密码 账号 保存的密码',
+  captcha_solve: '验证码 滑块 极验',
+  captcha_read: '文字验证码 识别字符',
+  captcha_panel: '验证码截图 点选验证码',
+  net_start: '抓包 网络请求 监听请求',
+  net_export: '导出har 抓包导出',
+  net_mock: '拦截请求 假数据 mock',
+  workflow_run: '工作流 执行工作流',
+  workflow_write: '写工作流 编辑流程',
+  screen_start: '录屏 录制窗口',
+  window_preview: '整窗预览 整窗截图',
+  search_tools: '找工具 搜工具 工具列表'
+}
+
 function groupOf(name: string): string {
   return TOOL_GROUPS.find(([prefix]) => name.startsWith(prefix))?.[1] ?? '其它'
 }
@@ -244,6 +306,10 @@ function rankTool(name: string, tokens: string[]): number {
   if (tokens.every((token) => lower === token)) return 0
   if (tokens.every((token) => lower.startsWith(token))) return 1
   if (tokens.every((token) => lower.includes(token))) return 2
+  const extra = `${TOOL_KEYWORDS[name] ?? ''} ${groupOf(name)}`.toLowerCase()
+  const words = extra.split(/[s,，]+/).filter(Boolean)
+  if (tokens.every((token) => words.some((word) => word.startsWith(token)))) return 2.5
+  if (tokens.every((token) => extra.includes(token))) return 2.8
   return 3
 }
 
@@ -276,7 +342,7 @@ tool('search_tools', '按关键词搜工具，名称、描述、分组都会匹�
   const matched = tools
     .filter((item) => {
       if (!tokens.length) return true
-      const hay = `${item.name} ${item.description} ${groupOf(item.name)}`.toLowerCase()
+      const hay = `${item.name} ${item.description} ${groupOf(item.name)} ${TOOL_KEYWORDS[item.name] ?? ''}`.toLowerCase()
       return tokens.every((token) => hay.includes(token))
     })
     .sort((a, b) => rankTool(a.name, tokens) - rankTool(b.name, tokens) || a.name.localeCompare(b.name))
