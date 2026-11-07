@@ -28,15 +28,12 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
   const originY = Number(options.originY) || 0
   const showOrigin = Boolean(options.showOrigin)
   const labelStep = Math.max(step, Math.round(Number(options.labelStep) || 0) || 100)
-  // 线越密，颜色越淡；不然小网格会把内容盖住
-  const lineAlpha = step >= 50 ? 0.44 : step >= 20 ? 0.34 : 0.28
 
   try {
     const dataUrl = image.toDataURL()
     const script = `(async () => {
       const STEP = ${step}
       const LABEL_STEP = ${labelStep}
-      const LINE_ALPHA = ${lineAlpha}
       const ORIGIN_X = ${originX}
       const ORIGIN_Y = ${originY}
       const SPANW = ${spanWidth}
@@ -50,6 +47,53 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
       const ctx = canvas.getContext('2d')
       if (!ctx) return ''
       ctx.drawImage(img, 0, 0)
+
+      // 按背景色选网格配色：深底用白线，浅红/粉底用蓝线，其余用红线
+      let LINE_RGB = '185,28,28'
+      let LINE_ALPHA = STEP >= 50 ? 0.44 : STEP >= 20 ? 0.34 : 0.28
+      let LABEL_RGBA = 'rgba(185,28,28,0.95)'
+      let HALO_RGBA = 'rgba(255,255,255,0.88)'
+      let CHIP_BG = 'rgba(255,255,255,0.86)'
+      let CHIP_FG = 'rgba(185,28,28,0.95)'
+      try {
+        let sr = 0, sg = 0, sb = 0, n = 0
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+        const stride = Math.max(1, Math.floor(Math.sqrt((canvas.width * canvas.height) / 4000)))
+        for (let py = 0; py < canvas.height; py += stride) {
+          for (let px = 0; px < canvas.width; px += stride) {
+            const i = (py * canvas.width + px) * 4
+            if (pixels[i + 3] < 16) continue
+            sr += pixels[i]
+            sg += pixels[i + 1]
+            sb += pixels[i + 2]
+            n += 1
+          }
+        }
+        if (n === 0) n = 1
+        const mr = sr / n
+        const mg = sg / n
+        const mb = sb / n
+        const lum = (0.2126 * mr + 0.7152 * mg + 0.0722 * mb) / 255
+        const chroma = (Math.max(mr, mg, mb) - Math.min(mr, mg, mb)) / 255
+        if (lum < 0.42 || (chroma > 0.2 && lum < 0.72)) {
+          LINE_RGB = '255,255,255'
+          LINE_ALPHA = STEP >= 50 ? 0.55 : STEP >= 20 ? 0.45 : 0.36
+          LABEL_RGBA = 'rgba(255,255,255,0.96)'
+          HALO_RGBA = 'rgba(0,0,0,0.62)'
+          CHIP_BG = 'rgba(0,0,0,0.64)'
+          CHIP_FG = 'rgba(255,255,255,0.97)'
+        } else if (mr > mg + 18 && mr > mb + 18) {
+          LINE_RGB = '29,78,216'
+          LINE_ALPHA = STEP >= 50 ? 0.5 : STEP >= 20 ? 0.4 : 0.32
+          LABEL_RGBA = 'rgba(29,78,216,0.96)'
+          HALO_RGBA = 'rgba(255,255,255,0.9)'
+          CHIP_BG = 'rgba(255,255,255,0.9)'
+          CHIP_FG = 'rgba(29,78,216,0.97)'
+        }
+      } catch {
+        // 读不到像素就保持默认红线
+      }
+
       const sx = canvas.width / SPANW
       const sy = canvas.height / SPANH
       const font = Math.max(9, Math.min(16, Math.round(10 * Math.min(sx, sy))))
@@ -58,23 +102,23 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
       const hasChip = ${showOrigin ? 'true' : 'false'}
       const label = (text, x, y) => {
         ctx.lineWidth = 3
-        ctx.strokeStyle = 'rgba(255,255,255,0.88)'
+        ctx.strokeStyle = HALO_RGBA
         ctx.strokeText(text, x, y)
         ctx.lineWidth = 1
-        ctx.fillStyle = 'rgba(185,28,28,0.95)'
+        ctx.fillStyle = LABEL_RGBA
         ctx.fillText(text, x, y)
       }
       if (hasChip) {
         const chip = Math.round(ORIGIN_X) + ',' + Math.round(ORIGIN_Y)
         const tw = ctx.measureText(chip).width
-        ctx.fillStyle = 'rgba(255,255,255,0.86)'
+        ctx.fillStyle = CHIP_BG
         ctx.fillRect(0, 0, tw + 4, font + 4)
-        ctx.fillStyle = 'rgba(185,28,28,0.95)'
+        ctx.fillStyle = CHIP_FG
         ctx.fillText(chip, 2, 2)
       }
       const labelY = 2
       const labelX = 2
-      ctx.strokeStyle = 'rgba(185,28,28,' + LINE_ALPHA + ')'
+      ctx.strokeStyle = 'rgba(' + LINE_RGB + ',' + LINE_ALPHA + ')'
       ctx.lineWidth = 1
       // 数字按「第几条线」抽稀，保证标签一定落在线上
       const labelEvery = Math.max(1, Math.round(LABEL_STEP / STEP))
