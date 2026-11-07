@@ -141,10 +141,10 @@ v0.13.12 起，`webContents.isDestroyed()` 时会自动重建视图并恢复页�
 ### 下载在哪
 
 ```text
-%APPDATA%\BrowserPilot\downloads
+%USERPROFILE%\Downloads
 ```
 
-下载管理器支持暂停、继续、取消、重试、复制链接。网页触发的下载都会进这里；`page_save_media` 保存的文件进 `media`（或你给的 `savePath`）。
+Windows 的「下载」目录（macOS / Linux 是 `~/Downloads`）。网页触发的下载、`page_save_media`、`page_record_video`、窗口录屏都默认落在这里；可以在设置里改，或用 `download_dir` 改到别的目录。下载管理器支持暂停、继续、取消、重试、复制链接。
 
 ### 视频保存失败
 
@@ -199,9 +199,7 @@ set BROWSERPILOT_EXE=%LOCALAPPDATA%\Programs\BrowserPilot\BrowserPilot.exe
 | 现场截图 | `%APPDATA%\BrowserPilot\screenshots\` |
 | 失败截图与 HAR | `%APPDATA%\BrowserPilot\runs\` |
 | 导出的 CSV | `%APPDATA%\BrowserPilot\exports\` |
-| 网页下载 | `%APPDATA%\BrowserPilot\downloads\` |
-| 媒体保存 | `%APPDATA%\BrowserPilot\media\` |
-| 窗口录屏 | `%APPDATA%\BrowserPilot\videos\` |
+| 网页下载 / 媒体保存 / 窗口录屏 | 系统下载目录（Windows `%USERPROFILE%\Downloads\`，macOS / Linux `~/Downloads/`）；可在设置里改 |
 | ffmpeg | `%APPDATA%\BrowserPilot\tools\` |
 | 环境登录分区 | `%APPDATA%\BrowserPilot\Partitions\<env-id>\` |
 | MCP 端点 | `%APPDATA%\BrowserPilot\mcp.json` |

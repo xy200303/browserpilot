@@ -29,6 +29,7 @@ import { beginAgentAction, beginHandoff, showAgentMask } from '../windows'
 import { saveMedia } from '../page'
 import { netExport, isWatching } from './NetService'
 import { solveCaptcha } from '../captcha'
+import { downloadTargetDir } from './DownloadService'
 
 const template = /\{\{#([\w\u4e00-\u9fff.-]+)#\}\}/g
 
@@ -643,7 +644,7 @@ async function execNode(
   if (data.type === 'download') {
     const locator = mustLocator(data.locator, pool)
     const savePath = textOf(data, 'savePath', pool) || undefined
-    const saved = await saveMedia(tab, { locator }, storage.dir('downloads'), savePath)
+    const saved = await saveMedia(tab, { locator }, downloadTargetDir(), savePath)
     pool[id] = { path: saved.path, kind: saved.kind, bytes: saved.bytes }
     produced.id = id
     return

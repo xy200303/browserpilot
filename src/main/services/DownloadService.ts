@@ -1,4 +1,4 @@
-import { clipboard, shell, type DownloadItem as ElectronDownloadItem } from 'electron'
+import { app, clipboard, shell, type DownloadItem as ElectronDownloadItem } from 'electron'
 import { mkdirSync } from 'fs'
 import { createId } from '../ids'
 import { bridge } from '../runtime'
@@ -39,6 +39,14 @@ export function listDownloads(): DownloadItem[] {
   return order.map((id) => entries.get(id)!.item).filter(Boolean)
 }
 
+/**
+ * 默认下载目录跟着系统走：Windows 的「下载」、macOS 的 Downloads、
+ * Linux 的 XDG 下载目录（通常是 ~/Downloads）。
+ */
+export function defaultDownloadDir(): string {
+  return app.getPath('downloads')
+}
+
 export function downloadTargetDir(): string {
   const custom = storage.settings.downloadDir.trim()
   if (custom) {
@@ -46,10 +54,10 @@ export function downloadTargetDir(): string {
       mkdirSync(custom, { recursive: true })
       return custom
     } catch {
-      // 自定义目录不可用（盘符拔掉、无权限）时退回默认目录，不让下载直接失败
+      // 自定义目录不可用（盘符拔掉、无权限）时退回系统下载目录，不让下载直接失败
     }
   }
-  const dir = storage.dir('downloads')
+  const dir = defaultDownloadDir()
   mkdirSync(dir, { recursive: true })
   return dir
 }

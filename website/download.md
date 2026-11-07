@@ -94,7 +94,7 @@ Linux:   ~/.config/BrowserPilot/mcp.json
 | 现场截图 | `screenshots\` |
 | 工作流失败截图与 HAR | `runs\` |
 | 导出的 CSV | `exports\` |
-| 网页下载 | `downloads\` |
+| 网页下载 | 系统下载目录（Windows `%USERPROFILE%\Downloads`，macOS / Linux `~/Downloads`） |
 | 媒体保存 | `media\` |
 | 窗口录屏 | `videos\` |
 | 环境登录分区 | `Partitions\<env-id>\` |

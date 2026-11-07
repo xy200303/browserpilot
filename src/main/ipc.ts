@@ -471,7 +471,7 @@ export function wireIpc(): void {
       broadcast(runtime.envId)
       throw new Error('这次没能写成 mp4')
     }
-    const path = join(storage.userData(), 'videos', `vid-${createId('clip')}.mp4`)
+    const path = join(downloadTargetDir(), `screen-${createId('clip')}.mp4`)
     writeFileSync(path, Buffer.from(payload.data))
     runtime.screenRecording = false
     runtime.screenStartedAt = undefined

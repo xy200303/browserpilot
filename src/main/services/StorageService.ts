@@ -87,7 +87,6 @@ export class StorageService {
   load(): void {
     mkdirSync(app.getPath('userData'), { recursive: true })
     mkdirSync(this.dir('screenshots'), { recursive: true })
-    mkdirSync(this.dir('videos'), { recursive: true })
     mkdirSync(this.dir('runs'), { recursive: true })
     mkdirSync(this.dir('exports'), { recursive: true })
     this.envs = readJson<StoredEnv[]>('envs.json', [])

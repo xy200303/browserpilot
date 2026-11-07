@@ -508,10 +508,10 @@ function General({ state }: { state: UiState }) {
             </SelectContent>
           </Select>
         </Row>
-        <Row title="下载位置" detail="网页里点下载按钮存到哪里。不改就放在应用数据目录的 downloads 里；Agent 存的图片、视频走这里之外，由它自己指定。">
+        <Row title="下载位置" detail="网页下载、Agent 保存的图片/视频、窗口录屏都默认放这里。不改就是系统下载目录（Windows 的「下载」、macOS / Linux 的 Downloads）。">
           <div className="flex items-center gap-2">
-            <span className="max-w-64 truncate text-xs text-muted-foreground" title={settings.downloadDir || '默认目录'}>
-              {settings.downloadDir || '默认目录'}
+            <span className="max-w-64 truncate text-xs text-muted-foreground" title={settings.downloadDir || '系统下载目录'}>
+              {settings.downloadDir || '系统下载目录'}
             </span>
             <Button variant="outline" size="sm" onClick={() => void window.browser.pickDownloadDir()}>选择…</Button>
             {settings.downloadDir && (

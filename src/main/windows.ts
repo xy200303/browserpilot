@@ -570,7 +570,7 @@ async function saveMediaAs(runtime: WindowRuntime, tab: TabRuntime, params: { sr
         const saved = await saveMediaInfo(
           tab,
           { kind: params.mediaType, tag: params.mediaType.toUpperCase(), src: params.srcURL, rect: { x: params.x, y: params.y, w: 0, h: 0 } },
-          storage.dir('media'),
+          downloadTargetDir(),
           filePath,
           (received, total) => downloadProgress(dlId, received, total ?? 0)
         )
@@ -581,7 +581,7 @@ async function saveMediaAs(runtime: WindowRuntime, tab: TabRuntime, params: { sr
       }
       return
     }
-    await saveMedia(tab, { point: { x: params.x, y: params.y } }, storage.dir('media'), filePath)
+    await saveMedia(tab, { point: { x: params.x, y: params.y } }, downloadTargetDir(), filePath)
   } catch (error) {
     dialog.showErrorBox('保存失败', error instanceof Error ? error.message : String(error))
   }

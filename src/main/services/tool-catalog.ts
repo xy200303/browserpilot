@@ -942,7 +942,7 @@ tool('page_inspect', '识别一个元素是什么类型：video、image、canvas
   return { tabId: tabRef.id, ...info }
 })
 
-tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站(__playinfo__)、抖音(media-video/media-audio)、YouTube(ytInitialPlayerResponse)这类流媒体自动抓 DASH 音视频轨合并 mp4；m3u8/mpd 清单（央视、AcFun、优酷等）用 ffmpeg 拉流转 mp4；搜狐这类分段 mp4 按已加载的分段顺序合并（长视频只下到自己播到的部分，要完整就配合 page_record_video）；播放器在 Web Worker 里拉流（腾讯等）时用 CDP 网络嗅探兜底，必要时自动重载页面从头抓清单。目标用 xpath、selector，或坐标 x、y。savePath 传文件路径就存成那个文件，传已存在的目录就存进目录（文件名自动取），不给就存进媒体目录。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
+tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站(__playinfo__)、抖音(media-video/media-audio)、YouTube(ytInitialPlayerResponse)这类流媒体自动抓 DASH 音视频轨合并 mp4；m3u8/mpd 清单（央视、AcFun、优酷等）用 ffmpeg 拉流转 mp4；搜狐这类分段 mp4 按已加载的分段顺序合并（长视频只下到自己播到的部分，要完整就配合 page_record_video）；播放器在 Web Worker 里拉流（腾讯等）时用 CDP 网络嗅探兜底，必要时自动重载页面从头抓清单。目标用 xpath、selector，或坐标 x、y。savePath 传文件路径就存成那个文件，传已存在的目录就存进目录（文件名自动取），不给就存进下载目录（默认系统下载目录，可用 download_dir 改）。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -959,7 +959,7 @@ tool('page_save_media', '把元素上的图片、视频、音频或画布保存�
   const located = locatorFrom(args)
   if (!point && !located) throw new Error('需要 xpath 或 selector，或坐标 x 和 y')
   const savePath = typeof args.savePath === 'string' && args.savePath ? String(args.savePath) : undefined
-  const saved = await saveMedia(tabRef, point ? { point: mapPoint(tabRef, point.x, point.y, point.shot) } : { locator: located }, storage.dir('media'), savePath)
+  const saved = await saveMedia(tabRef, point ? { point: mapPoint(tabRef, point.x, point.y, point.shot) } : { locator: located }, downloadTargetDir(), savePath)
   return { tabId: tabRef.id, ...saved }
 })
 
@@ -995,7 +995,7 @@ tool('download_list', '列出本次运行期间的本机下载记录（重启后
   }
 })
 
-tool('download_dir', '查看或修改浏览器下载目录。不带 dir 返回当前目录；带 dir（本机绝对路径）就改掉，之后网页里点下载按钮触发的下载都存到那里，目录不存在会自动建。传 dir 为空或 "default" 恢复默认目录。page_save_media、page_record_video 的 savePath 仍然逐个文件覆盖这里。', z.object({
+tool('download_dir', '查看或修改浏览器下载目录。不带 dir 返回当前目录；带 dir（本机绝对路径）就改掉，之后网页里点下载按钮触发的下载都存到那里，目录不存在会自动建。传 dir 为空或 "default" 恢复系统默认下载目录（Windows 的「下载」、macOS / Linux 的 Downloads）。page_save_media、page_record_video 的 savePath 仍然逐个文件覆盖这里。', z.object({
   dir: z.string().optional()
 }), async (args) => {
   const input = typeof args.dir === 'string' ? args.dir.trim() : ''
@@ -1047,7 +1047,7 @@ tool('download_action', '管理下载记录：open 打开文件、show 在文件
   return { action, id, state: after?.state ?? 'removed', path: after?.path ?? item.path }
 })
 
-tool('page_record_video', '把页面里正在播放的视频录下来：用 captureStream + MediaRecorder 录渲染出来的画面，重编码成 webm。seconds 是录多少秒（默认 10，最长 3600），会自动开始播放。任何能播的站都能录（B站、腾讯等流媒体也行），代价是要实时播完。m3u8 追台等直链/流媒体抓轨用 page_save_media，又快又无损。', z.object({
+tool('page_record_video', '把页面里正在播放的视频录下来：用 captureStream + MediaRecorder 录渲染出来的画面，重编码成 webm。seconds 是录多少秒（默认 10，最长 3600），会自动开始播放。任何能播的站都能录（B站、腾讯等流媒体也行），代价是要实时播完。不给 savePath 就存进下载目录（默认系统下载目录）。m3u8 追台等直链/流媒体抓轨用 page_save_media，又快又无损。', z.object({
   ...pageArgs,
   seconds: z.number().optional(),
   savePath: z.string().optional()
@@ -1055,7 +1055,7 @@ tool('page_record_video', '把页面里正在播放的视频录下来：用 capt
   const tabRef = await pageTab(args, false)
   const seconds = Math.max(1, Math.min(3600, Number(args.seconds ?? 10)))
   const savePath = typeof args.savePath === 'string' && args.savePath ? String(args.savePath) : undefined
-  const result = await recordVideo(tabRef, seconds, storage.dir('media'), savePath)
+  const result = await recordVideo(tabRef, seconds, downloadTargetDir(), savePath)
   return { tabId: tabRef.id, ...result }
 })
 
@@ -1409,7 +1409,7 @@ async function stopScreen(envId: string): Promise<{ env: string; path: string; s
   }
 }
 
-tool('screen_stop', '停止录屏并写成 mp4，返回路径、时长和字节数。', z.object({ env: env }), async (args) => {
+tool('screen_stop', '停止录屏并写成 mp4 存到下载目录（默认系统下载目录），返回路径、时长和字节数。', z.object({ env: env }), async (args) => {
   return stopScreen(String(args.env || DEFAULT_ENV))
 })
 
