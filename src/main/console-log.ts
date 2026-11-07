@@ -11,27 +11,40 @@ export type ConsoleEntry = {
 
 const logs = new Map<number, ConsoleEntry[]>()
 
+type ConsoleMessageEvent = {
+  level?: unknown
+  message?: unknown
+  lineNumber?: unknown
+  sourceId?: unknown
+}
+
 export function watchConsole(wc: WebContents): void {
   if (logs.has(wc.id)) return
   logs.set(wc.id, [])
-  wc.on('console-message', ((_event: unknown, level: unknown, message?: string, line?: number, sourceId?: string) => {
+  // Electron 45 起只传一个事件对象；旧版是位置参数，这里两种都接住
+  const onMessage = (...args: unknown[]): void => {
     const list = logs.get(wc.id)
     if (!list) return
-    const entry: ConsoleEntry =
-      typeof level === 'object' && level
-        ? {
-            level: String((level as { level?: string }).level ?? 'log'),
-            message: String((level as { message?: string }).message ?? ''),
-            line: (level as { lineNumber?: number }).lineNumber,
-            source: (level as { sourceId?: string }).sourceId,
-            at: Date.now()
-          }
-        : { level: String(level), message: String(message ?? ''), line, source: sourceId, at: Date.now() }
+    const first = args[0]
+    const event =
+      first && typeof first === 'object' && 'message' in first ? (first as ConsoleMessageEvent) : undefined
+    const level = event ? event.level : args[1]
+    const message = event ? event.message : args[2]
+    const line = event ? event.lineNumber : args[3]
+    const source = event ? event.sourceId : args[4]
+    const entry: ConsoleEntry = {
+      level: String(level ?? 'log'),
+      message: String(message ?? ''),
+      line: typeof line === 'number' ? line : undefined,
+      source: typeof source === 'string' ? source : undefined,
+      at: Date.now()
+    }
     const labels: Record<string, string> = { '0': 'verbose', '1': 'info', '2': 'warning', '3': 'error' }
     entry.level = labels[entry.level] ?? entry.level
     list.unshift(entry)
     if (list.length > 300) list.length = 300
-  }) as never)
+  }
+  wc.on('console-message', onMessage as never)
   wc.once('destroyed', () => logs.delete(wc.id))
 }
 

@@ -24,7 +24,7 @@
 <p align="center">
   <a href="https://browser.xyun.dev/"><img src="https://img.shields.io/badge/website-browser.xyun.dev-1d4ed8?style=for-the-badge" alt="Website" /></a>
   <a href="https://github.com/xy200303/browserpilot/releases/latest"><img src="https://img.shields.io/github/v/release/xy200303/browserpilot?style=for-the-badge" alt="Release" /></a>
-  <img src="https://img.shields.io/badge/Electron-44-47848F?style=for-the-badge&logo=electron&logoColor=white" alt="Electron 44" />
+  <img src="https://img.shields.io/badge/Electron-45-47848F?style=for-the-badge&logo=electron&logoColor=white" alt="Electron 45" />
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React 19" />
   <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript 5" />
 </p>
