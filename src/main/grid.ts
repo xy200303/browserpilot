@@ -9,6 +9,8 @@ export type GridRenderOptions = {
   originY?: number
   // 局部截图固定显示角标（包括 0,0），整页/整窗不显示
   showOrigin?: boolean
+  // true 时只画四边的刻度线，不铺满整张图；内容密集的局部截图用这个
+  edgeOnly?: boolean
   // 这张图覆盖的 CSS 尺寸，用来把图片像素换算回 CSS 坐标
   spanWidth: number
   spanHeight: number
@@ -155,6 +157,9 @@ export async function renderGrid(wc: WebContents, image: NativeImage, options: G
       ctx.font = font + 'px ui-monospace, SFMono-Regular, Menlo, monospace'
       ctx.textBaseline = 'top'
       const hasChip = ${showOrigin ? 'true' : 'false'}
+      const EDGE_ONLY = ${options.edgeOnly ? 'true' : 'false'}
+      const tick = Math.max(3, Math.round(6 * Math.min(sx, sy)))
+      const longTick = tick * 2
       const label = (text, x, y) => {
         // 标签用描边打底，必须 save/restore，否则会改掉线条的 strokeStyle
         ctx.save()
@@ -175,22 +180,48 @@ export async function renderGrid(wc: WebContents, image: NativeImage, options: G
       const labelEvery = Math.max(1, Math.round(LABEL_STEP / STEP))
       let indexX = 0
       for (let gx = 0; gx * sx <= canvas.width - 1; gx += STEP) {
-        const x = gx * sx
-        ctx.beginPath()
-        ctx.moveTo(Math.round(x) + 0.5, 0)
-        ctx.lineTo(Math.round(x) + 0.5, canvas.height)
-        ctx.stroke()
-        if (indexX % labelEvery === 0 && !(hasChip && gx === 0)) label(String(Math.round(ORIGIN_X + gx)), Math.min(canvas.width - font * 3, Math.round(x) + 3), 3)
+        const x = Math.round(gx * sx) + 0.5
+        const isLabel = indexX % labelEvery === 0
+        if (EDGE_ONLY) {
+          const len = isLabel ? longTick : tick
+          ctx.beginPath()
+          ctx.moveTo(x, 0)
+          ctx.lineTo(x, len)
+          ctx.stroke()
+          ctx.beginPath()
+          ctx.moveTo(x, canvas.height - len)
+          ctx.lineTo(x, canvas.height)
+          ctx.stroke()
+        } else {
+          ctx.beginPath()
+          ctx.moveTo(x, 0)
+          ctx.lineTo(x, canvas.height)
+          ctx.stroke()
+        }
+        if (isLabel && !(hasChip && gx === 0)) label(String(Math.round(ORIGIN_X + gx)), Math.min(canvas.width - font * 3, Math.round(x) + 3), 3)
         indexX += 1
       }
       let indexY = 0
       for (let gy = 0; gy * sy <= canvas.height - 1; gy += STEP) {
-        const y = gy * sy
-        ctx.beginPath()
-        ctx.moveTo(0, Math.round(y) + 0.5)
-        ctx.lineTo(canvas.width, Math.round(y) + 0.5)
-        ctx.stroke()
-        if (indexY % labelEvery === 0 && !(hasChip && gy === 0)) label(String(Math.round(ORIGIN_Y + gy)), 4, Math.min(canvas.height - font - 1, Math.round(y) + 2))
+        const y = Math.round(gy * sy) + 0.5
+        const isLabel = indexY % labelEvery === 0
+        if (EDGE_ONLY) {
+          const len = isLabel ? longTick : tick
+          ctx.beginPath()
+          ctx.moveTo(0, y)
+          ctx.lineTo(len, y)
+          ctx.stroke()
+          ctx.beginPath()
+          ctx.moveTo(canvas.width - len, y)
+          ctx.lineTo(canvas.width, y)
+          ctx.stroke()
+        } else {
+          ctx.beginPath()
+          ctx.moveTo(0, y)
+          ctx.lineTo(canvas.width, y)
+          ctx.stroke()
+        }
+        if (isLabel && !(hasChip && gy === 0)) label(String(Math.round(ORIGIN_Y + gy)), 4, Math.min(canvas.height - font - 1, Math.round(y) + 2))
         indexY += 1
       }
       // 角标最后画，盖在线条和数字上面

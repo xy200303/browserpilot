@@ -132,7 +132,8 @@ async function collectLayers(runtime: WindowRuntime): Promise<Layer[]> {
 export async function windowPreview(
   envId: string,
   grid = 0,
-  crop?: { x: number; y: number; width: number; height: number }
+  crop?: { x: number; y: number; width: number; height: number },
+  edgeOnly = false
 ): Promise<{
   path: string
   width: number
@@ -196,6 +197,7 @@ export async function windowPreview(
       originX: origin.x,
       originY: origin.y,
       showOrigin: Boolean(crop),
+      edgeOnly,
       spanWidth,
       spanHeight
     })

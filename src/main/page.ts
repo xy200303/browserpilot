@@ -1597,16 +1597,18 @@ export async function navigate(tab: TabRuntime, url: string): Promise<void> {
 export async function screenshot(
   tab: TabRuntime,
   dir: string,
-  grid = 100
+  grid = 100,
+  edgeOnly = false
 ): Promise<{ path: string; width: number; height: number; origin: { x: number; y: number }; coordinateSpace: 'viewport' }> {
   await ensureActive(tab)
-  return captureFull(tab, dir, grid)
+  return captureFull(tab, dir, grid, edgeOnly)
 }
 
 async function captureFull(
   tab: TabRuntime,
   dir: string,
-  grid = 0
+  grid = 0,
+  edgeOnly = false
 ): Promise<{ path: string; width: number; height: number; origin: { x: number; y: number }; coordinateSpace: 'viewport' }> {
   const wc = wcOf(tab)
   const reveal = (): void => {
@@ -1652,6 +1654,7 @@ async function captureFull(
     if (runtime) {
       output = await renderGrid(runtime.win.webContents, image, {
         step: grid,
+        edgeOnly,
         spanWidth: bounds?.width || size.width,
         spanHeight: bounds?.height || size.height
       })
@@ -2443,7 +2446,8 @@ export async function screenshotRegion(
   tab: TabRuntime,
   target: { locator?: Locator; rect?: { x: number; y: number; width: number; height: number } },
   dir: string,
-  grid = 100
+  grid = 100,
+  edgeOnly = false
 ): Promise<{
   path: string
   width: number
@@ -2481,7 +2485,7 @@ export async function screenshotRegion(
   }
   if (!rect) {
     if (target.locator) throw new Error('这个元素没有可见区域（可能被隐藏或尺寸为 0）')
-    const shot = await screenshot(tab, dir, grid)
+    const shot = await screenshot(tab, dir, grid, edgeOnly)
     return { ...shot, x: 0, y: 0, full: true }
   }
   const [vw, vh] = viewport(tab)
@@ -2522,6 +2526,7 @@ export async function screenshotRegion(
           originX: x,
           originY: y,
           showOrigin: true,
+          edgeOnly,
           spanWidth: width,
           spanHeight: height
         })
