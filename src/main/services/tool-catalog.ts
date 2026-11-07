@@ -1201,15 +1201,17 @@ tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单
   return { tabId: tabRef.id }
 })
 
-tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这个元素（会先滚进视口）；传 x、y、width、height 时截这块区域；都不传截整个视口。返回图片、路径和像素宽高，图片同时作为 MCP image 内容返回。宽高只用于页面坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object({
+tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这个元素（会先滚进视口）；传 x、y、width、height 时截这块区域；都不传截整个视口。grid 传 true（100px）或数字（10–500）会在图上叠加红色坐标网格和刻度，方便把看到的点换算成 x/y，只影响图片、不改页面。返回图片、路径和像素宽高，图片同时作为 MCP image 内容返回。宽高只用于页面坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
   y: z.union([z.number(), z.string()]).optional(),
   width: z.union([z.number(), z.string()]).optional(),
-  height: z.union([z.number(), z.string()]).optional()
+  height: z.union([z.number(), z.string()]).optional(),
+  grid: z.union([z.boolean(), z.number()]).optional()
 }), async (args) => {
   const tabRef = await pageTab(args, false)
+  const step = args.grid === true ? 100 : Math.max(0, Math.min(500, Math.round(Number(args.grid) || 0)))
   const located = locatorFrom(args)
   const rect = [args.x, args.y, args.width, args.height].every((value) => value !== undefined)
     ? {
@@ -1220,10 +1222,10 @@ tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这�
       }
     : undefined
   if (located || rect) {
-    const shot = await screenshotRegion(tabRef, { locator: located ?? undefined, rect }, storage.dir('screenshots'))
+    const shot = await screenshotRegion(tabRef, { locator: located ?? undefined, rect }, storage.dir('screenshots'), step)
     return { tabId: tabRef.id, path: shot.path, width: shot.width, height: shot.height, x: shot.x, y: shot.y, full: shot.full, bytes: statSync(shot.path).size, image: imageOf(shot.path) }
   }
-  const shot = await screenshot(tabRef, storage.dir('screenshots'))
+  const shot = await screenshot(tabRef, storage.dir('screenshots'), step)
   return {
     tabId: tabRef.id,
     path: shot.path,

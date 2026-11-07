@@ -1593,8 +1593,78 @@ export async function navigate(tab: TabRuntime, url: string): Promise<void> {
   await pending
 }
 
-export async function screenshot(tab: TabRuntime, dir: string): Promise<{ path: string; width: number; height: number }> {
+const GRID_SCRIPT = `(function (step, rect) {
+  const id = '__bpGrid'
+  const old = document.getElementById(id)
+  if (old) old.remove()
+  const dpr = window.devicePixelRatio || 1
+  const w = window.innerWidth
+  const h = window.innerHeight
+  const canvas = document.createElement('canvas')
+  canvas.id = id
+  canvas.width = Math.round(w * dpr)
+  canvas.height = Math.round(h * dpr)
+  canvas.style.cssText = 'position:fixed;left:0;top:0;width:' + w + 'px;height:' + h + 'px;pointer-events:none;z-index:2147483647'
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return false
+  ctx.scale(dpr, dpr)
+  const labelX = (rect ? Math.max(0, Math.min(w - 40, rect.x)) : 0) + 3
+  const labelY = (rect ? Math.max(0, Math.min(h - 20, rect.y)) : 0) + 3
+  const label = (text, x, y) => {
+    ctx.lineWidth = 3
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+    ctx.strokeText(text, x, y)
+    ctx.lineWidth = 1
+    ctx.fillStyle = 'rgba(185,28,28,0.95)'
+    ctx.fillText(text, x, y)
+  }
+  ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
+  ctx.textBaseline = 'top'
+  for (let x = 0; x <= w; x += step) {
+    ctx.beginPath()
+    ctx.moveTo(x + 0.5, 0)
+    ctx.lineTo(x + 0.5, h)
+    ctx.strokeStyle = 'rgba(220,38,38,0.25)'
+    ctx.lineWidth = 1
+    ctx.stroke()
+    label(String(Math.round(x)), Math.min(w - 26, x + 2), labelY)
+  }
+  for (let y = 0; y <= h; y += step) {
+    ctx.beginPath()
+    ctx.moveTo(0, y + 0.5)
+    ctx.lineTo(w, y + 0.5)
+    ctx.strokeStyle = 'rgba(220,38,38,0.25)'
+    ctx.lineWidth = 1
+    ctx.stroke()
+    label(String(Math.round(y)), labelX, Math.min(h - 14, y + 1))
+  }
+  ;(document.body || document.documentElement).appendChild(canvas)
+  return true
+})`
+
+async function withGridOverlay<T>(
+  tab: TabRuntime,
+  step: number,
+  rect: { x: number; y: number; width: number; height: number } | undefined,
+  run: () => Promise<T>
+): Promise<T> {
+  if (!step) return run()
+  const injected = await evalSource(tab, `(${GRID_SCRIPT})(${step}, ${JSON.stringify(rect ?? null)})`).catch(() => false)
+  if (!injected) return run()
+  await sleep(60)
+  try {
+    return await run()
+  } finally {
+    await evalSource(tab, `document.getElementById('__bpGrid')?.remove()`).catch(() => undefined)
+  }
+}
+
+export async function screenshot(tab: TabRuntime, dir: string, grid = 0): Promise<{ path: string; width: number; height: number }> {
   await ensureActive(tab)
+  return withGridOverlay(tab, grid, undefined, () => captureFull(tab, dir))
+}
+
+async function captureFull(tab: TabRuntime, dir: string): Promise<{ path: string; width: number; height: number }> {
   const wc = wcOf(tab)
   const reveal = (): void => {
     const runtime = windows.get(tab.envId)
@@ -2416,7 +2486,8 @@ export async function hoverPoint(tab: TabRuntime, x: number, y: number, shot?: S
 export async function screenshotRegion(
   tab: TabRuntime,
   target: { locator?: Locator; rect?: { x: number; y: number; width: number; height: number } },
-  dir: string
+  dir: string,
+  grid = 0
 ): Promise<{ path: string; width: number; height: number; x: number; y: number; full: boolean }> {
   await ensureActive(tab)
   const wc = wcOf(tab)
@@ -2445,7 +2516,7 @@ export async function screenshotRegion(
   }
   if (!rect) {
     if (target.locator) throw new Error('这个元素没有可见区域（可能被隐藏或尺寸为 0）')
-    const shot = await screenshot(tab, dir)
+    const shot = await screenshot(tab, dir, grid)
     return { ...shot, x: 0, y: 0, full: true }
   }
   const [vw, vh] = viewport(tab)
@@ -2453,24 +2524,26 @@ export async function screenshotRegion(
   const y = Math.max(0, Math.floor(rect.y))
   const width = Math.max(1, Math.min(Math.ceil(rect.width), vw - x))
   const height = Math.max(1, Math.min(Math.ceil(rect.height), vh - y))
-  const reveal = (): void => {
-    const runtime = windows.get(tab.envId)
-    if (!runtime || runtime.headless) return
-    if (runtime.win.isMinimized()) runtime.win.restore()
-    runtime.win.show()
-  }
-  reveal()
-  let image = await wc.capturePage({ x, y, width, height }).catch(() => undefined)
-  if (!image || image.isEmpty()) {
+  return withGridOverlay(tab, grid, { x, y, width, height }, async () => {
+    const reveal = (): void => {
+      const runtime = windows.get(tab.envId)
+      if (!runtime || runtime.headless) return
+      if (runtime.win.isMinimized()) runtime.win.restore()
+      runtime.win.show()
+    }
     reveal()
-    await sleep(250)
-    image = await wc.capturePage({ x, y, width, height }).catch(() => undefined)
-  }
-  if (!image || image.isEmpty()) throw new Error('这块区域截不到（可能被窗口挡住或元素已经滚出视口）')
-  mkdirSync(dir, { recursive: true })
-  const path = join(dir, `shot-${Date.now()}.png`)
-  writeFileSync(path, image.toPNG())
-  return { path, width: image.getSize().width, height: image.getSize().height, x, y, full: false }
+    let image = await wc.capturePage({ x, y, width, height }).catch(() => undefined)
+    if (!image || image.isEmpty()) {
+      reveal()
+      await sleep(250)
+      image = await wc.capturePage({ x, y, width, height }).catch(() => undefined)
+    }
+    if (!image || image.isEmpty()) throw new Error('这块区域截不到（可能被窗口挡住或元素已经滚出视口）')
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, `shot-${Date.now()}.png`)
+    writeFileSync(path, image.toPNG())
+    return { path, width: image.getSize().width, height: image.getSize().height, x, y, full: false }
+  })
 }
 
 export async function findInPage(
