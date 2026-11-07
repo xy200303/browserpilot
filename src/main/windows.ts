@@ -624,17 +624,7 @@ export function hideSuggestions(runtime: WindowRuntime): void {
 }
 
 export function focusTabSearch(runtime: WindowRuntime): void {
-  if (runtime.headless) return
-  if (storage.settings.tabLayout === 'left') {
-    runtime.popupOpen = false
-    runtime.popupPayload = null
-    runtime.suggestPayload = undefined
-    runtime.railOpen = true
-    layoutWindow(runtime.envId)
-    runtime.railView?.webContents.send('focus-rail-search')
-    return
-  }
-  showPopup(runtime, { kind: 'tabs' })
+  if (!runtime.headless) showPopup(runtime, { kind: 'tabs' })
 }
 
 export function showPopup(runtime: WindowRuntime, payload: LayerPayload): void {

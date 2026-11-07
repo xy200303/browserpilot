@@ -28,11 +28,6 @@ const api = {
     ipcRenderer.on('builtin-reload', listener)
     return () => ipcRenderer.removeListener('builtin-reload', listener)
   },
-  onFocusRailSearch: (callback: () => void): (() => void) => {
-    const listener = (): void => callback()
-    ipcRenderer.on('focus-rail-search', listener)
-    return () => ipcRenderer.removeListener('focus-rail-search', listener)
-  },
   setBounds: (bounds: { x: number; y: number; width: number; height: number }): Promise<void> => ipcRenderer.invoke('bounds:set', bounds),
   navigate: (url: string): Promise<void> => ipcRenderer.invoke('chrome:navigate', url),
   back: (): Promise<void> => ipcRenderer.invoke('chrome:back'),
