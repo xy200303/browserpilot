@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { LayerPayload, Settings, UiState, WorkflowEdge, WorkflowNode } from '../shared/types'
+import type { HistoryEntry, LayerPayload, Settings, UiState, WorkflowEdge, WorkflowNode } from '../shared/types'
 
 const api = {
   getState: (): Promise<UiState | null> => ipcRenderer.invoke('state:get'),
@@ -65,6 +65,11 @@ const api = {
   copyDownloadLink: (id: string): Promise<void> => ipcRenderer.invoke('downloads:copyLink', id),
   openDownloads: (): Promise<void> => ipcRenderer.invoke('menu:downloads'),
   openRuns: (): Promise<void> => ipcRenderer.invoke('menu:runs'),
+  openHistoryPage: (): Promise<void> => ipcRenderer.invoke('menu:history'),
+  listHistory: (): Promise<HistoryEntry[]> => ipcRenderer.invoke('history:list'),
+  deleteHistory: (id: string): Promise<void> => ipcRenderer.invoke('history:delete', id),
+  clearHistory: (): Promise<void> => ipcRenderer.invoke('history:clear'),
+  openHistory: (url: string): Promise<void> => ipcRenderer.invoke('history:open', url),
   openWorkflowRuns: (id: string): Promise<void> => ipcRenderer.invoke('workflow:runsPage', id),
   createGroup: (input: { name: string; color?: string }): Promise<unknown> => ipcRenderer.invoke('group:create', input),
   assignGroup: (input: { tabId: string; groupId?: string | null }): Promise<unknown> => ipcRenderer.invoke('group:assign', input),

@@ -53,16 +53,29 @@ export type TabInfo = {
   id: string
   envId: string
   groupId: string | null
-  kind: 'page' | 'settings' | 'market' | 'workflow' | 'downloads' | 'runs'
+  kind: 'page' | 'settings' | 'market' | 'workflow' | 'downloads' | 'runs' | 'history'
   title: string
   url: string
   favicon?: string
   loading: boolean
+  progress: number
+  error?: TabError
   active: boolean
   pinned?: boolean
   muted?: boolean
   audible?: boolean
   control: Control
+}
+
+export type TabError = { code: number; description: string; url: string }
+
+export type HistoryEntry = {
+  id: string
+  envId: string
+  url: string
+  title: string
+  favicon?: string
+  visitedAt: number
 }
 
 export type CaptureInfo = {

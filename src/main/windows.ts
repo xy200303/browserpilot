@@ -4,7 +4,7 @@ import { join } from 'path'
 import { DEFAULT_ENV } from '@shared/types'
 import { chromeUserAgent } from './ua'
 import { createId } from './ids'
-import { DOWNLOADS_PAGE, MARKET_PAGE, RUNS_PAGE, SETTINGS_PAGE, workflowPage } from '@shared/market'
+import { DOWNLOADS_PAGE, HISTORY_PAGE, MARKET_PAGE, RUNS_PAGE, SETTINGS_PAGE, workflowPage } from '@shared/market'
 import { storage } from './services/store'
 import {
   activePage,
@@ -209,6 +209,7 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
     title: '新标签页',
     url: url || startUrl(),
     loading: true,
+    progress: 0,
     control: 'free',
     handoffMessage: '',
     userTookOver: false,
@@ -242,7 +243,7 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
   return tab
 }
 
-function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings' | 'downloads' | 'runs', title: string, url: string): TabRuntime {
+function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings' | 'downloads' | 'runs' | 'history', title: string, url: string): TabRuntime {
   const existing = runtime.tabs.find((tab) => tab.kind === kind)
   if (existing) {
     activateTab(runtime, existing.id)
@@ -256,6 +257,7 @@ function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings' | 'down
     title,
     url,
     loading: false,
+    progress: 0,
     control: 'free',
     handoffMessage: '',
     userTookOver: false,
@@ -398,6 +400,10 @@ export function openDownloadsPage(runtime: WindowRuntime): TabRuntime {
   return openBuiltin(runtime, 'downloads', '下载', DOWNLOADS_PAGE)
 }
 
+export function openHistoryPage(runtime: WindowRuntime): TabRuntime {
+  return openBuiltin(runtime, 'history', '历史记录', HISTORY_PAGE)
+}
+
 export function openRunsPage(runtime: WindowRuntime, workflowId?: string): TabRuntime {
   const url = workflowId ? `${RUNS_PAGE}?workflow=${workflowId}` : RUNS_PAGE
   const existing = runtime.tabs.find((tab) => tab.kind === 'runs')
@@ -428,6 +434,7 @@ export function openWorkflowPage(runtime: WindowRuntime, workflowId: string): Ta
     title: app.app.name,
     url,
     loading: false,
+    progress: 0,
     control: 'free',
     handoffMessage: '',
     userTookOver: false,
@@ -582,7 +589,7 @@ export function layoutWindow(envId: string): void {
   const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
   for (const tab of runtime.tabs) {
     if (!tab.view) continue
-    const show = active?.id === tab.id && active.kind === 'page'
+    const show = active?.id === tab.id && active.kind === 'page' && !active.error
     tab.view.setVisible(show)
     if (show) tab.view.setBounds(runtime.bounds)
   }
@@ -743,7 +750,21 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
     }
     bridge.broadcast(runtime.envId)
   }
-  wc.on('page-title-updated', sync)
+  const rememberHistory = (): void => {
+    if (tab.kind !== 'page') return
+    const url = wc.getURL()
+    if (!url || !recordableUrl(url)) return
+    storage.addHistory({ envId: runtime.envId, url, title: wc.getTitle() || url, favicon: tab.favicon })
+  }
+  const setProgress = (value: number): void => {
+    if (tab.progress === value) return
+    tab.progress = value
+    bridge.broadcast(runtime.envId)
+  }
+  wc.on('page-title-updated', () => {
+    rememberHistory()
+    sync()
+  })
   wc.on('page-favicon-updated', (_event, favicons) => {
     const next = favicons[0] || ''
     if (tab.favicon === next) return
@@ -762,11 +783,55 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
   })
   wc.on('did-navigate', () => {
     tab.audible = false
+    rememberHistory()
+    sync()
+  })
+  wc.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
+    if (!isMainFrame) return
+    if (tab.error) {
+      tab.error = undefined
+      bridge.layout(runtime.envId)
+    }
+    tab.progress = 8
+    bridge.broadcast(runtime.envId)
   })
   wc.on('did-start-loading', sync)
-  wc.on('did-stop-loading', sync)
-  wc.on('did-navigate', sync)
-  wc.on('did-navigate-in-page', sync)
+  wc.on('did-stop-loading', () => {
+    setProgress(100)
+    sync()
+  })
+  wc.on('dom-ready', () => setProgress(Math.max(tab.progress, 55)))
+  wc.on('did-frame-finish-load', (_event, isMainFrame) => {
+    if (isMainFrame) setProgress(Math.max(tab.progress, 85))
+  })
+  wc.on('did-finish-load', () => {
+    setProgress(100)
+    rememberHistory()
+    sync()
+  })
+  wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    if (!isMainFrame || code === -3) return
+    tab.error = { code, description, url: url || wc.getURL() || tab.url }
+    if (url) tab.url = url
+    tab.title = wc.getTitle() || tab.title
+    tab.loading = false
+    tab.progress = 0
+    bridge.layout(runtime.envId)
+    bridge.broadcast(runtime.envId)
+  })
+  wc.on('did-navigate-in-page', () => {
+    rememberHistory()
+    sync()
+  })
+}
+
+function recordableUrl(url: string): boolean {
+  try {
+    const protocol = new URL(url).protocol
+    return protocol === 'http:' || protocol === 'https:' || protocol === 'file:'
+  } catch {
+    return false
+  }
 }
 
 function rememberSite(envId: string, url: string): void {
@@ -845,6 +910,11 @@ function bindShortcuts(wc: Electron.WebContents, envId: string): void {
     }
     if (!ctrl && input.alt && key === 'd') {
       runtime.win.webContents.send('focus-address')
+      handled()
+      return
+    }
+    if (ctrl && key === 'h') {
+      openHistoryPage(runtime)
       handled()
       return
     }

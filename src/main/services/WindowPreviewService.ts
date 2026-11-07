@@ -99,7 +99,7 @@ async function collectLayers(runtime: WindowRuntime): Promise<Layer[]> {
   const layers: Layer[] = []
   const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
 
-  if (active?.kind === 'page' && active.view) {
+  if (active?.kind === 'page' && active.view && !active.error) {
     layers.push({
       name: 'page',
       image: await captureWebContents(active.view.webContents, false),

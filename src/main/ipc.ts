@@ -29,6 +29,7 @@ import {
   openEnvironment,
   openMarket,
   openDownloadsPage,
+  openHistoryPage,
   openRunsPage,
   openSettingsPage,
   openWorkflowPage,
@@ -76,10 +77,12 @@ export async function buildState(runtime: WindowRuntime): Promise<UiState> {
       envId: tab.envId,
       groupId: tab.groupId,
       kind: tab.kind,
-      title: tab.kind === 'settings' ? '设置' : tab.kind === 'market' ? '工作流' : tab.kind === 'workflow' ? (storage.workflows.find((item) => tab.url === workflowPage(item.id))?.app.name ?? tab.title) : tab.title || '新标签页',
+      title: tab.kind === 'settings' ? '设置' : tab.kind === 'market' ? '工作流' : tab.kind === 'history' ? '历史记录' : tab.kind === 'workflow' ? (storage.workflows.find((item) => tab.url === workflowPage(item.id))?.app.name ?? tab.title) : tab.title || '新标签页',
       url: tab.url,
       favicon: tab.favicon || '',
       loading: tab.loading,
+      progress: tab.progress,
+      error: tab.error,
       active: tab.id === runtime.activeTabId,
       pinned: Boolean(tab.pinned),
       muted: Boolean(tab.muted),
@@ -471,6 +474,34 @@ export function wireIpc(): void {
   ipcMain.handle('menu:runs', (event) => {
     const runtime = windowFromSender(event.sender)
     if (runtime) openRunsPage(runtime)
+  })
+
+  ipcMain.handle('menu:history', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) openHistoryPage(runtime)
+  })
+
+  ipcMain.handle('history:list', (event) => {
+    const runtime = windowFromSender(event.sender)
+    return runtime ? storage.historyFor(runtime.envId) : []
+  })
+
+  ipcMain.handle('history:delete', (event, id: string) => {
+    storage.deleteHistory(id)
+    const runtime = windowFromSender(event.sender)
+    if (runtime) bridge.broadcast(runtime.envId)
+  })
+
+  ipcMain.handle('history:clear', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (!runtime) return
+    storage.clearHistory(runtime.envId)
+    bridge.broadcast(runtime.envId)
+  })
+
+  ipcMain.handle('history:open', (event, url: string) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) addTab(runtime, url)
   })
 
   ipcMain.handle('workflow:runsPage', (event, id: string) => {

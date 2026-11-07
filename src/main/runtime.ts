@@ -1,5 +1,5 @@
 import type { BrowserWindow, WebContentsView } from 'electron'
-import type { Control, LayerPayload } from '@shared/types'
+import type { Control, LayerPayload, TabError } from '@shared/types'
 
 export type InternalControl = 'free' | 'agent' | 'shared' | 'handoff'
 
@@ -13,11 +13,13 @@ export type TabRuntime = {
   id: string
   envId: string
   groupId: string | null
-  kind: 'page' | 'settings' | 'market' | 'workflow' | 'downloads' | 'runs'
+  kind: 'page' | 'settings' | 'market' | 'workflow' | 'downloads' | 'runs' | 'history'
   title: string
   url: string
   favicon?: string
   loading: boolean
+  progress: number
+  error?: TabError
   pinned?: boolean
   muted?: boolean
   audible?: boolean

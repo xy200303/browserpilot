@@ -165,6 +165,8 @@ function WindowMenu({ x, y, state, close }: { x: number; y: number; state: UiSta
       <DropdownMenuItem onSelect={() => after(window.browser.copyEnv(), close)}>复制环境编号</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => after(window.browser.devtools(), close)}>开发者工具</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => after(window.browser.toggleScreen(), close)}>{state.screenRecording ? '停止录屏' : '开始录屏'}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.openHistoryPage(), close)}>历史记录</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.restoreTab(), close)}>重新打开关闭的标签页</DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem onSelect={() => after(window.browser.openSettings(), close)}>设置</DropdownMenuItem>
     </AnchoredMenu>

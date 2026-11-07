@@ -178,3 +178,26 @@ html.rail ::-webkit-scrollbar-thumb {
   border-bottom-color: var(--border);
   fill: var(--foreground);
 }
+
+.nav-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.nav-progress.active {
+  opacity: 1;
+}
+
+.nav-progress > span {
+  display: block;
+  height: 100%;
+  background: #2563eb;
+  transition: width 0.22s ease;
+}

@@ -1,4 +1,4 @@
-import type { LayerPayload, Settings, UiState, WorkflowEdge, WorkflowNode } from '../../shared/types'
+import type { HistoryEntry, LayerPayload, Settings, UiState, WorkflowEdge, WorkflowNode } from '../../shared/types'
 
 type RunLog = { id: string; workflowId: string; at: number; ok: boolean; node?: string; title?: string; error?: string; screenshot?: string; outputs?: Record<string, unknown>; files?: string[] }
 
@@ -46,6 +46,11 @@ export type BrowserApi = {
   copyDownloadLink: (id: string) => Promise<void>
   openDownloads: () => Promise<void>
   openRuns: () => Promise<void>
+  openHistoryPage: () => Promise<void>
+  listHistory: () => Promise<HistoryEntry[]>
+  deleteHistory: (id: string) => Promise<void>
+  clearHistory: () => Promise<void>
+  openHistory: (url: string) => Promise<void>
   openWorkflowRuns: (id: string) => Promise<void>
   createGroup: (input: { name: string; color?: string }) => Promise<unknown>
   assignGroup: (input: { tabId: string; groupId?: string | null }) => Promise<unknown>

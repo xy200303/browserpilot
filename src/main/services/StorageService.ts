@@ -7,9 +7,10 @@ import {
   type EnvInfo,
   type GroupInfo,
   type WorkflowApp,
+  type HistoryEntry,
   type Settings
 } from '@shared/types'
-import { rememberId } from '../ids'
+import { createId, rememberId } from '../ids'
 
 export type StoredEnv = {
   id: string
@@ -63,6 +64,7 @@ export class StorageService {
   workflows: WorkflowApp[] = []
   runs: RunLog[] = []
   settings: Settings = defaultSettings()
+  history: HistoryEntry[] = []
 
   load(): void {
     mkdirSync(app.getPath('userData'), { recursive: true })
@@ -79,6 +81,9 @@ export class StorageService {
       (item) => item?.kind === 'app' && item.app?.mode === 'workflow' && Array.isArray(item.workflow?.graph?.nodes)
     )
     this.runs = readJson<RunLog[]>('runs.json', [])
+    this.history = readJson<HistoryEntry[]>('history.json', [])
+      .filter((item) => item && typeof item.id === 'string' && typeof item.envId === 'string' && typeof item.url === 'string' && typeof item.title === 'string' && typeof item.visitedAt === 'number')
+      .slice(0, 3000)
     this.settings = { ...defaultSettings(), ...readJson<Partial<Settings>>('settings.json', {}) }
     for (const env of this.envs) rememberId(env.id)
     for (const group of this.groups) rememberId(group.id)
@@ -105,6 +110,43 @@ export class StorageService {
     this.runs.unshift(run)
     this.runs = this.runs.slice(0, 200)
     writeJson('runs.json', this.runs)
+  }
+
+  addHistory(input: { envId: string; url: string; title: string; favicon?: string }): void {
+    const now = Date.now()
+    const last = this.history[0]
+    if (last && last.envId === input.envId && last.url === input.url && now - last.visitedAt < 10_000) {
+      last.title = input.title || last.title
+      last.favicon = input.favicon || last.favicon
+      last.visitedAt = now
+    } else {
+      this.history.unshift({
+        id: createId('hist'),
+        envId: input.envId,
+        url: input.url,
+        title: input.title || input.url,
+        favicon: input.favicon,
+        visitedAt: now
+      })
+      this.history = this.history.slice(0, 3000)
+    }
+    writeJson('history.json', this.history)
+  }
+
+  historyFor(envId: string): HistoryEntry[] {
+    return this.history.filter((item) => item.envId === envId)
+  }
+
+  deleteHistory(id: string): void {
+    const next = this.history.filter((item) => item.id !== id)
+    if (next.length === this.history.length) return
+    this.history = next
+    writeJson('history.json', this.history)
+  }
+
+  clearHistory(envId: string): void {
+    this.history = this.history.filter((item) => item.envId !== envId)
+    writeJson('history.json', this.history)
   }
 
   dir(name: string): string {
