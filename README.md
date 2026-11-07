@@ -103,6 +103,8 @@ MCP 不可用时用 CLI。Windows 安装后可直接运行 `browserpilot`（窗�
 
 ```bash
 browserpilot tools                 # 列出全部工具
+browserpilot search 截图             # 按关键词搜索工具（名称/描述/分组）
+browserpilot search page --page 2 --page-size 5   # 分页；加 --json 输出原始结果
 browserpilot schema page_click     # 查看参数
 browserpilot call page_navigate --json-file nav.json   # 中文参数写进 JSON 文件
 ```

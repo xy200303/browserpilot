@@ -28,6 +28,8 @@ func main() {
 	switch os.Args[1] {
 	case "tools":
 		exit(printTools())
+	case "search":
+		exit(searchTools(os.Args[2:]))
 	case "schema":
 		if len(os.Args) < 3 {
 			usage()
@@ -47,7 +49,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "用法: browserpilot tools | schema <工具> | call <工具> [--json '{}'] [--json-file 文件] [--recording 编号]")
+	fmt.Fprintln(os.Stderr, "用法: browserpilot tools | search <关键词> [--page N] [--page-size N] [--json] | schema <工具> | call <工具> [--json '{}'] [--json-file 文件] [--recording 编号]")
 }
 
 func exit(err error) {
@@ -254,6 +256,121 @@ func printTools() error {
 		fmt.Printf("%s\t%s\n", tool["name"], tool["description"])
 	}
 	return nil
+}
+
+func searchTools(args []string) error {
+	page := 1
+	size := 10
+	jsonOut := false
+	var words []string
+	for i := 0; i < len(args); i += 1 {
+		switch args[i] {
+		case "--page", "-p":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--page 需要一个数字")
+			}
+			i += 1
+			page = atoiOr(args[i], 1)
+		case "--page-size", "-n", "--size":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--page-size 需要一个数字")
+			}
+			i += 1
+			size = atoiOr(args[i], 10)
+		case "--json":
+			jsonOut = true
+		default:
+			words = append(words, args[i])
+		}
+	}
+	if len(words) == 0 {
+		return fmt.Errorf("用法: browserpilot search <关键词> [--page N] [--page-size N] [--json]")
+	}
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 10
+	}
+	if size > 50 {
+		size = 50
+	}
+	query := strings.Join(words, " ")
+	result, err := rpc("tools/call", map[string]any{
+		"name": "search_tools",
+		"arguments": map[string]any{
+			"query":     query,
+			"page":      page,
+			"page_size": size,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	content, _ := result["content"].([]any)
+	if len(content) == 0 {
+		return fmt.Errorf("没有拿到搜索结果")
+	}
+	first, _ := content[0].(map[string]any)
+	text, _ := first["text"].(string)
+	if jsonOut {
+		fmt.Println(text)
+		return nil
+	}
+	var payload struct {
+		Total    int `json:"total"`
+		Page     int `json:"page"`
+		Pages    int `json:"pages"`
+		PageSize int `json:"page_size"`
+		Tools    []struct {
+			Name        string `json:"name"`
+			Group       string `json:"group"`
+			Description string `json:"description"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		return err
+	}
+	if payload.Total == 0 {
+		fmt.Printf("没有匹配「%s」的工具\n", query)
+		return nil
+	}
+	from := (payload.Page-1)*payload.PageSize + 1
+	to := from + len(payload.Tools) - 1
+	fmt.Printf("「%s」第 %d/%d 页，%d-%d / %d 个\n\n", query, payload.Page, payload.Pages, from, to, payload.Total)
+	for _, tool := range payload.Tools {
+		desc := shorten(strings.ReplaceAll(tool.Description, "\n", " "), 100)
+		fmt.Printf("%s\t[%s]\t%s\n", tool.Name, tool.Group, desc)
+	}
+	if payload.Page < payload.Pages {
+		fmt.Printf("\n下一页: browserpilot search %s --page %d --page-size %d\n", query, payload.Page+1, size)
+	}
+	fmt.Println("\n看参数: browserpilot schema <工具>")
+	return nil
+}
+
+func shorten(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit]) + "…"
+}
+
+func atoiOr(text string, fallback int) int {
+	value := 0
+	ok := true
+	for _, c := range text {
+		if c < '0' || c > '9' {
+			ok = false
+			break
+		}
+		value = value*10 + int(c-'0')
+	}
+	if !ok {
+		return fallback
+	}
+	return value
 }
 
 func printSchema(name string) error {
