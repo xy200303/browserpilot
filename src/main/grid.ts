@@ -195,7 +195,7 @@ export async function renderGrid(wc: WebContents, image: NativeImage, options: G
       }
       // 角标最后画，盖在线条和数字上面
       if (hasChip) {
-        const chip = Math.round(ORIGIN_X) + ',' + Math.round(ORIGIN_Y)
+        const chip = '(' + Math.round(ORIGIN_X) + ', ' + Math.round(ORIGIN_Y) + ')'
         const tw = ctx.measureText(chip).width
         ctx.fillStyle = CHIP_BG
         ctx.fillRect(0, 0, tw + 4, font + 4)
