@@ -480,7 +480,7 @@ function TabMenu({
   const vertical = state.layout === 'left'
   return (
     <AnchoredMenu x={x} y={y} align="start" className="w-72">
-      <DropdownMenuItem onSelect={() => { void window.browser.copyTab(tab.id); close() }}>复制标签信息</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.copyTab(tab.id); close() }}>复制标签提示词</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => { void window.browser.devtoolsTab(tab.id); close() }}>开发者工具</DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem onSelect={() => { void window.browser.openTabBelow(tab.id); close() }}>在下方新建标签页</DropdownMenuItem>

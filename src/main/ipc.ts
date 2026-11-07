@@ -381,8 +381,32 @@ export function wireIpc(): void {
   ipcMain.handle('tab:copy', (event, tabId: string) => {
     const runtime = windowFromSender(event.sender)
     const tab = runtime?.tabs.find((item) => item.id === tabId)
-    if (!tab) return
-    clipboard.writeText([tab.id, tab.title, tab.url, tab.envId].filter(Boolean).join('\n'))
+    if (!runtime || !tab) return
+    const env = storage.envs.find((item) => item.id === runtime.envId)
+    const name = env?.name || runtime.envId
+    const remark = env?.remark?.trim() || '未填写'
+    const lines = [
+      '你现在使用 BrowserPilot（给 Agent 用的本机浏览器）操作一个已经打开的标签页。',
+      '',
+      '软件名称：BrowserPilot',
+      '环境名称：' + name,
+      '环境编号：' + runtime.envId,
+      '环境备注：' + remark,
+      '标签编号：' + tab.id,
+      '标签标题：' + (tab.title || '未命名'),
+      '标签地址：' + (tab.url || '空')
+    ]
+    if (tab.kind === 'page') {
+      lines.push(
+        '',
+        '请直接用这个 tabId 调用 page_* / tab_* 工具，不要另开标签或切换环境。',
+        '需要等页面时用 page_wait，不要写死 sleep。',
+        '需要人登录、过验证码或确认时用 page_handoff，做完后调用 page_unlock。'
+      )
+    } else {
+      lines.push('', '这是 BrowserPilot 的内置页面，不是网页，不能用 page_* 操作；需要网页操作时先打开一个标签页。')
+    }
+    clipboard.writeText(lines.join('\n'))
   })
 
   ipcMain.handle('env:copy', (event) => {
