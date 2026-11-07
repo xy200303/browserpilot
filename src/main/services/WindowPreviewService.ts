@@ -5,7 +5,7 @@ import type { Bounds, WindowRuntime } from '../runtime'
 import { windows } from '../runtime'
 import { layoutWindow } from '../windows'
 import { sleep } from '../page'
-import { drawGrid } from '../grid'
+import { renderGrid } from '../grid'
 import { withDebugger } from './debugger'
 import { storage } from './store'
 
@@ -191,7 +191,7 @@ export async function windowPreview(
 
   if (grid > 0) {
     // 应用截图给 GUI 自动化用：坐标原点始终是应用内容区左上角，局部截图也用绝对坐标
-    image = await drawGrid(runtime.win.webContents, image, {
+    image = await renderGrid(runtime.win.webContents, image, {
       step: grid,
       originX: origin.x,
       originY: origin.y,

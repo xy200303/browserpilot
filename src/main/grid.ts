@@ -1,6 +1,6 @@
 import { nativeImage, type NativeImage, type WebContents } from 'electron'
 
-export type GridDrawOptions = {
+export type GridRenderOptions = {
   step: number
   // 数字标注的间隔；默认取 max(step, 100)，细网格只画线不标数字，避免标签互相压住
   labelStep?: number
@@ -14,20 +14,115 @@ export type GridDrawOptions = {
   spanHeight: number
 }
 
+export type GridPalette = {
+  name: 'red' | 'blue' | 'light'
+  lineRgb: string
+  lineAlpha: number
+  labelRgba: string
+  haloRgba: string
+  chipBg: string
+  chipFg: string
+}
+
+const SAMPLE_TARGET = 4000
+
+function alphaFor(step: number): number {
+  return step >= 50 ? 0.44 : step >= 20 ? 0.34 : 0.28
+}
+
+function redPalette(step: number): GridPalette {
+  return {
+    name: 'red',
+    lineRgb: '185,28,28',
+    lineAlpha: alphaFor(step),
+    labelRgba: 'rgba(185,28,28,0.95)',
+    haloRgba: 'rgba(255,255,255,0.88)',
+    chipBg: 'rgba(255,255,255,0.86)',
+    chipFg: 'rgba(185,28,28,0.95)'
+  }
+}
+
+function bluePalette(step: number): GridPalette {
+  return {
+    name: 'blue',
+    lineRgb: '29,78,216',
+    lineAlpha: alphaFor(step) + 0.06,
+    labelRgba: 'rgba(29,78,216,0.96)',
+    haloRgba: 'rgba(255,255,255,0.9)',
+    chipBg: 'rgba(255,255,255,0.9)',
+    chipFg: 'rgba(29,78,216,0.97)'
+  }
+}
+
+function lightPalette(step: number): GridPalette {
+  return {
+    name: 'light',
+    lineRgb: '255,255,255',
+    lineAlpha: alphaFor(step) + 0.11,
+    labelRgba: 'rgba(255,255,255,0.96)',
+    haloRgba: 'rgba(0,0,0,0.62)',
+    chipBg: 'rgba(0,0,0,0.64)',
+    chipFg: 'rgba(255,255,255,0.97)'
+  }
+}
+
 /**
- * 在截好的图片上后置绘制坐标网格。用主界面渲染进程的 canvas 画，
- * 不往被截的页面里注入任何东西，所以不会闪、也不会改页面布局。
+ * 采样整张图的平均颜色。位图是 BGRA，按内存等距抽样，不关心宽高比。
  */
-export async function drawGrid(wc: WebContents, image: NativeImage, options: GridDrawOptions): Promise<NativeImage> {
+function averageColor(image: NativeImage): { r: number; g: number; b: number } | undefined {
+  const data = image.toBitmap()
+  const pixels = Math.floor(data.length / 4)
+  if (pixels === 0) return undefined
+  const stride = Math.max(1, Math.floor(Math.sqrt(pixels / SAMPLE_TARGET)))
+  let r = 0
+  let g = 0
+  let b = 0
+  let n = 0
+  for (let p = 0; p < pixels; p += stride) {
+    const i = p * 4
+    if (data[i + 3] < 16) continue
+    b += data[i]
+    g += data[i + 1]
+    r += data[i + 2]
+    n += 1
+  }
+  if (n === 0) return undefined
+  return { r: r / n, g: g / n, b: b / n }
+}
+
+/**
+ * 按背景自动选色：深底用白线，饱和的中低亮底色用白线，
+ * 浅红/粉底用蓝线（红线和背景撞色），其余用红线。
+ */
+export function chooseGridPalette(image: NativeImage, step: number): GridPalette {
+  const color = averageColor(image)
+  if (!color) return redPalette(step)
+  const lum = (0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b) / 255
+  const max = Math.max(color.r, color.g, color.b)
+  const min = Math.min(color.r, color.g, color.b)
+  const chroma = (max - min) / 255
+  if (lum < 0.42 || (chroma > 0.2 && lum < 0.72)) return lightPalette(step)
+  if (color.r > color.g + 18 && color.r > color.b + 18) return bluePalette(step)
+  return redPalette(step)
+}
+
+/**
+ * 给一张截图叠加坐标网格：先按图像内容选配色，再在渲染进程里用 canvas 合成。
+ * 不往被截的页面里注入任何东西，所以不会闪、也不会改页面布局。
+ * 返回新图；取色或绘制失败时返回原图。
+ */
+export async function renderGrid(wc: WebContents, image: NativeImage, options: GridRenderOptions): Promise<NativeImage> {
   const step = Math.round(Number(options.step) || 0)
   const size = image.getSize()
   if (step < 5 || size.width < 2 || size.height < 2) return image
+
   const spanWidth = Math.max(1, Number(options.spanWidth) || size.width)
   const spanHeight = Math.max(1, Number(options.spanHeight) || size.height)
   const originX = Number(options.originX) || 0
   const originY = Number(options.originY) || 0
   const showOrigin = Boolean(options.showOrigin)
   const labelStep = Math.max(step, Math.round(Number(options.labelStep) || 0) || 100)
+  const palette = chooseGridPalette(image, step)
 
   try {
     const dataUrl = image.toDataURL()
@@ -38,6 +133,12 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
       const ORIGIN_Y = ${originY}
       const SPANW = ${spanWidth}
       const SPANH = ${spanHeight}
+      const LINE_RGB = ${JSON.stringify(palette.lineRgb)}
+      const LINE_ALPHA = ${palette.lineAlpha}
+      const LABEL_RGBA = ${JSON.stringify(palette.labelRgba)}
+      const HALO_RGBA = ${JSON.stringify(palette.haloRgba)}
+      const CHIP_BG = ${JSON.stringify(palette.chipBg)}
+      const CHIP_FG = ${JSON.stringify(palette.chipFg)}
       const img = new Image()
       img.src = ${JSON.stringify(dataUrl)}
       await img.decode()
@@ -48,52 +149,6 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
       if (!ctx) return ''
       ctx.drawImage(img, 0, 0)
 
-      // 按背景色选网格配色：深底用白线，浅红/粉底用蓝线，其余用红线
-      let LINE_RGB = '185,28,28'
-      let LINE_ALPHA = STEP >= 50 ? 0.44 : STEP >= 20 ? 0.34 : 0.28
-      let LABEL_RGBA = 'rgba(185,28,28,0.95)'
-      let HALO_RGBA = 'rgba(255,255,255,0.88)'
-      let CHIP_BG = 'rgba(255,255,255,0.86)'
-      let CHIP_FG = 'rgba(185,28,28,0.95)'
-      try {
-        let sr = 0, sg = 0, sb = 0, n = 0
-        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data
-        const stride = Math.max(1, Math.floor(Math.sqrt((canvas.width * canvas.height) / 4000)))
-        for (let py = 0; py < canvas.height; py += stride) {
-          for (let px = 0; px < canvas.width; px += stride) {
-            const i = (py * canvas.width + px) * 4
-            if (pixels[i + 3] < 16) continue
-            sr += pixels[i]
-            sg += pixels[i + 1]
-            sb += pixels[i + 2]
-            n += 1
-          }
-        }
-        if (n === 0) n = 1
-        const mr = sr / n
-        const mg = sg / n
-        const mb = sb / n
-        const lum = (0.2126 * mr + 0.7152 * mg + 0.0722 * mb) / 255
-        const chroma = (Math.max(mr, mg, mb) - Math.min(mr, mg, mb)) / 255
-        if (lum < 0.42 || (chroma > 0.2 && lum < 0.72)) {
-          LINE_RGB = '255,255,255'
-          LINE_ALPHA = STEP >= 50 ? 0.55 : STEP >= 20 ? 0.45 : 0.36
-          LABEL_RGBA = 'rgba(255,255,255,0.96)'
-          HALO_RGBA = 'rgba(0,0,0,0.62)'
-          CHIP_BG = 'rgba(0,0,0,0.64)'
-          CHIP_FG = 'rgba(255,255,255,0.97)'
-        } else if (mr > mg + 18 && mr > mb + 18) {
-          LINE_RGB = '29,78,216'
-          LINE_ALPHA = STEP >= 50 ? 0.5 : STEP >= 20 ? 0.4 : 0.32
-          LABEL_RGBA = 'rgba(29,78,216,0.96)'
-          HALO_RGBA = 'rgba(255,255,255,0.9)'
-          CHIP_BG = 'rgba(255,255,255,0.9)'
-          CHIP_FG = 'rgba(29,78,216,0.97)'
-        }
-      } catch {
-        // 读不到像素就保持默认红线
-      }
-
       const sx = canvas.width / SPANW
       const sy = canvas.height / SPANH
       const font = Math.max(9, Math.min(16, Math.round(10 * Math.min(sx, sy))))
@@ -101,23 +156,19 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
       ctx.textBaseline = 'top'
       const hasChip = ${showOrigin ? 'true' : 'false'}
       const label = (text, x, y) => {
+        // 标签用描边打底，必须 save/restore，否则会改掉线条的 strokeStyle
+        ctx.save()
+        ctx.font = font + 'px ui-monospace, SFMono-Regular, Menlo, monospace'
+        ctx.textBaseline = 'top'
         ctx.lineWidth = 3
         ctx.strokeStyle = HALO_RGBA
         ctx.strokeText(text, x, y)
         ctx.lineWidth = 1
         ctx.fillStyle = LABEL_RGBA
         ctx.fillText(text, x, y)
+        ctx.restore()
       }
-      if (hasChip) {
-        const chip = Math.round(ORIGIN_X) + ',' + Math.round(ORIGIN_Y)
-        const tw = ctx.measureText(chip).width
-        ctx.fillStyle = CHIP_BG
-        ctx.fillRect(0, 0, tw + 4, font + 4)
-        ctx.fillStyle = CHIP_FG
-        ctx.fillText(chip, 2, 2)
-      }
-      const labelY = 2
-      const labelX = 2
+
       ctx.strokeStyle = 'rgba(' + LINE_RGB + ',' + LINE_ALPHA + ')'
       ctx.lineWidth = 1
       // 数字按「第几条线」抽稀，保证标签一定落在线上
@@ -129,7 +180,7 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
         ctx.moveTo(Math.round(x) + 0.5, 0)
         ctx.lineTo(Math.round(x) + 0.5, canvas.height)
         ctx.stroke()
-        if (indexX % labelEvery === 0 && !(hasChip && gx === 0)) label(String(Math.round(ORIGIN_X + gx)), Math.min(canvas.width - font * 3, Math.round(x) + 3), labelY + 1)
+        if (indexX % labelEvery === 0 && !(hasChip && gx === 0)) label(String(Math.round(ORIGIN_X + gx)), Math.min(canvas.width - font * 3, Math.round(x) + 3), 3)
         indexX += 1
       }
       let indexY = 0
@@ -139,8 +190,17 @@ export async function drawGrid(wc: WebContents, image: NativeImage, options: Gri
         ctx.moveTo(0, Math.round(y) + 0.5)
         ctx.lineTo(canvas.width, Math.round(y) + 0.5)
         ctx.stroke()
-        if (indexY % labelEvery === 0 && !(hasChip && gy === 0)) label(String(Math.round(ORIGIN_Y + gy)), labelX + 2, Math.min(canvas.height - font - 1, Math.round(y) + 2))
+        if (indexY % labelEvery === 0 && !(hasChip && gy === 0)) label(String(Math.round(ORIGIN_Y + gy)), 4, Math.min(canvas.height - font - 1, Math.round(y) + 2))
         indexY += 1
+      }
+      // 角标最后画，盖在线条和数字上面
+      if (hasChip) {
+        const chip = Math.round(ORIGIN_X) + ',' + Math.round(ORIGIN_Y)
+        const tw = ctx.measureText(chip).width
+        ctx.fillStyle = CHIP_BG
+        ctx.fillRect(0, 0, tw + 4, font + 4)
+        ctx.fillStyle = CHIP_FG
+        ctx.fillText(chip, 2, 2)
       }
       return canvas.toDataURL('image/png')
     })()`

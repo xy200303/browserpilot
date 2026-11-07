@@ -9,7 +9,7 @@ import { acquireDebugger, releaseDebugger, withDebugger } from './services/debug
 export { saveMedia, saveMediaInfo } from './media'
 import type { AxRef, TabRuntime } from './runtime'
 import { bridge, windows } from './runtime'
-import { drawGrid } from './grid'
+import { renderGrid } from './grid'
 
 type AxNode = {
   nodeId: string
@@ -1650,7 +1650,7 @@ async function captureFull(
     const bounds = tab.view?.getBounds()
     const size = image.getSize()
     if (runtime) {
-      output = await drawGrid(runtime.win.webContents, image, {
+      output = await renderGrid(runtime.win.webContents, image, {
         step: grid,
         spanWidth: bounds?.width || size.width,
         spanHeight: bounds?.height || size.height
@@ -2517,7 +2517,7 @@ export async function screenshotRegion(
     if (grid > 0) {
       const runtime = windows.get(tab.envId)
       if (runtime) {
-        output = await drawGrid(runtime.win.webContents, image, {
+        output = await renderGrid(runtime.win.webContents, image, {
           step: grid,
           originX: x,
           originY: y,
