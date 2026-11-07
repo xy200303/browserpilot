@@ -8,7 +8,7 @@ import { DEFAULT_ENV, type ActVia, type Control, type Locator, type WorkflowApp 
 import { createId } from '../ids'
 import { bridge, publicControl, windows, type TabRuntime } from '../runtime'
 import { storage } from './store'
-import { downloadTargetDir, listDownloads } from './DownloadService'
+import { downloadCancel, downloadCopyLink, downloadForget, downloadOpen, downloadPause, downloadResume, downloadShow, downloadTargetDir, downloadsClear, listDownloads } from './DownloadService'
 import { clearPasswords } from './PasswordService'
 import { windowPreview } from './WindowPreviewService'
 import {
@@ -664,6 +664,36 @@ tool('download_dir', '查看或修改浏览器下载目录。不带 dir 返回�
     bridge.broadcast()
   }
   return { dir: downloadTargetDir(), custom: Boolean(storage.settings.downloadDir) }
+})
+
+tool('download_action', '管理下载记录：open 打开文件、show 在文件夹里显示、copy 复制下载链接、pause / resume 暂停继续、cancel 取消、retry 重新下载失败的任务（只支持 http/https）、remove 从列表移除（不删文件）、clear 清掉所有已结束的记录。除 clear 外都要 id，从 download_list 取。', z.object({
+  id: z.string().optional(),
+  action: z.enum(['open', 'show', 'copy', 'pause', 'resume', 'cancel', 'retry', 'remove', 'clear'])
+}), async (args) => {
+  const action = String(args.action)
+  if (action === 'clear') {
+    downloadsClear()
+    return { action, remaining: listDownloads().length }
+  }
+  const id = typeof args.id === 'string' ? args.id : ''
+  if (!id) throw new Error('需要下载编号 id，从 download_list 取')
+  const item = listDownloads().find((entry) => entry.id === id)
+  if (!item) throw new Error(`没有这条下载记录：${id}`)
+  if (action === 'open') downloadOpen(id)
+  else if (action === 'show') downloadShow(id)
+  else if (action === 'copy') downloadCopyLink(id)
+  else if (action === 'pause') downloadPause(id)
+  else if (action === 'resume') downloadResume(id)
+  else if (action === 'cancel') downloadCancel(id)
+  else if (action === 'remove') {
+    if (!downloadForget(id)) throw new Error('下载还没结束，先 cancel 再移除')
+  } else if (action === 'retry') {
+    if (item.state !== 'failed') throw new Error(`只有失败的下载能重试，这条是 ${item.state}`)
+    if (!item.envId || !/^https?:/i.test(item.url)) throw new Error('这条记录没有可重试的地址')
+    await session.fromPartition(`persist:${item.envId}`).downloadURL(item.url)
+  }
+  const after = listDownloads().find((entry) => entry.id === id)
+  return { action, id, state: after?.state ?? 'removed', path: after?.path ?? item.path }
 })
 
 tool('page_record_video', '把页面里正在播放的视频录下来：用 captureStream + MediaRecorder 录渲染出来的画面，重编码成 webm。seconds 是录多少秒（默认 10，最长 3600），会自动开始播放。任何能播的站都能录（B站、腾讯等流媒体也行），代价是要实时播完。m3u8 追台等直链/流媒体抓轨用 page_save_media，又快又无损。', z.object({

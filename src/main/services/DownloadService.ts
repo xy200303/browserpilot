@@ -108,6 +108,17 @@ export function downloadsClear(): void {
   emit()
 }
 
+export function downloadForget(id: string): boolean {
+  const entry = entryOf(id)
+  if (!entry) return false
+  if (entry.item.state === 'progressing' || entry.item.state === 'paused') return false
+  entries.delete(id)
+  const at = order.indexOf(id)
+  if (at >= 0) order.splice(at, 1)
+  emit()
+  return true
+}
+
 export function downloadOpen(id: string): void {
   const entry = entryOf(id)
   if (entry?.item.path) void shell.openPath(entry.item.path)
@@ -125,7 +136,7 @@ export function downloadCopyLink(id: string): void {
 
 export function downloadPause(id: string): void {
   const entry = entryOf(id)
-  if (entry?.native && entry.item.state === 'progressing' && entry.native.canResume()) {
+  if (entry?.native && entry.item.state === 'progressing') {
     entry.native.pause()
     entry.item.state = 'paused'
     emit()
@@ -134,7 +145,7 @@ export function downloadPause(id: string): void {
 
 export function downloadResume(id: string): void {
   const entry = entryOf(id)
-  if (entry?.native && entry.item.state === 'paused' && entry.native.canResume()) {
+  if (entry?.native && entry.item.state === 'paused') {
     entry.native.resume()
     entry.item.state = 'progressing'
     emit()
