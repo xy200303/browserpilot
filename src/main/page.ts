@@ -492,12 +492,12 @@ async function failWithScene(tab: TabRuntime, locator: Locator, message: string)
   throw new Error(scene ? `${message}。${scene}` : message)
 }
 
-export async function clickLocator(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp', until?: Locator, button: 'left' | 'right' = 'left'): Promise<void> {
+export async function clickLocator(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp', until?: Locator, button: 'left' | 'right' = 'left', count = 1): Promise<void> {
   const rounds = until ? 3 : 1
   for (let round = 0; round < rounds; round += 1) {
     try {
       const target = await resolveLocator(tab, locator)
-      await clickKnown(tab, target, via, button)
+      await clickKnown(tab, target, via, button, count)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (!until || round === rounds - 1) await failWithScene(tab, locator, message)
@@ -642,7 +642,7 @@ export function mapPoint(tab: TabRuntime, x: number, y: number, shot?: ShotRef):
   return { x: px, y: py }
 }
 
-export async function clickPoint(tab: TabRuntime, x: number, y: number, via: ActVia = 'cdp', shot?: ShotRef, button: 'left' | 'right' = 'left'): Promise<void> {
+export async function clickPoint(tab: TabRuntime, x: number, y: number, via: ActVia = 'cdp', shot?: ShotRef, button: 'left' | 'right' = 'left', count = 1): Promise<void> {
   const point = mapPoint(tab, x, y, shot)
   if (via === 'inject') {
     const source = button === 'right'
@@ -678,29 +678,35 @@ export async function clickPoint(tab: TabRuntime, x: number, y: number, via: Act
     if (clicked !== true) throw new Error('这个坐标上没有元素')
     return
   }
-  if (via === 'cdp') await clickAtCdp(tab, point.x, point.y, button)
-  else await clickAt(tab, point.x, point.y, button)
+  if (via === 'cdp') await clickAtCdp(tab, point.x, point.y, button, count)
+  else await clickAt(tab, point.x, point.y, button, count)
 }
 
-export async function clickAt(tab: TabRuntime, x: number, y: number, button: 'left' | 'right' = 'left'): Promise<void> {
+export async function clickAt(tab: TabRuntime, x: number, y: number, button: 'left' | 'right' = 'left', count = 1): Promise<void> {
   const wc = wcOf(tab)
   const ix = Math.round(x)
   const iy = Math.round(y)
   wc.sendInputEvent({ type: 'mouseMove', x: ix, y: iy })
   await sleep(30)
-  wc.sendInputEvent({ type: 'mouseDown', x: ix, y: iy, button, clickCount: 1 })
-  wc.sendInputEvent({ type: 'mouseUp', x: ix, y: iy, button, clickCount: 1 })
+  for (let i = 1; i <= Math.max(1, count); i += 1) {
+    wc.sendInputEvent({ type: 'mouseDown', x: ix, y: iy, button, clickCount: i })
+    wc.sendInputEvent({ type: 'mouseUp', x: ix, y: iy, button, clickCount: i })
+    if (i < count) await sleep(60)
+  }
 }
 
-async function clickAtCdp(tab: TabRuntime, x: number, y: number, button: 'left' | 'right' = 'left'): Promise<void> {
+async function clickAtCdp(tab: TabRuntime, x: number, y: number, button: 'left' | 'right' = 'left', count = 1): Promise<void> {
   const ix = Math.round(x)
   const iy = Math.round(y)
   const buttons = button === 'right' ? 2 : 1
   await withDebugger(wcOf(tab), async (dbg) => {
     await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: ix, y: iy, button: 'none', buttons: 0, pointerType: 'mouse' })
     await sleep(30)
-    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: ix, y: iy, button, buttons, clickCount: 1, pointerType: 'mouse' })
-    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: ix, y: iy, button, buttons: 0, clickCount: 1, pointerType: 'mouse' })
+    for (let i = 1; i <= Math.max(1, count); i += 1) {
+      await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: ix, y: iy, button, buttons, clickCount: i, pointerType: 'mouse' })
+      await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: ix, y: iy, button, buttons: 0, clickCount: i, pointerType: 'mouse' })
+      if (i < count) await sleep(60)
+    }
   })
 }
 
@@ -728,7 +734,7 @@ async function pointForClick(dbg: Electron.Debugger, tab: TabRuntime, backendNod
   return pointOnNode(dbg, tab, backendNodeId)
 }
 
-async function clickKnown(tab: TabRuntime, target: AxRef, via: ActVia, button: 'left' | 'right' = 'left'): Promise<void> {
+async function clickKnown(tab: TabRuntime, target: AxRef, via: ActVia, button: 'left' | 'right' = 'left', count = 1): Promise<void> {
   const wc = wcOf(tab)
   if (via === 'inject') {
     const clicked = await withDebugger(wc, async (dbg) => {
@@ -745,8 +751,8 @@ async function clickKnown(tab: TabRuntime, target: AxRef, via: ActVia, button: '
     return pointForClick(dbg, tab, backendNodeId)
   })
   if (!point) throw new Error(`点不到「${target.name || target.role}」，这个位置被挡住了`)
-  if (via === 'cdp') await clickAtCdp(tab, point.x, point.y, button)
-  else await clickAt(tab, point.x, point.y, button)
+  if (via === 'cdp') await clickAtCdp(tab, point.x, point.y, button, count)
+  else await clickAt(tab, point.x, point.y, button, count)
 }
 
 async function backendFor(dbg: Electron.Debugger, target: AxRef): Promise<number> {
@@ -2170,4 +2176,179 @@ export async function turtleRun(tab: TabRuntime, via: GestureVia, script: string
   }
   await flush()
   return { strokes: strokesCount, points: total }
+}
+
+const INJECT_HOVER = `function () {
+  const el = this
+  if (!(el instanceof Element)) return false
+  const rect = el.getBoundingClientRect()
+  const x = rect.left + rect.width / 2
+  const y = rect.top + rect.height / 2
+  const pointer = { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerType: 'mouse' }
+  const mouse = { bubbles: true, cancelable: true, clientX: x, clientY: y }
+  el.dispatchEvent(new PointerEvent('pointerover', pointer))
+  el.dispatchEvent(new MouseEvent('mouseover', mouse))
+  el.dispatchEvent(new PointerEvent('pointerenter', { ...pointer, bubbles: false }))
+  el.dispatchEvent(new MouseEvent('mouseenter', { ...mouse, bubbles: false }))
+  el.dispatchEvent(new MouseEvent('mousemove', mouse))
+  return true
+}`
+
+async function hoverAtCdp(tab: TabRuntime, x: number, y: number): Promise<void> {
+  const ix = Math.round(x)
+  const iy = Math.round(y)
+  await withDebugger(wcOf(tab), async (dbg) => {
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: ix, y: iy, button: 'none', buttons: 0, pointerType: 'mouse' })
+  })
+}
+
+async function hoverKnown(tab: TabRuntime, target: AxRef, via: ActVia): Promise<void> {
+  const wc = wcOf(tab)
+  if (via === 'inject') {
+    const hovered = await withDebugger(wc, async (dbg) => {
+      const backendNodeId = await backendFor(dbg, target)
+      await scrollNodeIntoView(dbg, backendNodeId)
+      return callOnBackend(dbg, backendNodeId, INJECT_HOVER)
+    })
+    if (hovered !== true) throw new Error(`悬停不到「${target.name || target.role}」`)
+    return
+  }
+  const point = await withDebugger(wc, async (dbg) => {
+    const backendNodeId = await backendFor(dbg, target)
+    return pointForClick(dbg, tab, backendNodeId)
+  })
+  if (!point) throw new Error(`悬停不到「${target.name || target.role}」，这个位置被挡住了`)
+  if (via === 'cdp') await hoverAtCdp(tab, point.x, point.y)
+  else wc.sendInputEvent({ type: 'mouseMove', x: Math.round(point.x), y: Math.round(point.y) })
+}
+
+export async function hoverLocator(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp'): Promise<void> {
+  const target = await resolveLocator(tab, locator)
+  await hoverKnown(tab, target, via)
+}
+
+export async function hoverPoint(tab: TabRuntime, x: number, y: number, shot?: ShotRef, via: ActVia = 'cdp'): Promise<void> {
+  const point = mapPoint(tab, x, y, shot)
+  if (via === 'cdp') await hoverAtCdp(tab, point.x, point.y)
+  else wcOf(tab).sendInputEvent({ type: 'mouseMove', x: Math.round(point.x), y: Math.round(point.y) })
+}
+
+export async function screenshotRegion(
+  tab: TabRuntime,
+  target: { locator?: Locator; rect?: { x: number; y: number; width: number; height: number } },
+  dir: string
+): Promise<{ path: string; width: number; height: number; x: number; y: number; full: boolean }> {
+  const wc = wcOf(tab)
+  let rect = target.rect
+  if (!rect && target.locator) {
+    const found = await resolveLocator(tab, target.locator)
+    rect = await withDebugger(wc, async (dbg) => {
+      const backendNodeId = await backendFor(dbg, found)
+      await scrollNodeIntoView(dbg, backendNodeId)
+      await sleep(150)
+      const box = (await dbg.sendCommand('DOM.getBoxModel', { backendNodeId }).catch(() => undefined)) as
+        | { model?: { content: number[] } }
+        | undefined
+      const quad = box?.model?.content
+      if (!quad || quad.length < 8) return undefined
+      const xs = [quad[0], quad[2], quad[4], quad[6]]
+      const ys = [quad[1], quad[3], quad[5], quad[7]]
+      const left = Math.min(...xs)
+      const top = Math.min(...ys)
+      return { x: left, y: top, width: Math.max(...xs) - left, height: Math.max(...ys) - top }
+    })
+  }
+  if (!rect) {
+    if (target.locator) throw new Error('这个元素没有可见区域（可能被隐藏或尺寸为 0）')
+    const shot = await screenshot(tab, dir)
+    return { ...shot, x: 0, y: 0, full: true }
+  }
+  const [vw, vh] = viewport(tab)
+  const x = Math.max(0, Math.floor(rect.x))
+  const y = Math.max(0, Math.floor(rect.y))
+  const width = Math.max(1, Math.min(Math.ceil(rect.width), vw - x))
+  const height = Math.max(1, Math.min(Math.ceil(rect.height), vh - y))
+  const reveal = (): void => {
+    const runtime = windows.get(tab.envId)
+    if (!runtime || runtime.headless) return
+    if (runtime.win.isMinimized()) runtime.win.restore()
+    runtime.win.show()
+  }
+  reveal()
+  let image = await wc.capturePage({ x, y, width, height }).catch(() => undefined)
+  if (!image || image.isEmpty()) {
+    reveal()
+    await sleep(250)
+    image = await wc.capturePage({ x, y, width, height }).catch(() => undefined)
+  }
+  if (!image || image.isEmpty()) throw new Error('这块区域截不到（可能被窗口挡住或元素已经滚出视口）')
+  mkdirSync(dir, { recursive: true })
+  const path = join(dir, `shot-${Date.now()}.png`)
+  writeFileSync(path, image.toPNG())
+  return { path, width: image.getSize().width, height: image.getSize().height, x, y, full: false }
+}
+
+export async function findInPage(
+  tab: TabRuntime,
+  text: string,
+  options: { forward?: boolean; findNext?: boolean; stop?: boolean } = {}
+): Promise<{ matches: number; active: number; stopped?: boolean }> {
+  if (options.stop) {
+    await evalSource(tab, `(() => { const selection = window.getSelection(); if (selection) selection.removeAllRanges(); return true })()`).catch(() => undefined)
+    return { matches: 0, active: 0, stopped: true }
+  }
+  const forward = options.forward !== false
+  const findNext = Boolean(options.findNext)
+  const found = (await evalSource(
+    tab,
+    `(() => {
+      const text = ${JSON.stringify(text)}
+      const forward = ${forward}
+      const findNext = ${findNext}
+      if (!text) return { matches: 0, active: 0 }
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT
+          const parent = node.parentElement
+          if (!parent) return NodeFilter.FILTER_REJECT
+          if (/^(SCRIPT|STYLE|NOSCRIPT|TEXTAREA|INPUT)$/.test(parent.tagName)) return NodeFilter.FILTER_REJECT
+          const style = getComputedStyle(parent)
+          if (style.display === 'none' || style.visibility === 'hidden') return NodeFilter.FILTER_REJECT
+          return NodeFilter.FILTER_ACCEPT
+        }
+      })
+      const nodes = []
+      while (walker.nextNode()) nodes.push(walker.currentNode)
+      const needle = text.toLowerCase()
+      const hits = []
+      for (const node of nodes) {
+        const hay = node.nodeValue.toLowerCase()
+        let from = 0
+        while (true) {
+          const at = hay.indexOf(needle, from)
+          if (at < 0) break
+          hits.push({ node, at, length: text.length })
+          from = at + Math.max(1, needle.length)
+        }
+      }
+      if (!hits.length) return { matches: 0, active: 0 }
+      const state = window.__bpFind || (window.__bpFind = { text: '', index: 0 })
+      if (state.text !== text || !findNext) state.index = 0
+      else state.index = (state.index + (forward ? 1 : -1) + hits.length) % hits.length
+      state.text = text
+      const hit = hits[state.index]
+      const range = document.createRange()
+      range.setStart(hit.node, hit.at)
+      range.setEnd(hit.node, hit.at + hit.length)
+      const selection = window.getSelection()
+      if (selection) {
+        selection.removeAllRanges()
+        selection.addRange(range)
+      }
+      if (hit.node.parentElement) hit.node.parentElement.scrollIntoView({ block: 'center', inline: 'nearest' })
+      return { matches: hits.length, active: state.index + 1 }
+    })()`
+  )) as { matches: number; active: number } | undefined
+  if (!found) throw new Error('页面里找不到可搜索的内容')
+  return found
 }

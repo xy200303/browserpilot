@@ -17,6 +17,8 @@ import {
   type WindowRuntime
 } from './runtime'
 import { downloadBegin, downloadDone, downloadFail, downloadProgress, downloadTargetDir, registerSessionDownload } from './services/DownloadService'
+import { watchDialogs } from './dialogs'
+import { watchConsole } from './console-log'
 import { inspectElement, isSendingToPage, saveMedia, saveMediaInfo, sendCdp, startUrl, watchDocument, type ElementInfo } from './page'
 
 const LOCK_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:rgba(32,33,36,.45);font-family:Segoe UI,sans-serif;color:#fff"><div style="text-align:center"><div style="font-size:18px">Agent 正在操作浏览器</div><button id="take" style="margin-top:16px;padding:8px 18px;border:0;border-radius:8px;background:#fff;color:#202124;font-size:14px">接管</button></div></body></html>`
@@ -966,6 +968,9 @@ function watchDownloads(ses: Electron.Session, envId: string): void {
 function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
   const wc = tab.view!.webContents
   watchDownloads(wc.session, runtime.envId)
+  watchDialogs(wc, tab.id)
+  watchConsole(wc)
+  wc.on('will-prevent-unload', (event) => event.preventDefault())
   bindShortcuts(wc, runtime.envId)
   watchDocument(wc, (html) => {
     tab.documentHtml = html

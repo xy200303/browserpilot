@@ -1,15 +1,19 @@
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import { session } from 'electron'
+import { clipboard, session } from 'electron'
 import { mkdirSync } from 'fs'
 import { rm } from 'fs/promises'
 import { isAbsolute, join } from 'path'
 import { DEFAULT_ENV, type ActVia, type Control, type Locator, type WorkflowApp } from '@shared/types'
+import { searchEngines } from '@shared/types'
 import { createId } from '../ids'
 import { bridge, publicControl, windows, type TabRuntime } from '../runtime'
 import { storage } from './store'
 import { downloadCancel, downloadCopyLink, downloadForget, downloadOpen, downloadPause, downloadResume, downloadShow, downloadTargetDir, downloadsClear, listDownloads } from './DownloadService'
 import { clearPasswords } from './PasswordService'
+import { listPasswords } from './PasswordService'
+import { answerPendingDialog, dialogPolicy, pendingDialog, recentDialogs, setDialogPolicy } from '../dialogs'
+import { clearConsole, consoleFor } from '../console-log'
 import { windowPreview } from './WindowPreviewService'
 import {
   activateTab,
@@ -19,6 +23,10 @@ import {
   beginHandoff,
   closeTab,
   closeWorkflowPages,
+  closeOtherTabs,
+  duplicateTab,
+  muteTab,
+  restoreTab,
   openEnvironment,
   resolveTab,
   saveSessionNow,
@@ -41,7 +49,10 @@ import {
   turtleRun,
   evalInFrame,
   evalSource,
+  findInPage,
   hitPoint,
+  hoverLocator,
+  hoverPoint,
   inspectElement,
   locatorCenter,
   locatorLabel,
@@ -56,6 +67,7 @@ import {
   recordVideo,
   resolveLocator,
   saveMedia,
+  screenshotRegion,
   screenshot,
   scrollPage,
   selectLocator,
@@ -177,6 +189,25 @@ const locateFields = {
 }
 
 const NEED_LOCATOR = '需要 xpath 或 selector'
+
+const DEFAULT_TOOL_TIMEOUT = 90_000
+const toolTimeouts = new Map<string, number>()
+
+function withTimeout<T>(task: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(label)), ms)
+    task.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
+}
 
 function tool(name: string, description: string, schema: z.ZodTypeAny, run: Tool['run']): void {
   tools.push({ name, description, schema, run })
@@ -353,6 +384,169 @@ async function pageTab(args: Record<string, unknown>, lock = true): Promise<TabR
   return resolved.tab
 }
 
+tool('env_close', '关掉这套环境的窗口，保留登录态、Cookie 和标签会话。和 env_delete 不同，后者会把登录一起清掉。', z.object({
+  env: env
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  const runtime = windows.get(envId)
+  if (!runtime) return { env: envId, closed: false }
+  runtime.win.close()
+  return { env: envId, closed: true }
+})
+
+tool('env_headless', '把已经打开的环境在有头和无头之间切换。无头时窗口不可见，截图和脚本照常。', z.object({
+  env: env,
+  headless: z.boolean()
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  const runtime = windows.get(envId)
+  if (!runtime) throw new Error(`这套环境的窗口没开：${envId}`)
+  const headless = Boolean(args.headless)
+  applyHeadless(runtime, headless)
+  bridge.broadcast(envId)
+  return { env: envId, headless }
+})
+
+tool('tab_restore', '重新打开刚关掉的标签（按关闭顺序恢复）。没有可恢复的就返回 restored: false。', z.object({
+  env: env
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  const runtime = windows.get(envId)
+  if (!runtime) throw new Error(`这套环境的窗口没开：${envId}`)
+  const restored = restoreTab(runtime)
+  return { env: envId, restored: Boolean(restored), tabId: restored?.id, url: restored?.url }
+})
+
+tool('tab_duplicate', '复制一个标签：同一个地址再开一个，放在原标签后面。', z.object({
+  tabId: z.string()
+}), async (args) => {
+  const { win, tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
+  const copy = duplicateTab(win, tabRef.id)
+  if (!copy) throw new Error(`这个标签复制不了：${tabRef.id}`)
+  return { tabId: copy.id, from: tabRef.id, url: copy.url }
+})
+
+tool('tab_close_others', '关掉同一个窗口里除这个标签以外的所有标签。', z.object({
+  tabId: z.string()
+}), async (args) => {
+  const { win, tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
+  closeOtherTabs(win, tabRef.id)
+  return { tabId: tabRef.id, remaining: win.tabs.length }
+})
+
+tool('tab_mute', '切换标签静音。', z.object({
+  tabId: z.string()
+}), async (args) => {
+  const { win, tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
+  muteTab(win, tabRef.id)
+  return { tabId: tabRef.id, muted: Boolean(tabRef.muted) }
+})
+
+tool('group_delete', '删掉一个分组。组里的标签保留，只是不再分组。', z.object({
+  groupId: z.string()
+}), async (args) => {
+  const id = String(args.groupId)
+  const group = storage.groups.find((item) => item.id === id)
+  if (!group) throw new Error(`没有这个分组 ${id}`)
+  storage.groups = storage.groups.filter((item) => item.id !== id)
+  storage.saveGroups()
+  const runtime = windows.get(group.envId)
+  if (runtime) {
+    for (const tabRef of runtime.tabs) {
+      if (tabRef.groupId === id) tabRef.groupId = null
+    }
+    bridge.layout(group.envId)
+  }
+  bridge.broadcast(group.envId)
+  return { groupId: id, name: group.name }
+})
+
+tool('permission_list', '列出这套环境记住的站点权限（摄像头、麦克风、通知、位置等）。', z.object({
+  env: env
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  return {
+    env: envId,
+    permissions: storage.permissionsFor(envId).map((item) => ({
+      id: item.id,
+      origin: item.origin,
+      permission: item.permission,
+      decision: item.decision,
+      updatedAt: item.updatedAt
+    }))
+  }
+})
+
+tool('password_list', '列出这套环境保存的登录账号，只有站点和账号，不含密码。用来判断某个站点能不能靠自动填充登录。', z.object({
+  env: env
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  return { env: envId, passwords: listPasswords(envId) }
+})
+
+const SETTING_KEYS = ['tabLayout', 'searchEngine', 'passwordSave', 'passwordAutofill', 'batchConcurrency', 'headlessLimit'] as const
+
+function pickSettings(): Record<string, unknown> {
+  return {
+    tabLayout: storage.settings.tabLayout,
+    searchEngine: storage.settings.searchEngine,
+    passwordSave: storage.settings.passwordSave,
+    passwordAutofill: storage.settings.passwordAutofill,
+    batchConcurrency: storage.settings.batchConcurrency,
+    headlessLimit: storage.settings.headlessLimit
+  }
+}
+
+tool('settings_get', '读取浏览器设置：标签栏位置、搜索引擎、密码开关、批量并发、无头窗口上限。端口和 MCP 开关属于本机服务配置，不在这里。', z.object({}), async () => ({ settings: pickSettings() }))
+
+tool('settings_set', '改浏览器设置。只支持 tabLayout（top/left）、searchEngine、passwordSave、passwordAutofill、batchConcurrency、headlessLimit。改完立即生效。', z.object({
+  tabLayout: z.enum(['top', 'left']).optional(),
+  searchEngine: z.string().optional(),
+  passwordSave: z.boolean().optional(),
+  passwordAutofill: z.boolean().optional(),
+  batchConcurrency: z.number().optional(),
+  headlessLimit: z.number().optional()
+}), async (args) => {
+  const patch: Record<string, unknown> = {}
+  for (const key of SETTING_KEYS) {
+    if (args[key] !== undefined) patch[key] = args[key]
+  }
+  if (!Object.keys(patch).length) throw new Error(`没有要改的字段，可选：${SETTING_KEYS.join('、')}`)
+  if (typeof patch.searchEngine === 'string' && !searchEngines.some((item) => item.id === patch.searchEngine)) {
+    throw new Error(`不认识这个搜索引擎：${patch.searchEngine}，可选：${searchEngines.map((item) => item.id).join('、')}`)
+  }
+  if (patch.batchConcurrency !== undefined) patch.batchConcurrency = Math.max(1, Math.min(3, Number(patch.batchConcurrency) || 1))
+  if (patch.headlessLimit !== undefined) patch.headlessLimit = Math.max(1, Number(patch.headlessLimit) || 1)
+  storage.settings = { ...storage.settings, ...patch }
+  storage.saveSettings()
+  if (patch.tabLayout !== undefined) {
+    for (const runtime of windows.values()) bridge.layout(runtime.envId)
+  }
+  bridge.broadcast()
+  return { settings: pickSettings() }
+})
+
+async function readClipboard(): Promise<string> {
+  const value = clipboard.readText() as unknown
+  if (typeof value === 'string') return value
+  return String((await (value as Promise<unknown>)) ?? '')
+}
+
+async function writeClipboard(text: string): Promise<void> {
+  const written = clipboard.writeText(text) as unknown
+  if (written instanceof Promise) await written
+}
+
+tool('clipboard_read', '读系统剪贴板里的文本。可能含敏感内容，只在本机用，不要贴到对话里。', z.object({}), async () => ({ text: await readClipboard() }))
+
+tool('clipboard_write', '把一段文本写进系统剪贴板。', z.object({
+  text: z.string()
+}), async (args) => {
+  const text = String(args.text)
+  await writeClipboard(text)
+  return { ok: true, length: text.length }
+})
+
 tool('page_navigate', '打开地址。', z.object({ ...pageArgs, url: z.string() }), async (args) => {
   const tabRef = await pageTab(args)
   await navigate(tabRef, String(args.url))
@@ -402,7 +596,7 @@ tool('page_query', '按同一种定位取出所有匹配，返回数组。每一
   return { tabId: tabRef.id, total: found.total, matches: found.matches }
 })
 
-tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个。button 传 right 是右键（会触发页面或窗口的右键菜单）。XPath 原样交给 DOM.performSearch，选择器原样交给 DOM.querySelectorAll。匹配到多个会失败，不取其中一条。画布这种没有稳定节点的目标改用 x 和 y：不带 shotWidth、shotHeight 时是当前视口的 CSS 像素；带上截图返回的宽高时，x 和 y 是这张图上的像素，会先换算到视口再点。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。inject 在该点的元素上派发指针事件。untilXpath 或 untilSelector 只在按元素点击时使用，表示点完后要出现的元素；没出现会在同一个定位上再点，最多 3 次。失败时带上匹配个数、文字和当时能不能点到。', z.object({
+tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个。button 传 right 是右键（会触发页面或窗口的右键菜单）。XPath 原样交给 DOM.performSearch，选择器原样交给 DOM.querySelectorAll。匹配到多个会失败，不取其中一条。画布这种没有稳定节点的目标改用 x 和 y：不带 shotWidth、shotHeight 时是当前视口的 CSS 像素；带上截图返回的宽高时，x 和 y 是这张图上的像素，会先换算到视口再点。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。inject 在该点的元素上派发指针事件。untilXpath 或 untilSelector 只在按元素点击时使用，表示点完后要出现的元素；没出现会在同一个定位上再点，最多 3 次。失败时带上匹配个数、文字和当时能不能点到。count 传 2 是双击（最多 3 连击）。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -415,13 +609,15 @@ tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个
   button: z.enum(['left', 'right']).optional(),
   untilXpath: z.string().optional(),
   untilSelector: z.string().optional(),
-  via: z.enum(['inject', 'native', 'cdp']).optional()
+  via: z.enum(['inject', 'native', 'cdp']).optional(),
+  count: z.number().optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
   const button = args.button === 'right' ? 'right' as const : 'left' as const
+  const count = Math.max(1, Math.min(3, Number(args.count ?? 1))) 
   const point = pointArgs(args)
   if (point) {
-    await clickPoint(tabRef, point.x, point.y, viaOf(args.via), point.shot, button)
+    await clickPoint(tabRef, point.x, point.y, viaOf(args.via), point.shot, button, count)
     return { tabId: tabRef.id }
   }
   const located = locatorFrom(args)
@@ -431,7 +627,7 @@ tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个
     return { tabId: tabRef.id }
   }
   const until = locatorFrom({ xpath: args.untilXpath, selector: args.untilSelector })
-  await clickLocator(tabRef, located, viaOf(args.via), until, button)
+  await clickLocator(tabRef, located, viaOf(args.via), until, button, count)
   return { tabId: tabRef.id }
 })
 
@@ -798,8 +994,80 @@ tool('page_handoff', '放开页面让用户完成这一步。看页面不会重�
   return { tabId: tabRef.id, message: args.message }
 })
 
-tool('page_screenshot', '截取网页视口。返回图片、路径和像素宽高；图片同时作为 MCP image 内容返回。宽高只用于页面坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object(pageArgs), async (args) => {
+tool('page_dialog', '页面弹窗（alert / confirm / prompt）会自动按策略处理，不会再把标签卡住：默认 alert 直接关掉，confirm 返回取消、prompt 返回 null。要让接下来的确认框返回「确定」，先调 action=accept（once: true 只作用于下一个弹窗），再点按钮；action=list 看最近的弹窗和当前策略。', z.object({
+  tabId: z.string(),
+  action: z.enum(['list', 'accept', 'dismiss']),
+  once: z.boolean().optional(),
+  promptText: z.string().optional()
+}), async (args) => {
+  const { tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
+  if (args.action === 'list') {
+    return {
+      tabId: tabRef.id,
+      policy: dialogPolicy(tabRef.id) ?? { accept: false },
+      pending: pendingDialog(tabRef.id) ?? null,
+      dialogs: recentDialogs(tabRef.id)
+    }
+  }
+  const accept = args.action === 'accept'
+  const promptText = typeof args.promptText === 'string' ? args.promptText : undefined
+  const answered = await answerPendingDialog(tabRef.id, accept, promptText).catch(() => undefined)
+  setDialogPolicy(tabRef.id, accept, Boolean(args.once), promptText)
+  return {
+    tabId: tabRef.id,
+    action: args.action,
+    once: Boolean(args.once),
+    policy: dialogPolicy(tabRef.id),
+    answered: answered?.type
+  }
+})
+
+tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单、悬浮提示这类悬停交互。目标用 xpath / selector，或坐标 x、y（支持截图坐标换算）。via 默认 cdp，native 用 sendInputEvent，inject 在元素上派发 mouseover/mouseenter。', z.object({
+  ...pageArgs,
+  ...locateFields,
+  x: z.union([z.number(), z.string()]).optional(),
+  y: z.union([z.number(), z.string()]).optional(),
+  shotWidth: z.union([z.number(), z.string()]).optional(),
+  shotHeight: z.union([z.number(), z.string()]).optional(),
+  shotX: z.union([z.number(), z.string()]).optional(),
+  shotY: z.union([z.number(), z.string()]).optional(),
+  shotScale: z.union([z.number(), z.string()]).optional(),
+  via: z.enum(['inject', 'native', 'cdp']).optional()
+}), async (args) => {
+  const tabRef = await pageTab(args)
+  const point = pointArgs(args)
+  if (point) {
+    await hoverPoint(tabRef, point.x, point.y, point.shot, viaOf(args.via))
+    return { tabId: tabRef.id }
+  }
+  const located = locatorFrom(args)
+  if (!located) throw new Error('需要 xpath 或 selector，或坐标 x 和 y')
+  await hoverLocator(tabRef, located, viaOf(args.via))
+  return { tabId: tabRef.id }
+})
+
+tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这个元素（会先滚进视口）；传 x、y、width、height 时截这块区域；都不传截整个视口。返回图片、路径和像素宽高，图片同时作为 MCP image 内容返回。宽高只用于页面坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object({
+  ...pageArgs,
+  ...locateFields,
+  x: z.union([z.number(), z.string()]).optional(),
+  y: z.union([z.number(), z.string()]).optional(),
+  width: z.union([z.number(), z.string()]).optional(),
+  height: z.union([z.number(), z.string()]).optional()
+}), async (args) => {
   const tabRef = await pageTab(args, false)
+  const located = locatorFrom(args)
+  const rect = [args.x, args.y, args.width, args.height].every((value) => value !== undefined)
+    ? {
+        x: Number(args.x),
+        y: Number(args.y),
+        width: Number(args.width),
+        height: Number(args.height)
+      }
+    : undefined
+  if (located || rect) {
+    const shot = await screenshotRegion(tabRef, { locator: located ?? undefined, rect }, storage.dir('screenshots'))
+    return { tabId: tabRef.id, path: shot.path, width: shot.width, height: shot.height, x: shot.x, y: shot.y, full: shot.full, bytes: statSync(shot.path).size, image: imageOf(shot.path) }
+  }
   const shot = await screenshot(tabRef, storage.dir('screenshots'))
   return {
     tabId: tabRef.id,
@@ -809,6 +1077,53 @@ tool('page_screenshot', '截取网页视口。返回图片、路径和像素宽�
     bytes: statSync(shot.path).size,
     image: imageOf(shot.path)
   }
+})
+
+tool('page_console', '读取这个标签的控制台输出和 JS 错误（最近 300 条，新的在前）。页面点不动、按钮报错、脚本没反应时先看这里。action=clear 清空。', z.object({
+  tabId: z.string(),
+  action: z.enum(['list', 'clear']).optional(),
+  limit: z.number().optional()
+}), async (args) => {
+  const { tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
+  const wc = tabRef.view?.webContents
+  if (!wc) throw new Error('这个标签没有网页')
+  if (args.action === 'clear') {
+    clearConsole(wc)
+    return { tabId: tabRef.id, cleared: true }
+  }
+  const limit = Math.max(1, Math.min(300, Number(args.limit ?? 100)))
+  return { tabId: tabRef.id, messages: consoleFor(wc).slice(0, limit) }
+})
+
+tool('page_find', '在页面里查找文字，相当于 Ctrl+F。第一次传 text 开始找，findNext 继续下一个，stop 清除高亮。返回匹配总数和当前是第几个。', z.object({
+  tabId: z.string(),
+  text: z.string().optional(),
+  forward: z.boolean().optional(),
+  findNext: z.boolean().optional(),
+  stop: z.boolean().optional()
+}), async (args) => {
+  const { tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
+  if (args.stop) {
+    await findInPage(tabRef, '', { stop: true })
+    return { tabId: tabRef.id, stopped: true }
+  }
+  const text = String(args.text ?? '')
+  if (!text) throw new Error('需要 text')
+  const result = await findInPage(tabRef, text, { forward: args.forward !== false, findNext: Boolean(args.findNext) })
+  return { tabId: tabRef.id, ...result }
+})
+
+tool('page_wait_load', '等页面加载完成（did-stop-loading）。timeout 是秒，默认 15，最长 60。加载失败会直接报错。比写死 sleep 稳，导航后、点链接后用它。', z.object({
+  tabId: z.string(),
+  timeout: z.number().optional()
+}), async (args) => {
+  const { tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
+  const wc = tabRef.view?.webContents
+  if (!wc) throw new Error('这个标签没有网页')
+  const seconds = Math.max(1, Math.min(60, Number(args.timeout ?? 15)))
+  const started = Date.now()
+  await waitForLoad(wc, seconds * 1000)
+  return { tabId: tabRef.id, url: wc.getURL(), elapsed: Date.now() - started }
 })
 
 tool('screen_start', '开始把这扇有头窗口录成视频。maxSeconds 到时自动停，默认 300，最长 3600；一扇窗口同时只录一段。', z.object({ env: env, maxSeconds: z.number().optional() }), async (args) => {
@@ -1540,6 +1855,19 @@ export function listToolMeta(): { name: string; description: string; inputSchema
   }))
 }
 
+const longToolTimeouts: Array<[string, number]> = [
+  ['page_record_video', 3700000],
+  ['screen_stop', 3700000],
+  ['page_save_media', 900000],
+  ['page_watch', 150000],
+  ['page_wait', 90000],
+  ['download_list', 180000],
+  ['captcha_solve', 240000],
+  ['workflow_run', 1800000],
+  ['workflow_batch', 1800000]
+]
+for (const [name, ms] of longToolTimeouts) toolTimeouts.set(name, ms)
+
 export async function callTool(name: string, raw: unknown): Promise<ToolResult> {
   const item = tools.find((toolItem) => toolItem.name === name)
   if (!item) return { ok: false, control: 'shared', error: `没有这个工具 ${name}` }
@@ -1564,8 +1892,20 @@ export async function callTool(name: string, raw: unknown): Promise<ToolResult> 
     }
     throw error
   }
+  const pendingTab = typeof args.tabId === 'string' ? args.tabId : ''
+  if (pendingTab && name.startsWith('page_') && name !== 'page_dialog' && name !== 'page_navigate') {
+    const dialog = pendingDialog(pendingTab)
+    if (dialog) {
+      return {
+        ok: false,
+        control: controlOf(pendingTab),
+        error: `页面有未处理的弹窗（${dialog.type}）：「${dialog.message.slice(0, 120)}」。先调 page_dialog 选 accept 或 dismiss，或者 page_navigate 离开`
+      }
+    }
+  }
   try {
-    const data = await item.run(args)
+    const timeoutMs = toolTimeouts.get(name) ?? DEFAULT_TOOL_TIMEOUT
+    const data = await withTimeout(item.run(args), timeoutMs, `工具 ${name} 超时（${Math.round(timeoutMs / 1000)} 秒没返回）。页面可能被弹窗挡住或脚本卡住，先看 page_dialog，必要时 page_navigate`)
     const tabId = typeof data.tabId === 'string' ? data.tabId : typeof args.tabId === 'string' ? args.tabId : undefined
     const envId = typeof args.env === 'string' ? args.env : undefined
     return finish({ tabId, env: envId }, data)
@@ -1575,7 +1915,7 @@ export async function callTool(name: string, raw: unknown): Promise<ToolResult> 
     if (tabId) {
       try {
         const found = resolveTab({ tabId }, true)
-        const shot = await screenshot(found.tab, storage.dir('screenshots'))
+        const shot = await withTimeout(screenshot(found.tab, storage.dir('screenshots')), 8_000, '现场截图超时')
         errorShot = shot.path
       } catch {
         /* 现场截图失败就算了 */

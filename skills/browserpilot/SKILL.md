@@ -58,6 +58,16 @@ browserpilot call workflow_run --json-file args.json
 
 拖拽要精确距离时用 `page_drag`（起点 + `dx`/`dy`，轨迹拟人），不要用 `page_swipe`。 画板上作画用 `page_draw`：路径点数组、SVG 路径（path + viewBox + 目标区域，支持贝塞尔和椭圆弧）、平滑曲线（smooth）或标准图形（shape: circle/rect/triangle/heart/star）。 `page_canvas` 是海龟画图（和 Python turtle 一样）：script 每行一条命令，fd/bk/lt/rt/goto/penup/pendown/circle/beginfill/endfill，能填色。要连着发一组 CDP（比如按下、移动、松开的输入序列）用 `page_cdp_batch`，中间不断开调试会话。
 
+弹窗不会再卡住标签：alert 直接关掉，confirm 默认返回取消、prompt 返回 null；要让某个确认框点「确定」，先调 `page_dialog` 传 `action: "accept"`（`once: true` 只作用于下一个弹窗），再点按钮。最近弹窗和当前策略用 `page_dialog` 的 `action: "list"` 查。
+
+窗口和标签的生命周期：`env_close` 关窗保留登录（`env_delete` 才清登录），`env_headless` 运行中切有头/无头；`tab_restore` 恢复刚关掉的标签，`tab_duplicate` 复制标签，`tab_close_others` 关掉同窗口其它标签，`tab_mute` 切静音；`group_delete` 删分组，组里的标签保留。
+
+页面侧：`page_hover` 悬停触发下拉菜单和悬浮提示；`page_click` 的 `count: 2` 是双击；`page_screenshot` 传 xpath / selector 截元素、传 x/y/width/height 截区域；`page_console` 看控制台和 JS 错误（`action: "clear"` 清空）；`page_find` 在页面里查找文字（相当于 Ctrl+F，用选区高亮）；`page_wait_load` 等加载完成。系统剪贴板用 `clipboard_read` / `clipboard_write`。
+
+设置和数据：`settings_get` / `settings_set`（只支持 tabLayout、searchEngine、passwordSave、passwordAutofill、batchConcurrency、headlessLimit），`permission_list` 看站点权限，`password_list` 看已保存账号（不含密码）。
+
+工具默认 90 秒超时，录屏、保存媒体、工作流等长任务单独放行；超时提示会指向 `page_dialog` 和 `page_navigate`。
+
 验证码：滑块用 `captcha_detect` / `captcha_solve`（识别、拖拽、结果检查一次完成，`engine` 可选 cv / ddddocr / onnx，默认 auto）。工作流里有 `captcha` 节点，可以把「过验证码」编进任何流程；市场里的「极验滑块验证码」工作流装好后，在任何网站遇到极验弹窗直接 `workflow_run` 按名称跑，不用 inputs。其它类型（图标点选、五子棋、交换消除等）用 `captcha_panel` 把验证码区域截成图，你自己读图算出点击位置或移动方向，按返回的 `mapping` 把图上传像素换算成 CSS 坐标（page_click/page_drag 带 shotX/shotY/shotScale 直接换算），再用 `page_click` 或 `page_drag` 操作。点选类点完要按面板上的确认按钮（OK）；五子棋和交换消除是「点一下起点、再点一下目标」，不是拖拽。操作完用同样的截图确认结果，失败就重新截新题目再来。文字验证码用 `captcha_read`（ddddocr）。
 
 一次任务用已经打开的环境和标签。做完调用 `page_unlock`，遮罩不要留着。需要人接手时用 `page_handoff`。
