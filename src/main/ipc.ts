@@ -1,16 +1,14 @@
-import { clipboard, dialog, ipcMain, session, app } from 'electron'
+import { clipboard, dialog, ipcMain } from 'electron'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
-import type { LayerPayload, Settings, SuggestPayload, UiState, WorkflowEdge, WorkflowNode, WorkflowParam } from '@shared/types'
-import { DEFAULT_ENV, searchEngines } from '@shared/types'
-import { workflowPage } from '@shared/market'
-import type { StoredEnv } from './services/StorageService'
+import type { Settings, WorkflowEdge, WorkflowNode, WorkflowParam } from '@shared/types'
+import { searchEngines } from '@shared/types'
 import { storage } from './services/store'
 import { buildEnvPrompt, buildTabPrompt } from './services/PromptService'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate } from './services/RecordService'
 import { installMarketFile, installMarketUrl, listMarket } from './services/MarketService'
-import { downloadCopyLink, downloadOpen, downloadPause, downloadResume, downloadRetry, downloadShow, downloadCancel, downloadsClear, listDownloads } from './services/DownloadService'
-import { windows, type WindowRuntime } from './runtime'
+import { downloadCopyLink, downloadOpen, downloadPause, downloadResume, downloadRetry, downloadShow, downloadCancel, downloadsClear } from './services/DownloadService'
+import { windows } from './runtime'
 import { bridge } from './runtime'
 import {
   activateTab,
@@ -30,17 +28,6 @@ import {
   openEnvironment,
   openMarket,
   openDownloadsPage,
-  openHistoryPage,
-  openBookmarksPage,
-  openBookmark,
-  toggleBookmark,
-  hibernateTab,
-  hibernateOtherTabs,
-  showPopup,
-  showSuggestions,
-  hideSuggestions,
-  focusTabSearch,
-  closePopup,
   openRunsPage,
   openSettingsPage,
   openWorkflowPage,
@@ -51,85 +38,12 @@ import {
 } from './windows'
 import { normalizeUrl, startUrl } from './page'
 import { callTool, screenStartWaiters, screenWaiters } from './services/tool-catalog'
-import { netList } from './services/NetService'
 import { createId } from './ids'
+import { buildState, broadcast } from './ipc/state'
+import { registerLayerIpc } from './ipc/layers'
+import { registerLibraryIpc } from './ipc/library'
 
-async function cookieDomains(envId: string): Promise<Set<string>> {
-  const cookies = await session.fromPartition(`persist:${envId}`).cookies.get({})
-  return new Set(cookies.flatMap((cookie) => (cookie.domain ? [cookie.domain.replace(/^\./, '')] : [])))
-}
-
-async function envView(item: StoredEnv): Promise<UiState['envs'][number]> {
-  const domains = windows.has(item.id) ? await cookieDomains(item.id) : new Set<string>()
-  return {
-    id: item.id,
-    name: item.name,
-    remark: item.remark,
-    isDefault: item.id === DEFAULT_ENV,
-    windowOpen: windows.has(item.id),
-    headless: windows.get(item.id)?.headless ?? false,
-    sites: item.sites.map((site) => ({
-      ...site,
-      cookiePresent: [...domains].some((domain) => domain === site.domain || domain.endsWith(`.${site.domain}`))
-    }))
-  }
-}
-
-export async function buildState(runtime: WindowRuntime): Promise<UiState> {
-  const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
-  const nav = active?.view?.webContents.navigationHistory
-  return {
-    envId: runtime.envId,
-    envName: storage.envs.find((item) => item.id === runtime.envId)?.name ?? runtime.envId,
-    headless: runtime.headless,
-    layout: storage.settings.tabLayout,
-    tabs: runtime.tabs.map((tab) => ({
-      id: tab.id,
-      envId: tab.envId,
-      groupId: tab.groupId,
-      kind: tab.kind,
-      title: tab.kind === 'settings' ? '设置' : tab.kind === 'market' ? '工作流' : tab.kind === 'history' ? '历史记录' : tab.kind === 'workflow' ? (storage.workflows.find((item) => tab.url === workflowPage(item.id))?.app.name ?? tab.title) : tab.title || '新标签页',
-      url: tab.url,
-      favicon: tab.favicon || '',
-      loading: tab.loading,
-      progress: tab.progress,
-      error: tab.error,
-      active: tab.id === runtime.activeTabId,
-      pinned: Boolean(tab.pinned),
-      muted: Boolean(tab.muted),
-      audible: Boolean(tab.audible),
-      hibernated: Boolean(tab.hibernated),
-      control: tab.control === 'handoff' ? 'handoff' : tab.control === 'agent' ? 'agent' : 'shared'
-    })),
-    groups: storage.groups
-      .filter((group) => group.envId === runtime.envId)
-      .map((group) => ({
-        ...group,
-        tabIds: runtime.tabs.filter((tab) => tab.groupId === group.id).map((tab) => tab.id)
-      })),
-    envs: await Promise.all(storage.envs.map((item) => envView(item))),
-    workflows: storage.workflows.map((item) => ({
-      id: item.id,
-      name: item.app.name,
-      remark: item.app.description,
-      icon: item.app.icon || '',
-      params: workflowParams(item),
-      graph: item.workflow.graph
-    })),
-    captures: active ? netList(active.id) : [],
-    canBack: Boolean(nav?.canGoBack()),
-    canForward: Boolean(nav?.canGoForward()),
-    screenRecording: runtime.screenRecording,
-    handoffMessage: active?.control === 'handoff' ? active.handoffMessage : '',
-    settings: storage.settings,
-    bookmarks: storage.bookmarksFor(runtime.envId),
-    permissions: storage.permissionsFor(runtime.envId),
-    version: app.getVersion(),
-    maximized: runtime.win.isMaximized(),
-    railPinned: runtime.railPinned,
-    downloads: listDownloads()
-  }
-}
+export { buildState, broadcast }
 
 function paramHint(param: WorkflowParam): string {
   if (param.type === 'number') return '数字'
@@ -140,18 +54,10 @@ function paramHint(param: WorkflowParam): string {
   return '文本'
 }
 
-export function broadcast(envId?: string): void {
-  const list = envId ? [windows.get(envId)].filter((item): item is WindowRuntime => Boolean(item)) : [...windows.values()]
-  for (const runtime of list) {
-    void buildState(runtime).then((state) => {
-      if (!runtime.win.isDestroyed()) runtime.win.webContents.send('state', state)
-      if (runtime.popupView && !runtime.popupView.webContents.isDestroyed()) runtime.popupView.webContents.send('state', state)
-      if (runtime.railView && !runtime.railView.webContents.isDestroyed()) runtime.railView.webContents.send('state', state)
-    })
-  }
-}
-
 export function wireIpc(): void {
+  registerLayerIpc()
+  registerLibraryIpc()
+
   ipcMain.on('page:contextmenu', (event, point: { x: number; y: number }) => {
     for (const runtime of windows.values()) {
       const tab = runtime.tabs.find((item) => item.view?.webContents === event.sender)
@@ -193,72 +99,6 @@ export function wireIpc(): void {
 
   ipcMain.handle('window:close', (event) => {
     windowFromSender(event.sender)?.win.close()
-  })
-
-  ipcMain.handle('layer:open', (event, payload: LayerPayload) => {
-    const runtime = windowFromSender(event.sender)
-    if (!runtime?.popupView) return
-    let next = payload
-    const rail = runtime.railView
-    if (rail && rail.webContents.id === event.sender.id && (payload.kind === 'context' || payload.kind === 'menu')) {
-      const box = rail.getBounds()
-      next = { ...payload, x: payload.x + box.x, y: payload.y + box.y }
-    }
-    showPopup(runtime, next)
-  })
-
-  ipcMain.handle('rail:open', (event, open: boolean) => {
-    const runtime = windowFromSender(event.sender)
-    if (!runtime || runtime.railPinned || runtime.railOpen === open) return
-    runtime.railOpen = open
-    layoutWindow(runtime.envId)
-  })
-
-  ipcMain.handle('rail:pin', (event, hovering: boolean) => {
-    const runtime = windowFromSender(event.sender)
-    if (!runtime) return
-    runtime.railPinned = !runtime.railPinned
-    runtime.railOpen = runtime.railPinned ? false : Boolean(hovering)
-    layoutWindow(runtime.envId)
-    broadcast(runtime.envId)
-  })
-
-  ipcMain.handle('layer:get', (event) => windowFromSender(event.sender)?.popupPayload ?? null)
-
-  ipcMain.handle('layer:close', (event) => {
-    const runtime = windowFromSender(event.sender)
-    if (runtime) closePopup(runtime)
-  })
-
-  ipcMain.on('suggest:update', (event, payload: SuggestPayload) => {
-    const runtime = windowFromSender(event.sender)
-    if (runtime) showSuggestions(runtime, payload)
-  })
-
-  ipcMain.on('suggest:hide', (event) => {
-    const runtime = windowFromSender(event.sender)
-    if (runtime) hideSuggestions(runtime)
-  })
-
-  ipcMain.on('suggest:pick', (event, key: string) => {
-    const runtime = windowFromSender(event.sender)
-    const item = runtime?.suggestPayload?.items.find((entry) => entry.key === key)
-    if (!runtime || !item) return
-    hideSuggestions(runtime)
-    if (item.kind === 'tab' && item.tabId) {
-      activateTab(runtime, item.tabId)
-      runtime.win.webContents.focus()
-      return
-    }
-    openBookmark(runtime, item.url)
-    runtime.win.webContents.focus()
-  })
-
-  ipcMain.on('suggest:filter', (event, key: 'history' | 'bookmarks' | 'tabs') => {
-    const runtime = windowFromSender(event.sender)
-    if (!runtime) return
-    runtime.win.webContents.send('suggest:filter-ui', key)
-    runtime.win.webContents.focus()
   })
 
   ipcMain.handle('chrome:navigate', async (event, url: string) => {
@@ -525,107 +365,6 @@ export function wireIpc(): void {
   ipcMain.handle('menu:runs', (event) => {
     const runtime = windowFromSender(event.sender)
     if (runtime) openRunsPage(runtime)
-  })
-
-  ipcMain.handle('menu:history', (event) => {
-    const runtime = windowFromSender(event.sender)
-    if (runtime) openHistoryPage(runtime)
-  })
-
-  ipcMain.handle('history:list', (event) => {
-    const runtime = windowFromSender(event.sender)
-    return runtime ? storage.historyFor(runtime.envId) : []
-  })
-
-  ipcMain.handle('history:delete', (event, id: string) => {
-    storage.deleteHistory(id)
-    const runtime = windowFromSender(event.sender)
-    if (runtime) bridge.broadcast(runtime.envId)
-  })
-
-  ipcMain.handle('history:clear', (event) => {
-    const runtime = windowFromSender(event.sender)
-    if (!runtime) return
-    storage.clearHistory(runtime.envId)
-    bridge.broadcast(runtime.envId)
-  })
-
-  ipcMain.handle('history:open', (event, url: string) => {
-    const runtime = windowFromSender(event.sender)
-    if (runtime) addTab(runtime, url)
-  })
-
-  ipcMain.handle('menu:bookmarks', (event) => {
-    const runtime = windowFromSender(event.sender)
-    if (runtime) openBookmarksPage(runtime)
-  })
-
-  ipcMain.handle('menu:tabSearch', (event) => {
-    const runtime = windowFromSender(event.sender)
-    if (runtime) focusTabSearch(runtime)
-  })
-
-  ipcMain.handle('bookmarks:toggle', (event) => {
-    const runtime = windowFromSender(event.sender)
-    const tab = runtime?.tabs.find((item) => item.id === runtime.activeTabId && item.kind === 'page')
-    if (!runtime || !tab) return { bookmarked: false }
-    return { bookmarked: toggleBookmark(runtime, tab) }
-  })
-
-  ipcMain.handle('bookmarks:delete', (event, id: string) => {
-    storage.removeBookmark(id)
-    const runtime = windowFromSender(event.sender)
-    if (runtime) bridge.broadcast(runtime.envId)
-  })
-
-  ipcMain.handle('bookmarks:clear', (event) => {
-    const runtime = windowFromSender(event.sender)
-    if (!runtime) return
-    storage.clearBookmarks(runtime.envId)
-    bridge.broadcast(runtime.envId)
-  })
-
-  ipcMain.handle('bookmarks:open', (event, url: string) => {
-    const runtime = windowFromSender(event.sender)
-    if (runtime) openBookmark(runtime, url)
-  })
-
-  ipcMain.handle('permissions:revoke', (event, id: string) => {
-    storage.revokePermission(id)
-    const runtime = windowFromSender(event.sender)
-    if (runtime) bridge.broadcast(runtime.envId)
-  })
-
-  ipcMain.handle('permissions:clear', (event) => {
-    const runtime = windowFromSender(event.sender)
-    if (!runtime) return
-    storage.clearPermissions(runtime.envId)
-    bridge.broadcast(runtime.envId)
-  })
-
-  ipcMain.handle('data:clear', async (event, options: { history?: boolean; cookies?: boolean; cache?: boolean }) => {
-    const runtime = windowFromSender(event.sender)
-    if (!runtime) return { ok: false }
-    if (options.history) storage.clearHistory(runtime.envId)
-    const ses = session.fromPartition(`persist:${runtime.envId}`)
-    if (options.cookies) {
-      await ses.clearStorageData({
-        storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage', 'serviceworkers', 'shadercache', 'filesystem']
-      })
-    }
-    if (options.cache) await ses.clearCache()
-    bridge.broadcast(runtime.envId)
-    return { ok: true }
-  })
-
-  ipcMain.handle('tab:hibernate', (event, tabId: string) => {
-    const runtime = windowFromSender(event.sender)
-    return { ok: runtime ? hibernateTab(runtime, tabId) : false }
-  })
-
-  ipcMain.handle('tab:hibernateOthers', (event) => {
-    const runtime = windowFromSender(event.sender)
-    return { count: runtime ? hibernateOtherTabs(runtime) : 0 }
   })
 
   ipcMain.handle('workflow:runsPage', (event, id: string) => {
