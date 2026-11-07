@@ -4,7 +4,7 @@ import { join } from 'path'
 import type { Bounds, WindowRuntime } from '../runtime'
 import { windows } from '../runtime'
 import { layoutWindow } from '../windows'
-import { sleep } from '../page'
+import { sleep, withGridOverlay } from '../page'
 import { withDebugger } from './debugger'
 import { storage } from './store'
 
@@ -95,15 +95,19 @@ function viewRect(view: WebContentsView): Bounds {
   return view.getBounds()
 }
 
-async function collectLayers(runtime: WindowRuntime): Promise<Layer[]> {
+async function collectLayers(runtime: WindowRuntime, grid = 0): Promise<Layer[]> {
   const layers: Layer[] = []
   const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
 
   if (active?.kind === 'page' && active.view && !active.error) {
+    const view = active.view
+    const image = grid
+      ? await withGridOverlay(active, grid, undefined, () => captureWebContents(view.webContents, false))
+      : await captureWebContents(view.webContents, false)
     layers.push({
       name: 'page',
-      image: await captureWebContents(active.view.webContents, false),
-      rect: viewRect(active.view)
+      image,
+      rect: viewRect(view)
     })
   }
 
@@ -128,7 +132,7 @@ async function collectLayers(runtime: WindowRuntime): Promise<Layer[]> {
   return layers
 }
 
-export async function windowPreview(envId: string): Promise<{ path: string; width: number; height: number; bytes: number }> {
+export async function windowPreview(envId: string, grid = 0): Promise<{ path: string; width: number; height: number; bytes: number }> {
   const runtime = windows.get(envId)
   if (!runtime) throw new Error('这扇窗口没有打开')
   if (runtime.headless) throw new Error('无头窗口没有画面，先有头打开再预览')
@@ -145,7 +149,7 @@ export async function windowPreview(envId: string): Promise<{ path: string; widt
   const scaleY = baseSize.height / Math.max(1, contentHeight)
 
   const canvas = Buffer.from(base.toBitmap())
-  const layers = await collectLayers(runtime)
+  const layers = await collectLayers(runtime, grid)
   for (const layer of layers) blend(canvas, baseSize.width, baseSize.height, layer, scaleX, scaleY)
 
   const image = nativeImage.createFromBitmap(canvas, { width: baseSize.width, height: baseSize.height, scaleFactor: 1 })

@@ -1642,7 +1642,7 @@ const GRID_SCRIPT = `(function (step, rect) {
   return true
 })`
 
-async function withGridOverlay<T>(
+export async function withGridOverlay<T>(
   tab: TabRuntime,
   step: number,
   rect: { x: number; y: number; width: number; height: number } | undefined,
