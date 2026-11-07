@@ -849,8 +849,10 @@ export function layoutWindow(envId: string): void {
     const showLock = Boolean(active && active.kind === 'page' && active.control === 'agent')
     lock.setVisible(showLock)
     if (showLock) {
-      runtime.win.contentView.removeChildView(lock)
-      runtime.win.contentView.addChildView(lock)
+      // Electron 44 在 Linux 上先 remove 再 add 会把视图标成 hidden（画面不刷新但输入还进得去）；
+      // 只 addChildView 重排即可到最前，不要 remove。
+      const children = runtime.win.contentView.children
+      if (children[children.length - 1] !== lock) runtime.win.contentView.addChildView(lock)
       lock.setBounds(runtime.bounds)
     }
   }
@@ -864,8 +866,8 @@ export function layoutWindow(envId: string): void {
       popup.setBounds({ x: 0, y: 0, width, height })
     }
     popup.setVisible(true)
-    runtime.win.contentView.removeChildView(popup)
-    runtime.win.contentView.addChildView(popup)
+    const children = runtime.win.contentView.children
+    if (children[children.length - 1] !== popup) runtime.win.contentView.addChildView(popup)
   } else {
     popup.setVisible(false)
   }
@@ -896,7 +898,7 @@ function placeRail(runtime: WindowRuntime): void {
   const railIndex = children.indexOf(rail)
   const covered = pages.some((view) => children.indexOf(view) > railIndex)
   if (covered) {
-    runtime.win.contentView.removeChildView(rail)
+    // 同上：只重排，不 remove
     runtime.win.contentView.addChildView(rail)
   }
 }
