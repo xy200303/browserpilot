@@ -1201,7 +1201,7 @@ tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单
   return { tabId: tabRef.id }
 })
 
-tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这个元素（会先滚进视口）；传 x、y、width、height 时截这块区域；都不传截整个视口。默认在图上叠加 100px 红色坐标网格和刻度：整页截图从视口左上角标起，元素/区域截图从图的左上角标起、角上写着裁剪起点坐标；刻度可直接当 x/y 用。grid 传 false 或 0 关闭，传数字改间距（10–500）。网格是截图后合成的，不碰页面。返回图片、路径和像素宽高，图片同时作为 MCP image 内容返回。宽高只用于页面坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object({
+tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这个元素（会先滚进视口）；传 x、y、width、height 时截这块区域；都不传截整个视口。默认叠加 100px 坐标网格。坐标原点始终是「视口左上角」，不是图片左上角：整页刻度从 0 起；元素/区域截图的刻度仍是视口里的绝对坐标，左上角角标写着裁剪起点坐标（例如 424,261），看到刻度直接当 page_click 的 x/y 用，不要自己再加偏移。grid 传 false 或 0 关闭，传数字改间距（10–500）；网格越密数字标注自动抽稀，不会盖住内容。网格是截图后合成的，不碰页面。返回图片、路径、像素宽高、origin（图片左上角对应的视口坐标）、coordinateSpace；宽高只用于坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -1223,7 +1223,19 @@ tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这�
     : undefined
   if (located || rect) {
     const shot = await screenshotRegion(tabRef, { locator: located ?? undefined, rect }, storage.dir('screenshots'), step)
-    return { tabId: tabRef.id, path: shot.path, width: shot.width, height: shot.height, x: shot.x, y: shot.y, full: shot.full, bytes: statSync(shot.path).size, image: imageOf(shot.path) }
+    return {
+      tabId: tabRef.id,
+      path: shot.path,
+      width: shot.width,
+      height: shot.height,
+      x: shot.x,
+      y: shot.y,
+      origin: shot.origin,
+      coordinateSpace: shot.coordinateSpace,
+      full: shot.full,
+      bytes: statSync(shot.path).size,
+      image: imageOf(shot.path)
+    }
   }
   const shot = await screenshot(tabRef, storage.dir('screenshots'), step)
   return {
@@ -1231,6 +1243,8 @@ tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这�
     path: shot.path,
     width: shot.width,
     height: shot.height,
+    origin: shot.origin,
+    coordinateSpace: shot.coordinateSpace,
     bytes: statSync(shot.path).size,
     image: imageOf(shot.path)
   }
@@ -1324,18 +1338,32 @@ tool('screen_start', '开始把这扇有头窗口录成视频。maxSeconds 到�
   return { env: envId, maxSeconds: seconds }
 })
 
-tool('window_preview', '把主界面、网页、遮罩和弹层合成一张整窗预览图。包含标签栏、地址栏和正在显示的弹层。默认叠加 100px 坐标网格（grid: false 或 0 关闭，数字改间距），刻度是整窗 CSS 像素、0 在窗口左上角，给 GUI 自动化用；点网页仍然用 page_screenshot 的视口坐标。返回图片、路径和像素宽高；这是合成预览，不是系统级窗口截图。', z.object({
+tool('window_preview', '把主界面、网页、遮罩和弹层合成一张应用截图。默认是整窗；传 x、y、width、height 时只截这块局部（应用内容区 CSS 像素）。坐标原点始终是「应用内容区左上角」，不含系统标题栏：整窗刻度从 0 起；局部截图的刻度仍是内容区里的绝对坐标，左上角角标写着裁剪起点。默认叠加 100px 坐标网格（grid: false 或 0 关闭，数字改间距 10–500，数字标注会随密度自动抽稀）。给 GUI 自动化用；点网页仍然用 page_screenshot 的视口坐标。返回图片、路径、像素宽高、origin（图片左上角对应的内容区坐标）和 coordinateSpace。这是合成预览，不是系统级窗口截图。', z.object({
   env: env,
-  grid: z.union([z.boolean(), z.number()]).optional()
+  grid: z.union([z.boolean(), z.number()]).optional(),
+  x: z.union([z.number(), z.string()]).optional(),
+  y: z.union([z.number(), z.string()]).optional(),
+  width: z.union([z.number(), z.string()]).optional(),
+  height: z.union([z.number(), z.string()]).optional()
 }), async (args) => {
   const envId = String(args.env || DEFAULT_ENV)
   const step = args.grid === false || args.grid === 0 ? 0 : args.grid === undefined || args.grid === true ? 100 : Math.max(10, Math.min(500, Math.round(Number(args.grid) || 0)))
-  const shot = await windowPreview(envId, step)
+  const crop = [args.x, args.y, args.width, args.height].every((value) => value !== undefined)
+    ? {
+        x: Number(args.x),
+        y: Number(args.y),
+        width: Number(args.width),
+        height: Number(args.height)
+      }
+    : undefined
+  const shot = await windowPreview(envId, step, crop)
   return {
     env: envId,
     path: shot.path,
     width: shot.width,
     height: shot.height,
+    origin: shot.origin,
+    coordinateSpace: shot.coordinateSpace,
     bytes: shot.bytes,
     image: imageOf(shot.path)
   }

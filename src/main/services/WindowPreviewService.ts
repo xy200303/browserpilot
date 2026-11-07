@@ -129,7 +129,18 @@ async function collectLayers(runtime: WindowRuntime): Promise<Layer[]> {
   return layers
 }
 
-export async function windowPreview(envId: string, grid = 0): Promise<{ path: string; width: number; height: number; bytes: number }> {
+export async function windowPreview(
+  envId: string,
+  grid = 0,
+  crop?: { x: number; y: number; width: number; height: number }
+): Promise<{
+  path: string
+  width: number
+  height: number
+  bytes: number
+  origin: { x: number; y: number }
+  coordinateSpace: 'window-content'
+}> {
   const runtime = windows.get(envId)
   if (!runtime) throw new Error('这扇窗口没有打开')
   if (runtime.headless) throw new Error('无头窗口没有画面，先有头打开再预览')
@@ -151,12 +162,42 @@ export async function windowPreview(envId: string, grid = 0): Promise<{ path: st
 
   let image = nativeImage.createFromBitmap(canvas, { width: baseSize.width, height: baseSize.height, scaleFactor: 1 })
   if (isEmpty(image)) throw new Error('合成预览失败')
+
+  const origin = { x: 0, y: 0 }
+  let spanWidth = contentWidth
+  let spanHeight = contentHeight
+  if (crop) {
+    const cx = Math.max(0, Math.min(contentWidth - 1, Math.floor(crop.x)))
+    const cy = Math.max(0, Math.min(contentHeight - 1, Math.floor(crop.y)))
+    const cw = Math.max(1, Math.min(Math.ceil(crop.width), contentWidth - cx))
+    const ch = Math.max(1, Math.min(Math.ceil(crop.height), contentHeight - cy))
+    const pixels = {
+      x: Math.round(cx * scaleX),
+      y: Math.round(cy * scaleY),
+      width: Math.max(1, Math.round(cw * scaleX)),
+      height: Math.max(1, Math.round(ch * scaleY))
+    }
+    image = image.crop({
+      x: pixels.x,
+      y: pixels.y,
+      width: Math.min(pixels.width, baseSize.width - pixels.x),
+      height: Math.min(pixels.height, baseSize.height - pixels.y)
+    })
+    origin.x = cx
+    origin.y = cy
+    spanWidth = cw
+    spanHeight = ch
+  }
+
   if (grid > 0) {
-    // 整窗预览是给 GUI 自动化用的：坐标原点就是窗口左上角
+    // 应用截图给 GUI 自动化用：坐标原点始终是应用内容区左上角，局部截图也用绝对坐标
     image = await drawGrid(runtime.win.webContents, image, {
       step: grid,
-      spanWidth: contentWidth,
-      spanHeight: contentHeight
+      originX: origin.x,
+      originY: origin.y,
+      showOrigin: Boolean(crop),
+      spanWidth,
+      spanHeight
     })
   }
   const dir = storage.dir('screenshots')
@@ -167,6 +208,8 @@ export async function windowPreview(envId: string, grid = 0): Promise<{ path: st
     path,
     width: image.getSize().width,
     height: image.getSize().height,
-    bytes: data.length
+    bytes: data.length,
+    origin,
+    coordinateSpace: 'window-content'
   }
 }

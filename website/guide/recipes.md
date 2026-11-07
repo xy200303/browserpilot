@@ -155,6 +155,14 @@ schtasks /Create /TN "BrowserPilot 话题巡检" /SC DAILY /ST 09:00 /TR "C:\tas
 window_preview {}
 ```
 
-**预期输出**：返回 `path`、`width`、`height`、`bytes`，图片同时作为 MCP image 返回。文件落在 `%APPDATA%\BrowserPilot\screenshots\preview-<时间戳>.png`。实测 Windows 下内容区 1280 × 802 的窗口，成品是 1920 × 1203。
+**预期输出**：返回 `path`、`width`、`height`、`bytes`、`origin` 和 `coordinateSpace`，图片同时作为 MCP image 返回。文件落在 `%APPDATA%\BrowserPilot\screenshots\preview-<时间戳>.png`。实测 Windows 下内容区 1280 × 802 的窗口，成品是 1920 × 1203。
 
-`window_preview` 是合成预览，不是系统级窗口截图；无头窗口会直接报错。页面坐标换算仍然用 `page_screenshot`，不要用预览图的坐标。
+只要窗口里的一块（例如菜单弹层）时，传内容区坐标：
+
+```text
+window_preview { "x": 120, "y": 60, "width": 300, "height": 150, "grid": 50 }
+```
+
+返回的 `origin` 是 `{"x":120,"y":60}`，图片左上角角标也写着 `120, 60`；图上的刻度仍然是内容区绝对坐标，不需要再加偏移。
+
+`window_preview` 是合成预览，不是系统级窗口截图；无头窗口会直接报错。网页里的点击坐标仍然用 `page_screenshot`，不要用预览图的坐标。

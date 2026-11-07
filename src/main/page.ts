@@ -1594,12 +1594,20 @@ export async function navigate(tab: TabRuntime, url: string): Promise<void> {
   await pending
 }
 
-export async function screenshot(tab: TabRuntime, dir: string, grid = 100): Promise<{ path: string; width: number; height: number }> {
+export async function screenshot(
+  tab: TabRuntime,
+  dir: string,
+  grid = 100
+): Promise<{ path: string; width: number; height: number; origin: { x: number; y: number }; coordinateSpace: 'viewport' }> {
   await ensureActive(tab)
   return captureFull(tab, dir, grid)
 }
 
-async function captureFull(tab: TabRuntime, dir: string, grid = 0): Promise<{ path: string; width: number; height: number }> {
+async function captureFull(
+  tab: TabRuntime,
+  dir: string,
+  grid = 0
+): Promise<{ path: string; width: number; height: number; origin: { x: number; y: number }; coordinateSpace: 'viewport' }> {
   const wc = wcOf(tab)
   const reveal = (): void => {
     const runtime = windows.get(tab.envId)
@@ -1653,7 +1661,7 @@ async function captureFull(tab: TabRuntime, dir: string, grid = 0): Promise<{ pa
   mkdirSync(dir, { recursive: true })
   const path = join(dir, `shot-${Date.now()}.png`)
   writeFileSync(path, output.toPNG())
-  return { path, width: size.width, height: size.height }
+  return { path, width: size.width, height: size.height, origin: { x: 0, y: 0 }, coordinateSpace: 'viewport' }
 }
 
 export async function pageSource(tab: TabRuntime, kind: 'dom' | 'response'): Promise<string> {
@@ -2436,7 +2444,16 @@ export async function screenshotRegion(
   target: { locator?: Locator; rect?: { x: number; y: number; width: number; height: number } },
   dir: string,
   grid = 100
-): Promise<{ path: string; width: number; height: number; x: number; y: number; full: boolean }> {
+): Promise<{
+  path: string
+  width: number
+  height: number
+  x: number
+  y: number
+  full: boolean
+  origin: { x: number; y: number }
+  coordinateSpace: 'viewport'
+}> {
   await ensureActive(tab)
   const wc = wcOf(tab)
   let rect = target.rect
@@ -2472,7 +2489,16 @@ export async function screenshotRegion(
   const y = Math.max(0, Math.floor(rect.y))
   const width = Math.max(1, Math.min(Math.ceil(rect.width), vw - x))
   const height = Math.max(1, Math.min(Math.ceil(rect.height), vh - y))
-  const capture = async (): Promise<{ path: string; width: number; height: number; x: number; y: number; full: boolean }> => {
+  const capture = async (): Promise<{
+    path: string
+    width: number
+    height: number
+    x: number
+    y: number
+    full: boolean
+    origin: { x: number; y: number }
+    coordinateSpace: 'viewport'
+  }> => {
     const reveal = (): void => {
       const runtime = windows.get(tab.envId)
       if (!runtime || runtime.headless) return
@@ -2504,7 +2530,16 @@ export async function screenshotRegion(
     mkdirSync(dir, { recursive: true })
     const path = join(dir, `shot-${Date.now()}.png`)
     writeFileSync(path, output.toPNG())
-    return { path, width: output.getSize().width, height: output.getSize().height, x, y, full: false }
+    return {
+      path,
+      width: output.getSize().width,
+      height: output.getSize().height,
+      x,
+      y,
+      full: false,
+      origin: { x, y },
+      coordinateSpace: 'viewport'
+    }
   }
   return capture()
 }
