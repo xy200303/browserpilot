@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Info, Layers, Plus, Radio, Search, Shield, SlidersHorizontal, X } from 'lucide-react'
+import { Info, KeyRound, Layers, Plus, Radio, Search, Shield, SlidersHorizontal, X } from 'lucide-react'
 import { Dialog } from 'radix-ui'
-import { searchEngines, type SearchEngineId, type TabLayout, type UiState } from '../../shared/types'
+import { searchEngines, type PasswordEntry, type SearchEngineId, type TabLayout, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { cn } from 'cn'
 
-const sections = ['环境', '抓包', '通用', '隐私', '关于'] as const
+const sections = ['环境', '抓包', '通用', '密码', '隐私', '关于'] as const
 type Section = (typeof sections)[number]
 type Env = UiState['envs'][number]
 
@@ -18,6 +18,7 @@ const icons = {
   环境: Layers,
   抓包: Radio,
   通用: SlidersHorizontal,
+  密码: KeyRound,
   隐私: Shield,
   关于: Info
 }
@@ -65,6 +66,7 @@ function SettingsDialog({ state, initial }: { state: UiState; initial: Section }
         {section === '环境' && <EnvPage state={state} />}
         {section === '抓包' && <div className="h-full overflow-y-auto"><Captures state={state} /></div>}
         {section === '通用' && <div className="h-full overflow-y-auto"><General state={state} /></div>}
+        {section === '密码' && <div className="h-full overflow-y-auto"><Passwords state={state} /></div>}
         {section === '隐私' && <div className="h-full overflow-y-auto"><Privacy state={state} /></div>}
         {section === '关于' && <div className="h-full overflow-y-auto"><About state={state} /></div>}
       </div>
@@ -360,6 +362,92 @@ function Privacy({ state }: { state: UiState }) {
         <p className="mt-3 text-xs text-muted-foreground">页面请求摄像头、麦克风、通知、位置时，会弹系统对话框；勾选「记住这次选择」后出现在这里。</p>
       </section>
     </div>
+  )
+}
+
+function Passwords({ state }: { state: UiState }) {
+  const [items, setItems] = useState<PasswordEntry[]>([])
+  const [revealed, setRevealed] = useState<Record<string, string>>({})
+  useEffect(() => {
+    let alive = true
+    void window.browser.listPasswords().then((list) => {
+      if (alive) setItems(list)
+    })
+    return () => {
+      alive = false
+    }
+  }, [state.envId])
+
+  const reload = async (): Promise<void> => {
+    setRevealed({})
+    setItems(await window.browser.listPasswords())
+  }
+
+  const toggleReveal = async (item: PasswordEntry): Promise<void> => {
+    if (revealed[item.id]) {
+      setRevealed((previous) => {
+        const next = { ...previous }
+        delete next[item.id]
+        return next
+      })
+      return
+    }
+    const got = await window.browser.revealPassword(item.id)
+    if (got) setRevealed((previous) => ({ ...previous, [item.id]: got.password }))
+  }
+
+  return (
+    <section>
+      <Heading title="密码" detail="网页登录时自动记下账号密码，下次打开同一个网站自动填入。按环境隔离，只保存在本机。" />
+      <Card>
+        <Row title="自动保存" detail="提交登录表单时记下来。关掉后不再新增，已保存的仍然可以填。">
+          <Switch checked={state.settings.passwordSave} onCheckedChange={(passwordSave) => void window.browser.updateSettings({ passwordSave })} />
+        </Row>
+        <Row title="自动填充" detail="打开登录页时填进账号和密码，页面里已经输入过就不覆盖。">
+          <Switch checked={state.settings.passwordAutofill} onCheckedChange={(passwordAutofill) => void window.browser.updateSettings({ passwordAutofill })} />
+        </Row>
+      </Card>
+      <Card>
+        {items.length === 0 && <p className="px-4 py-3 text-xs text-muted-foreground">还没有保存的密码。在当前环境里登录一次就会出现在这里。</p>}
+        {items.map((item) => (
+          <div key={item.id} className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm">{item.origin}</div>
+              <div className="truncate text-xs text-muted-foreground">
+                {item.username || '（没填账号）'} · {new Date(item.updatedAt).toLocaleString('zh-CN', { hour12: false })}
+                {revealed[item.id] && <span className="ml-2 font-mono text-foreground">{revealed[item.id]}</span>}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button variant="ghost" size="sm" onClick={() => void toggleReveal(item)}>{revealed[item.id] ? '隐藏' : '显示'}</Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="删除"
+                onClick={() => {
+                  void window.browser.deletePassword(item.id).then(reload)
+                }}
+              >
+                <X />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </Card>
+      {items.length > 0 && (
+        <div className="px-4 py-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void window.browser.clearPasswords().then(reload)
+            }}
+          >
+            清空这套环境的密码
+          </Button>
+        </div>
+      )}
+    </section>
   )
 }
 

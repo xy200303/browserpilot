@@ -9,6 +9,7 @@ import { createId } from '../ids'
 import { bridge, publicControl, windows, type TabRuntime } from '../runtime'
 import { storage } from './store'
 import { downloadTargetDir, listDownloads } from './DownloadService'
+import { clearPasswords } from './PasswordService'
 import { windowPreview } from './WindowPreviewService'
 import {
   activateTab,
@@ -20,6 +21,7 @@ import {
   closeWorkflowPages,
   openEnvironment,
   resolveTab,
+  saveSessionNow,
   shareControl,
   showAgentMask
 } from '../windows'
@@ -45,6 +47,7 @@ import {
   locatorLabel,
   mapPoint,
   navigate,
+  normalizeUrl,
   pageSource,
   pasteLocator,
   pressShortcut,
@@ -251,6 +254,7 @@ tool('env_delete', '关掉这套环境的窗口并清掉登录。默认环境不
   storage.clearHistory(id)
   storage.clearBookmarks(id)
   storage.clearPermissions(id)
+  clearPasswords(id)
   return { env: id }
 })
 
@@ -1264,6 +1268,235 @@ tool('env_import', '从 env_export 导出的 JSON 恢复登录。env 不给就�
     }
   }
   return { env: id, cookies: ok, total: (raw.cookies ?? []).length }
+})
+
+function dataEnv(args: { env?: string }): string {
+  return typeof args.env === 'string' && args.env ? args.env : DEFAULT_ENV
+}
+
+tool('bookmark_list', '列出一套环境的书签，最近加的在前。query 按标题或网址过滤。', z.object({
+  env: env,
+  query: z.string().optional()
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  const query = String(args.query ?? '').trim().toLowerCase()
+  const items = storage.bookmarksFor(envId).filter((item) => !query || item.title.toLowerCase().includes(query) || item.url.toLowerCase().includes(query))
+  return {
+    env: envId,
+    bookmarks: items.map((item) => ({ id: item.id, url: item.url, title: item.title, createdAt: item.createdAt }))
+  }
+})
+
+tool('bookmark_add', '给一套环境加书签。网址已经在书签里就更新标题，不会重复加。', z.object({
+  env: env,
+  url: z.string(),
+  title: z.string().optional()
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  const url = normalizeUrl(String(args.url))
+  if (!/^https?:/i.test(url)) throw new Error(`书签只存 http/https：${url}`)
+  const item = storage.addBookmark({ envId, url, title: typeof args.title === 'string' ? args.title : '' })
+  bridge.broadcast(envId)
+  return { env: envId, id: item.id, url: item.url, title: item.title }
+})
+
+tool('bookmark_remove', '删书签：给 id 或 url 删一条，all 为 true 清空这套环境的书签。返回删掉几条。', z.object({
+  env: env,
+  id: z.string().optional(),
+  url: z.string().optional(),
+  all: z.boolean().optional()
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  if (!args.id && !args.url && !args.all) throw new Error('需要 id、url 或 all: true')
+  const removed = storage.removeBookmarkWhere(envId, {
+    id: typeof args.id === 'string' ? args.id : undefined,
+    url: typeof args.url === 'string' ? args.url : undefined,
+    all: Boolean(args.all)
+  })
+  if (removed) bridge.broadcast(envId)
+  return { env: envId, removed }
+})
+
+tool('history_list', '列出一套环境的历史记录，最近的在前。query 按标题或网址过滤，limit 默认 50、最多 500。', z.object({
+  env: env,
+  query: z.string().optional(),
+  limit: z.number().optional()
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  const query = String(args.query ?? '').trim().toLowerCase()
+  const limit = Math.max(1, Math.min(500, Number(args.limit ?? 50)))
+  const items = storage.historyFor(envId)
+    .filter((item) => !query || item.title.toLowerCase().includes(query) || item.url.toLowerCase().includes(query))
+    .slice(0, limit)
+  return {
+    env: envId,
+    history: items.map((item) => ({ id: item.id, url: item.url, title: item.title, visitedAt: item.visitedAt }))
+  }
+})
+
+tool('history_remove', '删历史记录：给 id 或 url 删一条，all 为 true 清空这套环境。导航产生的记录会自动写入，不用手动加。', z.object({
+  env: env,
+  id: z.string().optional(),
+  url: z.string().optional(),
+  all: z.boolean().optional()
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  if (!args.id && !args.url && !args.all) throw new Error('需要 id、url 或 all: true')
+  const removed = storage.removeHistoryWhere(envId, {
+    id: typeof args.id === 'string' ? args.id : undefined,
+    url: typeof args.url === 'string' ? args.url : undefined,
+    all: Boolean(args.all)
+  })
+  if (removed) bridge.broadcast(envId)
+  return { env: envId, removed }
+})
+
+tool('session_list', '列出保存的标签会话（关窗口时自动存，下次开窗口恢复）。不传 env 列出所有环境。', z.object({
+  env: env
+}), async (args) => {
+  const envId = typeof args.env === 'string' && args.env ? args.env : ''
+  const ids = envId ? [envId] : Object.keys(storage.sessions)
+  const sessions = ids
+    .map((id) => ({ id, saved: storage.sessionFor(id) }))
+    .filter((item) => item.saved)
+    .map((item) => ({
+      env: item.id,
+      savedAt: item.saved!.savedAt,
+      activeUrl: item.saved!.activeUrl,
+      tabs: item.saved!.tabs.map((tabItem) => ({ url: tabItem.url, title: tabItem.title, groupId: tabItem.groupId }))
+    }))
+  return { sessions }
+})
+
+tool('session_save', '把一套环境现在开着的标签存成会话快照。窗口没开就报错。', z.object({
+  env: env
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  const runtime = windows.get(envId)
+  if (!runtime) throw new Error(`这套环境的窗口没开：${envId}`)
+  saveSessionNow(runtime)
+  const saved = storage.sessionFor(envId)
+  return { env: envId, tabs: saved?.tabs.length ?? 0, savedAt: saved?.savedAt }
+})
+
+tool('session_restore', '把保存的会话重新打开成标签：窗口没开会先开，已经在的标签跳过，最多 20 个。', z.object({
+  env: env
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  const saved = storage.sessionFor(envId)
+  if (!saved?.tabs.length) throw new Error('这套环境没有保存的会话')
+  const runtime = openEnvironment(envId, false)
+  let opened = 0
+  for (const item of saved.tabs.slice(0, 20)) {
+    if (!item.url || item.url.startsWith('browserpilot://')) continue
+    if (runtime.tabs.some((tabItem) => tabItem.kind === 'page' && tabItem.url === item.url)) continue
+    addTab(runtime, item.url)
+    opened += 1
+  }
+  return { env: envId, opened }
+})
+
+tool('session_clear', '清掉保存的会话，下次打开这套环境的窗口不再恢复这些标签。不影响已经开着的标签和历史记录。', z.object({
+  env: env
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  storage.clearSession(envId)
+  return { env: envId, cleared: true }
+})
+
+function cookieAddress(cookie: { domain?: string; path?: string; secure?: boolean }): string {
+  const host = String(cookie.domain || '').replace(/^\./, '')
+  return `${cookie.secure ? 'https' : 'http'}://${host}${cookie.path || '/'}`
+}
+
+tool('cookie_list', '列出这套环境的 Cookie，可按域名过滤。值里可能有登录令牌，只在本机用，不要贴到对话或日志里。', z.object({
+  env: env,
+  domain: z.string().optional()
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  const domain = String(args.domain ?? '').trim().replace(/^\./, '').toLowerCase()
+  const cookies = await session.fromPartition(`persist:${envId}`).cookies.get({})
+  const list = cookies.filter((cookie) => {
+    const host = String(cookie.domain || '').replace(/^\./, '').toLowerCase()
+    return !domain || host === domain || host.endsWith(`.${domain}`)
+  })
+  return {
+    env: envId,
+    cookies: list.map((cookie) => ({
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain,
+      path: cookie.path,
+      secure: cookie.secure,
+      httpOnly: cookie.httpOnly,
+      session: cookie.session,
+      expirationDate: cookie.expirationDate
+    }))
+  }
+})
+
+tool('cookie_set', '给这套环境写一条 Cookie。url 不给就按 domain 拼一个地址。同名同域的会被覆盖。', z.object({
+  env: env,
+  name: z.string(),
+  value: z.string(),
+  url: z.string().optional(),
+  domain: z.string().optional(),
+  path: z.string().optional(),
+  secure: z.boolean().optional(),
+  httpOnly: z.boolean().optional(),
+  expirationDate: z.number().optional()
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  const name = String(args.name)
+  const value = String(args.value ?? '')
+  const path = typeof args.path === 'string' && args.path ? args.path : '/'
+  const secure = Boolean(args.secure)
+  const url = typeof args.url === 'string' && args.url
+    ? args.url
+    : args.domain
+      ? `${secure ? 'https' : 'http'}://${String(args.domain).replace(/^\./, '')}${path}`
+      : ''
+  if (!url) throw new Error('需要 url 或 domain')
+  const details: Electron.CookiesSetDetails = { url, name, value, path, secure, httpOnly: Boolean(args.httpOnly) }
+  if (typeof args.domain === 'string' && args.domain) details.domain = args.domain
+  if (typeof args.expirationDate === 'number') details.expirationDate = args.expirationDate
+  await session.fromPartition(`persist:${envId}`).cookies.set(details)
+  bridge.broadcast(envId)
+  return { env: envId, ok: true }
+})
+
+tool('cookie_remove', '删 Cookie：给 url + name 删一条；给 domain 删这个域名下全部；all 为 true 清空这套环境。返回删掉几条。', z.object({
+  env: env,
+  name: z.string().optional(),
+  url: z.string().optional(),
+  domain: z.string().optional(),
+  all: z.boolean().optional()
+}), async (args) => {
+  const envId = dataEnv(args as { env?: string })
+  const ses = session.fromPartition(`persist:${envId}`)
+  if (args.all) {
+    const all = await ses.cookies.get({})
+    for (const cookie of all) await ses.cookies.remove(cookieAddress(cookie), cookie.name)
+    bridge.broadcast(envId)
+    return { env: envId, removed: all.length }
+  }
+  if (typeof args.domain === 'string' && args.domain) {
+    const domain = args.domain.replace(/^\./, '').toLowerCase()
+    const all = await ses.cookies.get({})
+    const matched = all.filter((cookie) => {
+      const host = String(cookie.domain || '').replace(/^\./, '').toLowerCase()
+      return host === domain || host.endsWith(`.${domain}`)
+    })
+    for (const cookie of matched) await ses.cookies.remove(cookieAddress(cookie), cookie.name)
+    bridge.broadcast(envId)
+    return { env: envId, removed: matched.length }
+  }
+  if (typeof args.url === 'string' && args.url && typeof args.name === 'string' && args.name) {
+    await ses.cookies.remove(args.url, args.name)
+    bridge.broadcast(envId)
+    return { env: envId, removed: 1 }
+  }
+  throw new Error('需要 url + name，或 domain，或 all: true')
 })
 
 export const screenWaiters = new Map<string, { resolve: (path: string) => void; reject: (error: Error) => void }>()

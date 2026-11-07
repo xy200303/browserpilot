@@ -40,6 +40,10 @@ browserpilot call workflow_run --json-file args.json
 
 定位只用 `xpath` 或 `selector`。点击、输入、粘贴、选择必须恰好匹配一个元素。匹配到多个就停，不取第一条。画布上没有稳定节点时，`page_click` 用 `x` 和 `y`；按截图点坐标时，把 `page_screenshot` 返回的 `width`、`height` 原样传给 `shotWidth`、`shotHeight`；按 `captcha_panel` 这类裁剪图点坐标时，再带上 `shotX`、`shotY`（rect 前两个值）和 `shotScale`（scale）。`page_click` 加 `button: "right"` 是右键。`page_inspect` 识别元素类型（video/image/canvas/audio/link/input/text）和地址；`page_save_media` 抓媒体文件：直链直接下，B站这类 MSE 流媒体自动抓 DASH 轨（没有 ffmpeg 会自动装到用户目录 tools/，其它平台的 m3u8/mpd 清单也交给 ffmpeg 拉）；`page_record_video` 是最后的兜底——把正在播放的视频用 captureStream 实时录成 webm，任何能播的站都行，代价是要播完。
 
+书签、历史、会话、Cookie 都能用工具直接管，不用去点界面：`bookmark_list` / `bookmark_add`（同网址再传就改标题）/ `bookmark_remove`（id、url 或 all）；`history_list` / `history_remove`（导航会自动记录，不用手动加）；`session_list` / `session_save` / `session_restore` / `session_clear`（会话就是关窗口时保存的标签组）；`cookie_list` / `cookie_set` / `cookie_remove`（按域名或 url + name）。这些数据都按环境隔离，传 `env` 指定，不传就是默认环境。Cookie 值里可能有登录令牌，别贴进对话里。
+
+密码由使用者自己管：登录提交时自动记下账号密码，下次打开同站自动填入，设置 > 密码 里能看和删。没有读取明文密码的工具，也不要试图从页面里导出它；需要登录就让自动填充生效，或者让使用者接手。
+
 网页里的下载（按钮、链接触发的）会被接管到本机下载目录，重名自动加序号。点完之后用 `download_list` 查文件落到哪：每条给 `name`、`path`、`state`、`bytes`，加 `wait`（秒，最长 120）会等下载结束再返回，别自己 sleep。改下载目录用 `download_dir`（`dir` 传绝对路径，传 `default` 恢复默认；不带 `dir` 只查）。`page_save_media` / `page_record_video` 的 `savePath` 可以传文件路径，也可以传一个已存在的目录，文件会按默认命名存进去。
 
 `page_screenshot` 只截网页视口，不含地址栏、标签栏和遮罩。图片会作为 MCP image 内容直接返回，你能看到画面；同时返回 `path`、`width`、`height`、`bytes`，图太大时只给路径。要看整窗画面用 `window_preview`：它把主界面、网页、遮罩、交接提示和弹层合成一张图，返回图片、路径和像素宽高。它是合成预览，不是系统级窗口截图；只对有头窗口有效。页面坐标换算仍用 `page_screenshot`。0.13.13 及更早的版本没有图片内容、`window_preview` 和 `screen_status`，以实际 `tools` 列表为准。

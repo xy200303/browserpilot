@@ -29,6 +29,17 @@ export type StoredGroup = {
   color: string
 }
 
+export type StoredPassword = {
+  id: string
+  envId: string
+  origin: string
+  username: string
+  secret: string
+  createdAt: number
+  updatedAt: number
+  lastUsedAt?: number
+}
+
 type RunLog = {
   id: string
   workflowId: string
@@ -70,6 +81,7 @@ export class StorageService {
   history: HistoryEntry[] = []
   bookmarks: BookmarkEntry[] = []
   permissions: PermissionRule[] = []
+  passwords: StoredPassword[] = []
   sessions: Record<string, SessionState> = {}
 
   load(): void {
@@ -96,6 +108,9 @@ export class StorageService {
     this.permissions = readJson<PermissionRule[]>('permissions.json', [])
       .filter((item) => item && typeof item.id === 'string' && typeof item.envId === 'string' && typeof item.origin === 'string' && typeof item.permission === 'string')
       .slice(0, 500)
+    this.passwords = readJson<StoredPassword[]>('passwords.json', [])
+      .filter((item) => item && typeof item.id === 'string' && typeof item.envId === 'string' && typeof item.origin === 'string' && typeof item.secret === 'string')
+      .slice(0, 1000)
     this.sessions = readJson<Record<string, SessionState>>('session.json', {})
     this.settings = { ...defaultSettings(), ...readJson<Partial<Settings>>('settings.json', {}) }
     for (const env of this.envs) rememberId(env.id)
@@ -117,6 +132,10 @@ export class StorageService {
 
   saveSettings(): void {
     writeJson('settings.json', this.settings)
+  }
+
+  savePasswords(): void {
+    writeJson('passwords.json', this.passwords)
   }
 
   addRun(run: RunLog): void {
@@ -162,6 +181,20 @@ export class StorageService {
     writeJson('history.json', this.history)
   }
 
+  removeHistoryWhere(envId: string, filter: { id?: string; url?: string; all?: boolean }): number {
+    const before = this.history.length
+    this.history = this.history.filter((item) => {
+      if (item.envId !== envId) return true
+      if (filter.all) return false
+      if (filter.id) return item.id !== filter.id
+      if (filter.url) return item.url !== filter.url
+      return true
+    })
+    const removed = before - this.history.length
+    if (removed) writeJson('history.json', this.history)
+    return removed
+  }
+
   bookmarksFor(envId: string): BookmarkEntry[] {
     return this.bookmarks.filter((item) => item.envId === envId)
   }
@@ -184,6 +217,42 @@ export class StorageService {
     this.bookmarks = this.bookmarks.slice(0, 500)
     writeJson('bookmarks.json', this.bookmarks)
     return true
+  }
+
+  addBookmark(input: { envId: string; url: string; title?: string; favicon?: string }): BookmarkEntry {
+    const existing = this.bookmarks.find((item) => item.envId === input.envId && item.url === input.url)
+    if (existing) {
+      existing.title = input.title || existing.title
+      existing.favicon = input.favicon ?? existing.favicon
+      writeJson('bookmarks.json', this.bookmarks)
+      return existing
+    }
+    const entry: BookmarkEntry = {
+      id: createId('bm'),
+      envId: input.envId,
+      url: input.url,
+      title: input.title || input.url,
+      favicon: input.favicon,
+      createdAt: Date.now()
+    }
+    this.bookmarks.unshift(entry)
+    this.bookmarks = this.bookmarks.slice(0, 500)
+    writeJson('bookmarks.json', this.bookmarks)
+    return entry
+  }
+
+  removeBookmarkWhere(envId: string, filter: { id?: string; url?: string; all?: boolean }): number {
+    const before = this.bookmarks.length
+    this.bookmarks = this.bookmarks.filter((item) => {
+      if (item.envId !== envId) return true
+      if (filter.all) return false
+      if (filter.id) return item.id !== filter.id
+      if (filter.url) return item.url !== filter.url
+      return true
+    })
+    const removed = before - this.bookmarks.length
+    if (removed) writeJson('bookmarks.json', this.bookmarks)
+    return removed
   }
 
   removeBookmark(id: string): void {

@@ -31,6 +31,7 @@ import {
   openRunsPage,
   openSettingsPage,
   openWorkflowPage,
+  pageFromSender,
   setBounds,
   shareControl,
   takeoverActive,
@@ -42,6 +43,7 @@ import { createId } from './ids'
 import { buildState, broadcast } from './ipc/state'
 import { registerLayerIpc } from './ipc/layers'
 import { registerLibraryIpc } from './ipc/library'
+import { registerPasswordIpc } from './ipc/passwords'
 
 export { buildState, broadcast }
 
@@ -57,15 +59,11 @@ function paramHint(param: WorkflowParam): string {
 export function wireIpc(): void {
   registerLayerIpc()
   registerLibraryIpc()
+  registerPasswordIpc()
 
   ipcMain.on('page:contextmenu', (event, point: { x: number; y: number }) => {
-    for (const runtime of windows.values()) {
-      const tab = runtime.tabs.find((item) => item.view?.webContents === event.sender)
-      if (tab) {
-        emitContextMenu(runtime, tab, point.x, point.y)
-        return
-      }
-    }
+    const found = pageFromSender(event.sender)
+    if (found) emitContextMenu(found.runtime, found.tab, point.x, point.y)
   })
 
   bridge.broadcast = broadcast

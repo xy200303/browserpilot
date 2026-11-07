@@ -39,7 +39,7 @@ function windowIcon(): string | undefined {
 
 const permissionReady = new Set<string>()
 
-function originOf(url: string): string | undefined {
+export function originOf(url: string): string | undefined {
   try {
     const parsed = new URL(url)
     return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'file:' ? parsed.origin : undefined
@@ -1287,4 +1287,12 @@ export function resolveTab(args: { tabId?: string; env?: string }, create = fals
 
 export function bootDefaultWindow(): void {
   openEnvironment(DEFAULT_ENV, false)
+}
+
+export function pageFromSender(sender: Electron.WebContents): { runtime: WindowRuntime; tab: TabRuntime } | undefined {
+  for (const runtime of windows.values()) {
+    const tab = runtime.tabs.find((item) => item.view?.webContents === sender)
+    if (tab) return { runtime, tab }
+  }
+  return undefined
 }

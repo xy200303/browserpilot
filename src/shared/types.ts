@@ -24,6 +24,8 @@ export type Settings = {
   batchConcurrency: number
   headlessLimit: number
   downloadDir: string
+  passwordSave: boolean
+  passwordAutofill: boolean
 }
 
 export type SiteInfo = {
@@ -113,6 +115,16 @@ export type BookmarkEntry = {
   title: string
   favicon?: string
   createdAt: number
+}
+
+export type PasswordEntry = {
+  id: string
+  envId: string
+  origin: string
+  username: string
+  createdAt: number
+  updatedAt: number
+  lastUsedAt?: number
 }
 
 export type PermissionDecision = 'allow' | 'deny'
@@ -254,5 +266,7 @@ export const defaultSettings = (): Settings => ({
   port: 39221,
   batchConcurrency: 3,
   headlessLimit: 3,
-  downloadDir: ''
+  downloadDir: '',
+  passwordSave: true,
+  passwordAutofill: true
 })

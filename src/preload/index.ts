@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { HistoryEntry, LayerPayload, Settings, SuggestPayload, UiState, WorkflowEdge, WorkflowNode } from '../shared/types'
+import type { HistoryEntry, LayerPayload, PasswordEntry, Settings, SuggestPayload, UiState, WorkflowEdge, WorkflowNode } from '../shared/types'
 
 const api = {
   getState: (): Promise<UiState | null> => ipcRenderer.invoke('state:get'),
@@ -94,6 +94,10 @@ const api = {
   deleteBookmark: (id: string): Promise<void> => ipcRenderer.invoke('bookmarks:delete', id),
   clearBookmarks: (): Promise<void> => ipcRenderer.invoke('bookmarks:clear'),
   openBookmark: (url: string): Promise<void> => ipcRenderer.invoke('bookmarks:open', url),
+  listPasswords: (): Promise<PasswordEntry[]> => ipcRenderer.invoke('passwords:list'),
+  revealPassword: (id: string): Promise<{ origin: string; username: string; password: string } | null> => ipcRenderer.invoke('passwords:reveal', id),
+  deletePassword: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('passwords:delete', id),
+  clearPasswords: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('passwords:clear'),
   openTabSearch: (): Promise<void> => ipcRenderer.invoke('menu:tabSearch'),
   hibernateTab: (tabId: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('tab:hibernate', tabId),
   hibernateOtherTabs: (): Promise<{ count: number }> => ipcRenderer.invoke('tab:hibernateOthers'),

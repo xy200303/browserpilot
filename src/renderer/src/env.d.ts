@@ -1,4 +1,4 @@
-import type { HistoryEntry, LayerPayload, Settings, SuggestPayload, UiState, WorkflowEdge, WorkflowNode } from '../../shared/types'
+import type { HistoryEntry, LayerPayload, PasswordEntry, Settings, SuggestPayload, UiState, WorkflowEdge, WorkflowNode } from '../../shared/types'
 
 type RunLog = { id: string; workflowId: string; at: number; ok: boolean; node?: string; title?: string; error?: string; screenshot?: string; outputs?: Record<string, unknown>; files?: string[] }
 
@@ -65,6 +65,10 @@ export type BrowserApi = {
   clearBookmarks: () => Promise<void>
   openBookmark: (url: string) => Promise<void>
   openTabSearch: () => Promise<void>
+  listPasswords: () => Promise<PasswordEntry[]>
+  revealPassword: (id: string) => Promise<{ origin: string; username: string; password: string } | null>
+  deletePassword: (id: string) => Promise<{ ok: boolean }>
+  clearPasswords: () => Promise<{ ok: boolean }>
   hibernateTab: (tabId: string) => Promise<{ ok: boolean }>
   hibernateOtherTabs: () => Promise<{ count: number }>
   clearData: (options: { history?: boolean; cookies?: boolean; cache?: boolean }) => Promise<{ ok: boolean }>
