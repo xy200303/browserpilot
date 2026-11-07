@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Clock3, Download, FolderOpen, Minus, Moon, MoreVertical, Plus, RotateCw, Square, Star, TriangleAlert, Volume2, VolumeX, Workflow, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bookmark, ChevronLeft, ChevronRight, Clock3, Download, FolderOpen, Minus, Moon, MoreVertical, Plus, RotateCw, Square, Star, TriangleAlert, Volume2, VolumeX, Workflow, X } from 'lucide-react'
 import { searchEngineOf, type DownloadItem, type HistoryEntry, type TabInfo, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { MarketPage } from './MarketPage'
@@ -135,7 +135,6 @@ export function App() {
     <div className="flex h-full flex-col">
       <TitleRow state={state} />
       <AddressBar state={state} active={active} address={address} setAddress={setAddress} addressRef={addressRef} onReloadBuiltin={bumpReload} />
-      <BookmarksBar state={state} />
       {state.handoffMessage && <div className="bg-amber-50 px-4 py-2 text-sm text-amber-900">{state.handoffMessage}</div>}
       {findOpen && <FindBar findText={findText} setFindText={setFindText} setFindOpen={setFindOpen} />}
       <PageSurface state={state} active={active} contentRef={contentRef} reloadKey={active ? reloads[active.id] ?? 0 : 0} />
@@ -427,6 +426,18 @@ function AddressBar({
         </form>
         <LoadProgress tab={active} />
         <Button variant="ghost" size="icon" className="no-drag" title={bookmarked ? '取消书签' : '添加书签'} onClick={() => void window.browser.toggleBookmark()}><Star fill={bookmarked ? 'currentColor' : 'none'} className={bookmarked ? 'text-amber-500' : ''} /></Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="no-drag"
+          title="收藏夹"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            void window.browser.openLayer({ kind: 'bookmarks', x: rect.right, y: rect.bottom })
+          }}
+        >
+          <Bookmark />
+        </Button>
         <Button variant="ghost" size="icon" className="no-drag relative" title="下载" onClick={() => void window.browser.openDownloads()}><Download />{state.downloads.some((d) => d.state === 'progressing') && <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-blue-600" />}</Button>
         <Button variant="ghost" className="no-drag" title="工作流" onClick={() => void window.browser.openMarket()}><Workflow />工作流</Button>
         {state.screenRecording && <span className="rounded-md bg-destructive px-1.5 py-0.5 text-xs text-white">录屏</span>}
@@ -469,28 +480,6 @@ function AddressBar({
         </div>
       )}
     </>
-  )
-}
-
-function BookmarksBar({ state }: { state: UiState }) {
-  if (state.bookmarks.length === 0) return null
-  return (
-    <div className="flex h-8 shrink-0 items-center gap-1 overflow-x-auto border-b border-neutral-200 bg-[#f3f3f3] px-2">
-      {state.bookmarks.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className="flex h-6 max-w-48 shrink-0 items-center gap-1 rounded px-1.5 text-xs text-neutral-700 hover:bg-black/5"
-          title={item.url}
-          onClick={() => void window.browser.openBookmark(item.url)}
-        >
-          {item.favicon ? <img src={item.favicon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-sm object-cover" /> : <Star size={12} className="shrink-0 text-neutral-400" />}
-          <span className="truncate">{item.title || item.url}</span>
-        </button>
-      ))}
-      <span className="min-w-2 flex-1" />
-      <Button variant="ghost" size="icon-xs" className="shrink-0" title="管理书签" onClick={() => void window.browser.openBookmarksPage()}><MoreVertical /></Button>
-    </div>
   )
 }
 

@@ -196,6 +196,7 @@ export type LayerPayload =
   | { kind: 'settings'; section: '环境' | '抓包' | '通用' | '隐私' | '关于' }
   | { kind: 'workflow'; id: string }
   | { kind: 'tabs' }
+  | { kind: 'bookmarks'; x: number; y: number }
 
 export type Locator = { selector?: string; xpath?: string; pierce?: boolean }
 
