@@ -4,7 +4,8 @@ import { join } from 'path'
 import type { Bounds, WindowRuntime } from '../runtime'
 import { windows } from '../runtime'
 import { layoutWindow } from '../windows'
-import { sleep, withGridOverlay } from '../page'
+import { sleep } from '../page'
+import { drawGrid } from '../grid'
 import { withDebugger } from './debugger'
 import { storage } from './store'
 
@@ -95,19 +96,15 @@ function viewRect(view: WebContentsView): Bounds {
   return view.getBounds()
 }
 
-async function collectLayers(runtime: WindowRuntime, grid = 0): Promise<Layer[]> {
+async function collectLayers(runtime: WindowRuntime): Promise<Layer[]> {
   const layers: Layer[] = []
   const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
 
   if (active?.kind === 'page' && active.view && !active.error) {
-    const view = active.view
-    const image = grid
-      ? await withGridOverlay(active, grid, undefined, () => captureWebContents(view.webContents, false))
-      : await captureWebContents(view.webContents, false)
     layers.push({
       name: 'page',
-      image,
-      rect: viewRect(view)
+      image: await captureWebContents(active.view.webContents, false),
+      rect: viewRect(active.view)
     })
   }
 
@@ -149,11 +146,22 @@ export async function windowPreview(envId: string, grid = 0): Promise<{ path: st
   const scaleY = baseSize.height / Math.max(1, contentHeight)
 
   const canvas = Buffer.from(base.toBitmap())
-  const layers = await collectLayers(runtime, grid)
+  const layers = await collectLayers(runtime)
   for (const layer of layers) blend(canvas, baseSize.width, baseSize.height, layer, scaleX, scaleY)
 
-  const image = nativeImage.createFromBitmap(canvas, { width: baseSize.width, height: baseSize.height, scaleFactor: 1 })
+  let image = nativeImage.createFromBitmap(canvas, { width: baseSize.width, height: baseSize.height, scaleFactor: 1 })
   if (isEmpty(image)) throw new Error('合成预览失败')
+  if (grid > 0) {
+    const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
+    const rect = active?.view?.getBounds()
+    image = await drawGrid(runtime.win.webContents, image, {
+      step: grid,
+      offsetX: rect?.x ?? 0,
+      offsetY: rect?.y ?? 0,
+      spanWidth: contentWidth,
+      spanHeight: contentHeight
+    })
+  }
   const dir = storage.dir('screenshots')
   const path = join(dir, `preview-${Date.now()}.png`)
   const data = image.toPNG()
