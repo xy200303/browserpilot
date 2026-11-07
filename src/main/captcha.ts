@@ -182,7 +182,7 @@ export async function captchaPanelShot(tab: TabRuntime): Promise<CaptchaPanelSho
   await sleep(400)
   const probe = (await evalSource(tab, PANEL_PROBE)) as { rect?: [number, number, number, number]; vw: number; vh: number }
   if (!probe.rect) throw new Error('页面上没有验证码面板，先把验证码点出来再截图')
-  const shot = await screenshot(tab, storage.dir('screenshots'))
+  const shot = await screenshot(tab, storage.dir('screenshots'), 0)
   const image = nativeImage.createFromPath(shot.path)
   const scaleX = shot.width / probe.vw
   const scaleY = shot.height / probe.vh

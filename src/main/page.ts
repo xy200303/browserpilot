@@ -1659,7 +1659,7 @@ async function withGridOverlay<T>(
   }
 }
 
-export async function screenshot(tab: TabRuntime, dir: string, grid = 0): Promise<{ path: string; width: number; height: number }> {
+export async function screenshot(tab: TabRuntime, dir: string, grid = 100): Promise<{ path: string; width: number; height: number }> {
   await ensureActive(tab)
   return withGridOverlay(tab, grid, undefined, () => captureFull(tab, dir))
 }
@@ -2487,7 +2487,7 @@ export async function screenshotRegion(
   tab: TabRuntime,
   target: { locator?: Locator; rect?: { x: number; y: number; width: number; height: number } },
   dir: string,
-  grid = 0
+  grid = 100
 ): Promise<{ path: string; width: number; height: number; x: number; y: number; full: boolean }> {
   await ensureActive(tab)
   const wc = wcOf(tab)
