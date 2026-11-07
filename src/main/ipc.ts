@@ -6,6 +6,7 @@ import { DEFAULT_ENV, searchEngines } from '@shared/types'
 import { workflowPage } from '@shared/market'
 import type { StoredEnv } from './services/StorageService'
 import { storage } from './services/store'
+import { buildEnvPrompt, buildTabPrompt } from './services/PromptService'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate } from './services/RecordService'
 import { installMarketFile, installMarketUrl, listMarket } from './services/MarketService'
 import { downloadCopyLink, downloadOpen, downloadPause, downloadResume, downloadRetry, downloadShow, downloadCancel, downloadsClear, listDownloads } from './services/DownloadService'
@@ -39,6 +40,7 @@ import {
   showSuggestions,
   hideSuggestions,
   focusTabSearch,
+  closePopup,
   openRunsPage,
   openSettingsPage,
   openWorkflowPage,
@@ -202,11 +204,7 @@ export function wireIpc(): void {
       const box = rail.getBounds()
       next = { ...payload, x: payload.x + box.x, y: payload.y + box.y }
     }
-    runtime.popupPayload = next
-    runtime.suggestPayload = undefined
-    runtime.popupOpen = true
-    layoutWindow(runtime.envId)
-    runtime.popupView.webContents.send('layer:show', next)
+    showPopup(runtime, next)
   })
 
   ipcMain.handle('rail:open', (event, open: boolean) => {
@@ -229,11 +227,7 @@ export function wireIpc(): void {
 
   ipcMain.handle('layer:close', (event) => {
     const runtime = windowFromSender(event.sender)
-    if (!runtime) return
-    runtime.popupOpen = false
-    runtime.popupPayload = null
-    runtime.suggestPayload = undefined
-    layoutWindow(runtime.envId)
+    if (runtime) closePopup(runtime)
   })
 
   ipcMain.on('suggest:update', (event, payload: SuggestPayload) => {
@@ -384,51 +378,17 @@ export function wireIpc(): void {
     const tab = runtime?.tabs.find((item) => item.id === tabId)
     if (!runtime || !tab) return
     const env = storage.envs.find((item) => item.id === runtime.envId)
-    const name = env?.name || runtime.envId
-    const remark = env?.remark?.trim() || '未填写'
-    const lines = [
-      '你现在使用 BrowserPilot（给 Agent 用的本机浏览器）操作一个已经打开的标签页。',
-      '',
-      '软件名称：BrowserPilot',
-      '环境名称：' + name,
-      '环境编号：' + runtime.envId,
-      '环境备注：' + remark,
-      '标签编号：' + tab.id,
-      '标签标题：' + (tab.title || '未命名'),
-      '标签地址：' + (tab.url || '空')
-    ]
-    if (tab.kind === 'page') {
-      lines.push(
-        '',
-        '请直接用这个 tabId 调用 page_* / tab_* 工具，不要另开标签或切换环境。',
-        '需要等页面时用 page_wait，不要写死 sleep。',
-        '需要人登录、过验证码或确认时用 page_handoff，做完后调用 page_unlock。'
-      )
-    } else {
-      lines.push('', '这是 BrowserPilot 的内置页面，不是网页，不能用 page_* 操作；需要网页操作时先打开一个标签页。')
-    }
-    clipboard.writeText(lines.join('\n'))
+    clipboard.writeText(buildTabPrompt(
+      { id: runtime.envId, name: env?.name || runtime.envId, remark: env?.remark },
+      { id: tab.id, title: tab.title, url: tab.url, page: tab.kind === 'page' }
+    ))
   })
 
   ipcMain.handle('env:copy', (event) => {
     const runtime = windowFromSender(event.sender)
     if (!runtime) return
     const env = storage.envs.find((item) => item.id === runtime.envId)
-    const name = env?.name || runtime.envId
-    const remark = env?.remark?.trim() || '未填写'
-    const prompt = [
-      '你现在使用 BrowserPilot（给 Agent 用的本机浏览器）执行任务。',
-      '',
-      '软件名称：BrowserPilot',
-      '环境名称：' + name,
-      '环境编号：' + runtime.envId,
-      '环境备注：' + remark,
-      '',
-      '请通过 BrowserPilot 的 MCP 工具操作这套环境，不要另开 Chrome 或其它浏览器。',
-      '调用工具时传 env: "' + runtime.envId + '"；如果这套环境里已经有标签，也可以只传 tabId。',
-      '需要人登录、过验证码或确认时用 page_handoff，做完后调用 page_unlock。'
-    ].join('\n')
-    clipboard.writeText(prompt)
+    clipboard.writeText(buildEnvPrompt({ id: runtime.envId, name: env?.name || runtime.envId, remark: env?.remark }))
   })
 
   ipcMain.handle('env:create', async (_event, input: { name?: string; remark?: string }) => {

@@ -605,21 +605,29 @@ export function openBookmarksPage(runtime: WindowRuntime): TabRuntime {
   return openBuiltin(runtime, 'bookmarks', '书签', BOOKMARKS_PAGE)
 }
 
-export function showSuggestions(runtime: WindowRuntime, payload: SuggestPayload): void {
-  runtime.suggestPayload = payload
-  runtime.popupPayload = { kind: 'suggest' }
+function mountPopup(runtime: WindowRuntime, payload: LayerPayload): void {
+  runtime.popupPayload = payload
   runtime.popupOpen = true
   layoutWindow(runtime.envId)
-  runtime.popupView?.webContents.send('layer:show', { kind: 'suggest' })
+  runtime.popupView?.webContents.send('layer:show', payload)
+}
+
+export function closePopup(runtime: WindowRuntime): void {
+  runtime.popupOpen = false
+  runtime.popupPayload = null
+  runtime.suggestPayload = undefined
+  layoutWindow(runtime.envId)
+}
+
+export function showSuggestions(runtime: WindowRuntime, payload: SuggestPayload): void {
+  runtime.suggestPayload = payload
+  mountPopup(runtime, { kind: 'suggest' })
   runtime.popupView?.webContents.send('suggest:data', payload)
 }
 
 export function hideSuggestions(runtime: WindowRuntime): void {
   if (runtime.popupPayload?.kind !== 'suggest') return
-  runtime.popupOpen = false
-  runtime.popupPayload = null
-  runtime.suggestPayload = undefined
-  layoutWindow(runtime.envId)
+  closePopup(runtime)
   runtime.win.webContents.send('suggest:hide-ui')
 }
 
@@ -629,10 +637,7 @@ export function focusTabSearch(runtime: WindowRuntime): void {
 
 export function showPopup(runtime: WindowRuntime, payload: LayerPayload): void {
   runtime.suggestPayload = undefined
-  runtime.popupPayload = payload
-  runtime.popupOpen = true
-  layoutWindow(runtime.envId)
-  runtime.popupView?.webContents.send('layer:show', payload)
+  mountPopup(runtime, payload)
 }
 
 export function openRunsPage(runtime: WindowRuntime, workflowId?: string): TabRuntime {
