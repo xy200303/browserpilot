@@ -48,6 +48,7 @@ const api = {
   pinTab: (tabId: string): Promise<void> => ipcRenderer.invoke('tab:pin', tabId),
   copyTab: (tabId: string): Promise<void> => ipcRenderer.invoke('tab:copy', tabId),
   copyEnv: (): Promise<void> => ipcRenderer.invoke('env:copy'),
+  copyConnectPrompt: (): Promise<{ copied: boolean; url: string; file: string; cliPath: string }> => ipcRenderer.invoke('agent:connect'),
   createEnv: (input: { name?: string; remark?: string }): Promise<unknown> => ipcRenderer.invoke('env:create', input),
   openEnv: (envId: string): Promise<unknown> => ipcRenderer.invoke('env:open', envId),
   updateEnv: (input: { env: string; name?: string; remark?: string }): Promise<unknown> => ipcRenderer.invoke('env:update', input),

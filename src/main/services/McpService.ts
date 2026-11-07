@@ -15,6 +15,20 @@ function endpointFile(): string {
   return join(storage.userData(), 'mcp.json')
 }
 
+export function mcpConnectInfo(): { url: string; token: string; file: string; port: number } {
+  const file = endpointFile()
+  let url = `http://127.0.0.1:${storage.settings.port}/mcp`
+  let current = token
+  try {
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as { url?: string; token?: string }
+    if (saved.url) url = saved.url
+    if (saved.token) current = saved.token
+  } catch {
+    /* 还没起过服务，用内存里的 */
+  }
+  return { url, token: current, file, port: storage.settings.port }
+}
+
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []

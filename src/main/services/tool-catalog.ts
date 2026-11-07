@@ -14,6 +14,7 @@ import { clearPasswords } from './PasswordService'
 import { listPasswords } from './PasswordService'
 import { answerPendingDialog, dialogPolicy, pendingDialog, recentDialogs, setDialogPolicy } from '../dialogs'
 import { clearConsole, consoleFor } from '../console-log'
+import { connectInfo, copyConnectInfo } from './ConnectService'
 import { windowPreview } from './WindowPreviewService'
 import {
   activateTab,
@@ -1719,6 +1720,20 @@ tool('page_watch', '盯住一个元素，它的文字或位置变了就返回变
     if (now !== before) return { tabId: tabRef.id, changed: true, before, after: now, elapsed: (Date.now() - started) / 1000 }
   }
   return { tabId: tabRef.id, changed: false, before, timeout: timeout / 1000 }
+})
+
+tool('connect_info', '返回 BrowserPilot 的接入提示词：MCP 地址和口令、skill 安装地址、命令行用法。可以交给别的 Agent，也可以自己按它装 skill、注册 MCP。copy 为 true 时同时写进系统剪贴板。口令只在本机用，不要转发。', z.object({
+  copy: z.boolean().optional()
+}), async (args) => {
+  const data = args.copy ? await copyConnectInfo() : connectInfo()
+  return {
+    prompt: data.prompt,
+    url: data.url,
+    file: data.file,
+    cliPath: data.cliPath,
+    skillPath: data.skillPath,
+    copied: Boolean(args.copy)
+  }
 })
 
 tool('env_export', '把这套环境的登录（Cookie）导出成 JSON 文件，返回路径。不含 localStorage。文件里有完整 Cookie，只在本机用，不要发给别人。', z.object({ env: z.string() }), async (args) => {

@@ -49,3 +49,42 @@ export function buildTabPrompt(
   }
   return lines.join('\n')
 }
+
+export type ConnectInfo = {
+  url: string
+  token: string
+  file: string
+  skillUrl: string
+  skillPath?: string
+  cliPath: string
+  version?: string
+}
+
+export function buildConnectPrompt(info: ConnectInfo): string {
+  const lines = [
+    'BrowserPilot v' + (info.version || '') + ' 已装在本机。把它接到你身上，按下面做：',
+    '',
+    '1) 注册 MCP 服务（Streamable HTTP）：',
+    '   URL: ' + info.url,
+    '   Authorization: Bearer ' + info.token,
+    '   服务器名字用 browserpilot；只加这一条，我已有的其它 MCP 服务器不要动。',
+    '   同样的连接信息也写在本机：' + info.file + '。口令只在本机用，不要转发或贴到公开地方。',
+    '',
+    '2) 安装配套 skill：',
+    '   读取 ' + info.skillUrl + '，安装到你的用户级 skills 目录。'
+  ]
+  if (info.skillPath) lines.push('   本机也有一份：' + info.skillPath)
+  lines.push(
+    '',
+    '3) 命令行工具（MCP 不可用时）：' + info.cliPath,
+    '   browserpilot search 关键词                    # 搜工具',
+    '   browserpilot schema <工具>                    # 看参数',
+    '   browserpilot call <工具> --json-file args.json',
+    '',
+    '4) 装好后先调 env_list 确认连上，再按我的要求操作浏览器。',
+    '   需要人登录、过验证码或确认时用 page_handoff，做完调用 page_unlock。',
+    '',
+    '如果 MCP 里只看到少量工具，先调 search_tools 搜；也可以让我在设置 > 通用把「工具列表」切成「全部」。'
+  )
+  return lines.join('\n')
+}

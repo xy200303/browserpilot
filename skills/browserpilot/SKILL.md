@@ -34,6 +34,8 @@ browserpilot call workflow_run --json-file args.json
 
 ## 找工具
 
+需要把 BrowserPilot 介绍给别的 Agent 时，调 `connect_info`：返回一段接入提示词（MCP 地址和口令、skill 安装地址、命令行用法），`copy: true` 会同时写进剪贴板。口令只在本机用，不要转发。
+
 工具默认按需加载：一开始只看到核心工具，其它先 `search_tools` 搜——`query` 会匹配名称、描述和分组，多个词用空格分隔（全部命中才算），`page` / `page_size` 翻页，传 `name` 取单个工具的完整定义。结果里带参数 schema，查到后直接用 name 调用，不用猜参数。
 
 命令行用 `browserpilot search 关键词 [--page N] [--page-size N] [--json]` 搜，`browserpilot tools` 始终列全量；设置 > 通用里的「工具列表」可以切回「全部」，让所有工具一次出现在上下文里。

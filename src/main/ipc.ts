@@ -7,6 +7,7 @@ import { storage } from './services/store'
 import { buildEnvPrompt, buildTabPrompt } from './services/PromptService'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate } from './services/RecordService'
 import { installMarketFile, installMarketUrl, listMarket } from './services/MarketService'
+import { copyConnectInfo } from './services/ConnectService'
 import { downloadCopyLink, downloadOpen, downloadPause, downloadResume, downloadRetry, downloadShow, downloadCancel, downloadTargetDir, downloadsClear } from './services/DownloadService'
 import { windows } from './runtime'
 import { bridge } from './runtime'
@@ -397,6 +398,11 @@ export function wireIpc(): void {
     storage.saveSettings()
     broadcast()
     return { canceled: false, dir: picked.filePaths[0] }
+  })
+
+  ipcMain.handle('agent:connect', async () => {
+    const data = await copyConnectInfo()
+    return { copied: true, url: data.url, file: data.file, cliPath: data.cliPath }
   })
 
   ipcMain.handle('settings:update', async (_event, patch: Partial<Settings>) => {

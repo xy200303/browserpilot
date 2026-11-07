@@ -30,6 +30,7 @@ export type BrowserApi = {
   pinTab: (tabId: string) => Promise<void>
   copyTab: (tabId: string) => Promise<void>
   copyEnv: () => Promise<void>
+  copyConnectPrompt: () => Promise<{ copied: boolean; url: string; file: string; cliPath: string }>
   createEnv: (input: { name?: string; remark?: string }) => Promise<unknown>
   openEnv: (envId: string) => Promise<unknown>
   updateEnv: (input: { env: string; name?: string; remark?: string }) => Promise<unknown>

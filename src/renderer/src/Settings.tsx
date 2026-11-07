@@ -499,6 +499,9 @@ function General({ state }: { state: UiState }) {
             </SelectContent>
           </Select>
         </Row>
+        <Row title="接入 Agent" detail="复制一段提示词给 Agent：里面带 MCP 地址和口令、skill 和命令行工具的安装方法。">
+          <Button variant="outline" size="sm" onClick={() => void window.browser.copyConnectPrompt()}>复制提示词</Button>
+        </Row>
         <Row title="MCP" detail="只听 127.0.0.1。关掉后再打开会换一次端口上的服务。">
           <Switch checked={settings.mcpEnabled} onCheckedChange={(mcpEnabled) => void window.browser.updateSettings({ mcpEnabled })} />
         </Row>
