@@ -90,6 +90,8 @@ export type SuggestPayload = {
   highlight: number
   filters: SuggestionFilters
   query: string
+  left: number
+  width: number
 }
 
 export type TabError = { code: number; description: string; url: string }

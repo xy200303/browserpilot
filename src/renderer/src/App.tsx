@@ -449,7 +449,15 @@ function AddressBar({
       return
     }
     suggestOpenRef.current = true
-    window.browser.updateSuggestions({ items: suggestions, highlight, filters, query: address })
+    const rect = formRef.current?.getBoundingClientRect()
+    window.browser.updateSuggestions({
+      items: suggestions,
+      highlight,
+      filters,
+      query: address,
+      left: rect?.left ?? 8,
+      width: rect?.width ?? window.innerWidth - 16
+    })
   }, [suggestOpen, builtin, suggestions, highlight, filters, address])
 
   useEffect(() => {

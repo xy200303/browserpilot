@@ -191,7 +191,7 @@ function suggestionKindLabel(kind: AddressSuggestion['kind']): string {
 
 function SuggestionsPanel({ data }: { data: SuggestPayload }) {
   return (
-    <div className="absolute inset-x-0 top-0 overflow-hidden border-b border-neutral-200 bg-white shadow-lg">
+    <div className="absolute top-0 overflow-hidden border-b border-neutral-200 bg-white shadow-lg" style={{ left: data.left, width: data.width }}>
       <div className="max-h-[70vh] overflow-y-auto">
         {data.items.length === 0 && <p className="px-4 py-8 text-center text-sm text-neutral-500">没有匹配的记录</p>}
         {data.items.map((item, index) => (
