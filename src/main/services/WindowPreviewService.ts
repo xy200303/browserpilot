@@ -152,12 +152,9 @@ export async function windowPreview(envId: string, grid = 0): Promise<{ path: st
   let image = nativeImage.createFromBitmap(canvas, { width: baseSize.width, height: baseSize.height, scaleFactor: 1 })
   if (isEmpty(image)) throw new Error('合成预览失败')
   if (grid > 0) {
-    const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
-    const rect = active?.view?.getBounds()
+    // 整窗预览是给 GUI 自动化用的：坐标原点就是窗口左上角
     image = await drawGrid(runtime.win.webContents, image, {
       step: grid,
-      offsetX: rect?.x ?? 0,
-      offsetY: rect?.y ?? 0,
       spanWidth: contentWidth,
       spanHeight: contentHeight
     })

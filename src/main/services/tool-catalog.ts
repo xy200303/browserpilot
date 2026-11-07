@@ -1324,7 +1324,7 @@ tool('screen_start', '开始把这扇有头窗口录成视频。maxSeconds 到�
   return { env: envId, maxSeconds: seconds }
 })
 
-tool('window_preview', '把主界面、网页、遮罩和弹层合成一张整窗预览图。包含标签栏、地址栏和正在显示的弹层。默认在网页区域叠加 100px 坐标网格（grid: false 或 0 关闭，数字改间距），刻度是网页视口 CSS 像素。返回图片、路径和像素宽高；这是合成预览，不是系统级窗口截图。页面坐标换算仍用 page_screenshot。', z.object({
+tool('window_preview', '把主界面、网页、遮罩和弹层合成一张整窗预览图。包含标签栏、地址栏和正在显示的弹层。默认叠加 100px 坐标网格（grid: false 或 0 关闭，数字改间距），刻度是整窗 CSS 像素、0 在窗口左上角，给 GUI 自动化用；点网页仍然用 page_screenshot 的视口坐标。返回图片、路径和像素宽高；这是合成预览，不是系统级窗口截图。', z.object({
   env: env,
   grid: z.union([z.boolean(), z.number()]).optional()
 }), async (args) => {

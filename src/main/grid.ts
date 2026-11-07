@@ -2,7 +2,7 @@ import { nativeImage, type NativeImage, type WebContents } from 'electron'
 
 export type GridDrawOptions = {
   step: number
-  // 网格坐标原点在图片里的位置（CSS 像素）；网页截图为 0，整窗预览是网页在窗口里的偏移
+  // 网格坐标原点的偏移（CSS 像素）；每种截图都以自己的左上角为 0，一般不用传
   offsetX?: number
   offsetY?: number
   // 这张图覆盖的 CSS 尺寸，用来把图片像素换算回 CSS 坐标

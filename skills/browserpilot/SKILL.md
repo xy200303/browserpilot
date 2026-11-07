@@ -62,7 +62,7 @@ browserpilot call workflow_run --json-file args.json
 
 网页里的下载（按钮、链接触发的）会被接管到本机下载目录，重名自动加序号。点完之后用 `download_list` 查文件落到哪：每条给 `name`、`path`、`state`、`bytes`，加 `wait`（秒，最长 120）会等下载结束再返回，别自己 sleep。下载过程用 `download_action` 管：open 打开文件、show 在文件夹里显示、copy 复制链接、pause / resume 暂停继续、cancel 取消、retry 重试失败的（仅 http/https）、remove 从列表移除（不删文件）、clear 清掉已结束的记录；除 clear 外都传 id。改下载目录用 `download_dir`（`dir` 传绝对路径，传 `default` 恢复默认；不带 `dir` 只查）。`page_save_media` / `page_record_video` 的 `savePath` 可以传文件路径，也可以传一个已存在的目录，文件会按默认命名存进去。
 
-截图默认带 100px 红色坐标网格和刻度（`page_screenshot` 和 `window_preview` 都适用，整窗预览只画网页区域），刻度就是点击用的视口 CSS 像素，照着读数直接用 `x`/`y` 点；传 `grid: false` 或 `0` 关闭，传数字改间距（10–500）。网格只画在生成的图片里，截完会移除，不影响页面。
+截图默认带 100px 红色坐标网格和刻度（两种图各用自己的坐标：`page_screenshot` 的刻度是页面视口坐标，`window_preview` 的刻度是整窗坐标、0 在窗口左上角），刻度就是点击用的视口 CSS 像素，照着读数直接用 `x`/`y` 点；传 `grid: false` 或 `0` 关闭，传数字改间距（10–500）。网格只画在生成的图片里，截完会移除，不影响页面。
 
 `page_screenshot` 只截网页视口，不含地址栏、标签栏和遮罩。图片会作为 MCP image 内容直接返回，你能看到画面；同时返回 `path`、`width`、`height`、`bytes`，图太大时只给路径。要看整窗画面用 `window_preview`：它把主界面、网页、遮罩、交接提示和弹层合成一张图，返回图片、路径和像素宽高。它是合成预览，不是系统级窗口截图；只对有头窗口有效。页面坐标换算仍用 `page_screenshot`。0.13.13 及更早的版本没有图片内容、`window_preview` 和 `screen_status`，以实际 `tools` 列表为准。
 
