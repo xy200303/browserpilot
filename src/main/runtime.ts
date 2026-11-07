@@ -13,13 +13,14 @@ export type TabRuntime = {
   id: string
   envId: string
   groupId: string | null
-  kind: 'page' | 'settings' | 'market' | 'workflow' | 'downloads' | 'runs' | 'history'
+  kind: 'page' | 'settings' | 'market' | 'workflow' | 'downloads' | 'runs' | 'history' | 'bookmarks'
   title: string
   url: string
   favicon?: string
   loading: boolean
   progress: number
   error?: TabError
+  hibernated?: boolean
   pinned?: boolean
   muted?: boolean
   audible?: boolean

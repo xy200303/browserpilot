@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Info, Layers, Plus, Radio, Search, SlidersHorizontal, X } from 'lucide-react'
+import { Info, Layers, Plus, Radio, Search, Shield, SlidersHorizontal, X } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import { searchEngines, type SearchEngineId, type TabLayout, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { cn } from 'cn'
 
-const sections = ['环境', '抓包', '通用', '关于'] as const
+const sections = ['环境', '抓包', '通用', '隐私', '关于'] as const
 type Section = (typeof sections)[number]
 type Env = UiState['envs'][number]
 
@@ -18,6 +18,7 @@ const icons = {
   环境: Layers,
   抓包: Radio,
   通用: SlidersHorizontal,
+  隐私: Shield,
   关于: Info
 }
 
@@ -64,6 +65,7 @@ function SettingsDialog({ state, initial }: { state: UiState; initial: Section }
         {section === '环境' && <EnvPage state={state} />}
         {section === '抓包' && <div className="h-full overflow-y-auto"><Captures state={state} /></div>}
         {section === '通用' && <div className="h-full overflow-y-auto"><General state={state} /></div>}
+        {section === '隐私' && <div className="h-full overflow-y-auto"><Privacy state={state} /></div>}
         {section === '关于' && <div className="h-full overflow-y-auto"><About state={state} /></div>}
       </div>
     </div>
@@ -277,6 +279,87 @@ function Captures({ state }: { state: UiState }) {
         ))}
       </Card>
     </section>
+  )
+}
+
+function permissionLabel(permission: string): string {
+  if (permission === 'media') return '摄像头 / 麦克风'
+  if (permission === 'geolocation') return '位置'
+  if (permission === 'notifications') return '通知'
+  if (permission === 'clipboard-read') return '剪贴板'
+  if (permission === 'display-capture') return '屏幕共享'
+  if (permission === 'midiSysex') return 'MIDI 设备'
+  if (permission === 'pointerLock') return '鼠标锁定'
+  if (permission === 'fullscreen') return '全屏'
+  if (permission === 'openExternal') return '打开外部应用'
+  return permission
+}
+
+function Privacy({ state }: { state: UiState }) {
+  const [history, setHistory] = useState(true)
+  const [cookies, setCookies] = useState(true)
+  const [cache, setCache] = useState(true)
+  const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const clear = async (): Promise<void> => {
+    setBusy(true)
+    await window.browser.clearData({ history, cookies, cache })
+    setBusy(false)
+    setConfirm(false)
+    setMessage('已清除所选数据。')
+  }
+
+  return (
+    <div className="mx-auto max-w-2xl px-5 py-5">
+      <h1 className="text-lg font-semibold">隐私与数据</h1>
+      <p className="mt-1 text-xs text-muted-foreground">只影响当前环境「{state.envName}」。</p>
+
+      <section className="mt-5 rounded-xl border p-4">
+        <h2 className="text-sm font-medium">清除浏览数据</h2>
+        <div className="mt-3 grid gap-2 text-sm">
+          <label className="flex items-center gap-2"><input type="checkbox" className="accent-neutral-900" checked={history} onChange={(event) => setHistory(event.target.checked)} />浏览历史</label>
+          <label className="flex items-center gap-2"><input type="checkbox" className="accent-neutral-900" checked={cookies} onChange={(event) => setCookies(event.target.checked)} />Cookie 与站点数据</label>
+          <label className="flex items-center gap-2"><input type="checkbox" className="accent-neutral-900" checked={cache} onChange={(event) => setCache(event.target.checked)} />缓存</label>
+        </div>
+        {!confirm ? (
+          <Button type="button" variant="outline" className="mt-4" onClick={() => setConfirm(true)}>清除所选数据</Button>
+        ) : (
+          <div className="mt-4 flex gap-2">
+            <Button type="button" variant="destructive" disabled={busy} onClick={() => void clear()}>{busy ? '正在清除…' : '确认清除'}</Button>
+            <Button type="button" variant="ghost" onClick={() => setConfirm(false)}>取消</Button>
+          </div>
+        )}
+        <p className="mt-3 text-xs text-muted-foreground">清除 Cookie 会让这个环境里的网站退出登录；缓存清了以后页面需要重新加载。</p>
+        {message && <p className="mt-2 text-xs text-green-600">{message}</p>}
+      </section>
+
+      <section className="mt-5 rounded-xl border p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-medium">站点权限</h2>
+          {state.permissions.length > 0 && (
+            <Button type="button" variant="outline" size="sm" onClick={() => void window.browser.clearPermissions()}>清除全部</Button>
+          )}
+        </div>
+        {state.permissions.length === 0 ? (
+          <p className="mt-3 text-xs text-muted-foreground">还没有记住的站点权限。</p>
+        ) : (
+          <div className="mt-3 divide-y divide-neutral-100">
+            {state.permissions.map((rule) => (
+              <div key={rule.id} className="flex items-center gap-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm">{rule.origin}</p>
+                  <p className="text-xs text-muted-foreground">{permissionLabel(rule.permission)} · {rule.decision === 'allow' ? '允许' : '拒绝'}</p>
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={() => void window.browser.revokePermission(rule.id)}>撤销</Button>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="mt-3 text-xs text-muted-foreground">页面请求摄像头、麦克风、通知、位置时，会弹系统对话框；勾选「记住这次选择」后出现在这里。</p>
+      </section>
+    </div>
   )
 }
 

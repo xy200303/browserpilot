@@ -30,6 +30,12 @@ import {
   openMarket,
   openDownloadsPage,
   openHistoryPage,
+  openBookmarksPage,
+  openBookmark,
+  toggleBookmark,
+  hibernateTab,
+  hibernateOtherTabs,
+  showPopup,
   openRunsPage,
   openSettingsPage,
   openWorkflowPage,
@@ -87,6 +93,7 @@ export async function buildState(runtime: WindowRuntime): Promise<UiState> {
       pinned: Boolean(tab.pinned),
       muted: Boolean(tab.muted),
       audible: Boolean(tab.audible),
+      hibernated: Boolean(tab.hibernated),
       control: tab.control === 'handoff' ? 'handoff' : tab.control === 'agent' ? 'agent' : 'shared'
     })),
     groups: storage.groups
@@ -110,6 +117,8 @@ export async function buildState(runtime: WindowRuntime): Promise<UiState> {
     screenRecording: runtime.screenRecording,
     handoffMessage: active?.control === 'handoff' ? active.handoffMessage : '',
     settings: storage.settings,
+    bookmarks: storage.bookmarksFor(runtime.envId),
+    permissions: storage.permissionsFor(runtime.envId),
     version: app.getVersion(),
     maximized: runtime.win.isMaximized(),
     railPinned: runtime.railPinned,
@@ -229,6 +238,12 @@ export function wireIpc(): void {
     const target = normalizeUrl(url)
     if (!active) {
       addTab(runtime, target)
+      return
+    }
+    if (active.hibernated) {
+      active.hibernated = false
+      active.url = target
+      restoreTabView(active)
       return
     }
     await active.view?.webContents.loadURL(target)
@@ -502,6 +517,79 @@ export function wireIpc(): void {
   ipcMain.handle('history:open', (event, url: string) => {
     const runtime = windowFromSender(event.sender)
     if (runtime) addTab(runtime, url)
+  })
+
+  ipcMain.handle('menu:bookmarks', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) openBookmarksPage(runtime)
+  })
+
+  ipcMain.handle('menu:tabSearch', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) showPopup(runtime, { kind: 'tabs' })
+  })
+
+  ipcMain.handle('bookmarks:toggle', (event) => {
+    const runtime = windowFromSender(event.sender)
+    const tab = runtime?.tabs.find((item) => item.id === runtime.activeTabId && item.kind === 'page')
+    if (!runtime || !tab) return { bookmarked: false }
+    return { bookmarked: toggleBookmark(runtime, tab) }
+  })
+
+  ipcMain.handle('bookmarks:delete', (event, id: string) => {
+    storage.removeBookmark(id)
+    const runtime = windowFromSender(event.sender)
+    if (runtime) bridge.broadcast(runtime.envId)
+  })
+
+  ipcMain.handle('bookmarks:clear', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (!runtime) return
+    storage.clearBookmarks(runtime.envId)
+    bridge.broadcast(runtime.envId)
+  })
+
+  ipcMain.handle('bookmarks:open', (event, url: string) => {
+    const runtime = windowFromSender(event.sender)
+    if (runtime) openBookmark(runtime, url)
+  })
+
+  ipcMain.handle('permissions:revoke', (event, id: string) => {
+    storage.revokePermission(id)
+    const runtime = windowFromSender(event.sender)
+    if (runtime) bridge.broadcast(runtime.envId)
+  })
+
+  ipcMain.handle('permissions:clear', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (!runtime) return
+    storage.clearPermissions(runtime.envId)
+    bridge.broadcast(runtime.envId)
+  })
+
+  ipcMain.handle('data:clear', async (event, options: { history?: boolean; cookies?: boolean; cache?: boolean }) => {
+    const runtime = windowFromSender(event.sender)
+    if (!runtime) return { ok: false }
+    if (options.history) storage.clearHistory(runtime.envId)
+    const ses = session.fromPartition(`persist:${runtime.envId}`)
+    if (options.cookies) {
+      await ses.clearStorageData({
+        storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage', 'serviceworkers', 'shadercache', 'filesystem']
+      })
+    }
+    if (options.cache) await ses.clearCache()
+    bridge.broadcast(runtime.envId)
+    return { ok: true }
+  })
+
+  ipcMain.handle('tab:hibernate', (event, tabId: string) => {
+    const runtime = windowFromSender(event.sender)
+    return { ok: runtime ? hibernateTab(runtime, tabId) : false }
+  })
+
+  ipcMain.handle('tab:hibernateOthers', (event) => {
+    const runtime = windowFromSender(event.sender)
+    return { count: runtime ? hibernateOtherTabs(runtime) : 0 }
   })
 
   ipcMain.handle('workflow:runsPage', (event, id: string) => {

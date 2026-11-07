@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Download, FolderOpen, Minus, MoreVertical, Plus, RotateCw, Square, TriangleAlert, Volume2, VolumeX, Workflow, X } from 'lucide-react'
-import { searchEngineOf, type DownloadItem, type TabInfo, type UiState } from '../../shared/types'
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from 'react'
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Clock3, Download, FolderOpen, Minus, Moon, MoreVertical, Plus, RotateCw, Square, Star, TriangleAlert, Volume2, VolumeX, Workflow, X } from 'lucide-react'
+import { searchEngineOf, type DownloadItem, type HistoryEntry, type TabInfo, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { MarketPage } from './MarketPage'
 import { SettingsPage } from './Settings'
@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { DownloadsPage } from './DownloadsPage'
 import { RunsPage } from './RunsPage'
 import { HistoryPage } from './HistoryPage'
+import { BookmarksPage } from './BookmarksPage'
 
 let recorder: MediaRecorder | null = null
 let recordChunks: Blob[] = []
@@ -108,7 +109,7 @@ export function App() {
 
   useEffect(() => {
     if (active?.kind === 'page') setAddress(active.url.startsWith('data:') ? '' : active.url)
-    if (active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow' || active?.kind === 'downloads' || active?.kind === 'runs' || active?.kind === 'history') setAddress('')
+    if (active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow' || active?.kind === 'downloads' || active?.kind === 'runs' || active?.kind === 'history' || active?.kind === 'bookmarks') setAddress('')
   }, [active?.id, active?.url, active?.kind])
 
   useEffect(() => {
@@ -134,6 +135,7 @@ export function App() {
     <div className="flex h-full flex-col">
       <TitleRow state={state} />
       <AddressBar state={state} active={active} address={address} setAddress={setAddress} addressRef={addressRef} onReloadBuiltin={bumpReload} />
+      <BookmarksBar state={state} />
       {state.handoffMessage && <div className="bg-amber-50 px-4 py-2 text-sm text-amber-900">{state.handoffMessage}</div>}
       {findOpen && <FindBar findText={findText} setFindText={setFindText} setFindOpen={setFindOpen} />}
       <PageSurface state={state} active={active} contentRef={contentRef} reloadKey={active ? reloads[active.id] ?? 0 : 0} />
@@ -270,6 +272,7 @@ function addressPlaceholder(active: TabInfo | undefined, engineName: string): st
   if (active?.kind === 'downloads') return '下载'
   if (active?.kind === 'runs') return '运行记录'
   if (active?.kind === 'history') return '历史记录'
+  if (active?.kind === 'bookmarks') return '书签'
   if (active?.kind === 'workflow') return active.title
   return `在${engineName}中搜索，或输入网址`
 }
@@ -311,52 +314,182 @@ function AddressBar({
   addressRef: RefObject<HTMLInputElement | null>
   onReloadBuiltin: (tabId: string) => void
 }) {
-  const builtin = active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow' || active?.kind === 'downloads' || active?.kind === 'runs' || active?.kind === 'history'
+  const builtin = active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow' || active?.kind === 'downloads' || active?.kind === 'runs' || active?.kind === 'history' || active?.kind === 'bookmarks'
+  const bookmarked = active?.kind === 'page' && state.bookmarks.some((item) => item.url === active.url)
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [suggestOpen, setSuggestOpen] = useState(false)
+  const [highlight, setHighlight] = useState(-1)
+
+  const suggestions = useMemo(() => {
+    const keyword = address.trim().toLowerCase()
+    const source = [
+      ...state.bookmarks.map((item) => ({ key: `bm:${item.id}`, title: item.title || item.url, url: item.url, favicon: item.favicon, kind: 'bookmark' as const })),
+      ...history.map((item) => ({ key: `h:${item.id}`, title: item.title || item.url, url: item.url, favicon: item.favicon, kind: 'history' as const }))
+    ]
+    const seen = new Set<string>()
+    const filtered = source.filter((item) => {
+      if (seen.has(item.url)) return false
+      seen.add(item.url)
+      if (!keyword) return true
+      return item.title.toLowerCase().includes(keyword) || item.url.toLowerCase().includes(keyword)
+    })
+    if (!keyword) return filtered.slice(0, 7)
+    const score = (item: (typeof filtered)[number]): number =>
+      (item.url.toLowerCase().startsWith(keyword) ? 3 : 0) +
+      (item.title.toLowerCase().startsWith(keyword) ? 2 : 0) +
+      (item.kind === 'bookmark' ? 1 : 0)
+    return filtered.sort((a, b) => score(b) - score(a)).slice(0, 7)
+  }, [address, history, state.bookmarks])
+
+  const loadHistory = (): void => {
+    void window.browser.listHistory().then(setHistory).catch(() => undefined)
+  }
+  const choose = (url: string): void => {
+    setAddress(url)
+    setSuggestOpen(false)
+    setHighlight(-1)
+    void window.browser.navigate(url)
+  }
+
+  useEffect(() => {
+    setSuggestOpen(false)
+    setHighlight(-1)
+  }, [active?.id, active?.url])
+
   return (
-    <div className="relative flex h-12 items-center gap-1 bg-[#f3f3f3] px-2">
-      <Button variant="ghost" size="icon" className="no-drag" title="后退" disabled={!state.canBack} onClick={() => void window.browser.back()}><ArrowLeft /></Button>
-      <Button variant="ghost" size="icon" className="no-drag" title="前进" disabled={!state.canForward} onClick={() => void window.browser.forward()}><ArrowRight /></Button>
-      <Button variant="ghost" size="icon" className="no-drag" title={active?.loading ? '停止加载' : '刷新'} onClick={() => {
-        if (active?.loading) {
-          void window.browser.stop()
-          return
-        }
-        if (active && active.kind !== 'page') onReloadBuiltin(active.id)
-        else void window.browser.reload()
-      }}>{active?.loading ? <X /> : <RotateCw />}</Button>
-      <form
-        className="mx-1 flex min-w-0 flex-1 items-center gap-2"
-        onSubmit={(event) => {
-          event.preventDefault()
-          void window.browser.navigate(address)
-        }}
-      >
-        {!builtin && <SearchEngineIcon id={state.settings.searchEngine} />}
-        <Input
-          ref={addressRef}
-          value={address}
-          onChange={(event) => setAddress(event.target.value)}
-          onFocus={(event) => event.currentTarget.select()}
-          placeholder={addressPlaceholder(active, searchEngineOf(state.settings.searchEngine).name)}
-          readOnly={builtin}
-        />
-      </form>
-      <LoadProgress tab={active} />
-      <Button variant="ghost" size="icon" className="no-drag relative" title="下载" onClick={() => void window.browser.openDownloads()}><Download />{state.downloads.some((d) => d.state === 'progressing') && <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-blue-600" />}</Button>
-      <Button variant="ghost" className="no-drag" title="工作流" onClick={() => void window.browser.openMarket()}><Workflow />工作流</Button>
-      {state.screenRecording && <span className="rounded-md bg-destructive px-1.5 py-0.5 text-xs text-white">录屏</span>}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="no-drag"
-        title="菜单"
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect()
-          void window.browser.openLayer({ kind: 'menu', x: rect.right, y: rect.bottom })
-        }}
-      >
-        <MoreVertical />
-      </Button>
+    <>
+      <div className="relative flex h-12 items-center gap-1 bg-[#f3f3f3] px-2">
+        <Button variant="ghost" size="icon" className="no-drag" title="后退" disabled={!state.canBack} onClick={() => void window.browser.back()}><ArrowLeft /></Button>
+        <Button variant="ghost" size="icon" className="no-drag" title="前进" disabled={!state.canForward} onClick={() => void window.browser.forward()}><ArrowRight /></Button>
+        <Button variant="ghost" size="icon" className="no-drag" title={active?.loading ? '停止加载' : '刷新'} onClick={() => {
+          if (active?.loading) {
+            void window.browser.stop()
+            return
+          }
+          if (active && active.kind !== 'page') onReloadBuiltin(active.id)
+          else void window.browser.reload()
+        }}>{active?.loading ? <X /> : <RotateCw />}</Button>
+        <form
+          className="mx-1 flex min-w-0 flex-1 items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (highlight >= 0 && suggestions[highlight]) {
+              choose(suggestions[highlight].url)
+              return
+            }
+            setSuggestOpen(false)
+            void window.browser.navigate(address)
+          }}
+        >
+          {!builtin && <SearchEngineIcon id={state.settings.searchEngine} />}
+          <Input
+            ref={addressRef}
+            value={address}
+            onChange={(event) => {
+              setAddress(event.target.value)
+              setHighlight(-1)
+              if (!builtin) setSuggestOpen(true)
+            }}
+            onFocus={(event) => {
+              event.currentTarget.select()
+              if (builtin) return
+              loadHistory()
+              setSuggestOpen(true)
+            }}
+            onBlur={() => {
+              setTimeout(() => setSuggestOpen(false), 120)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                setSuggestOpen(true)
+                setHighlight((current) => Math.min(current + 1, suggestions.length - 1))
+                return
+              }
+              if (event.key === 'ArrowUp') {
+                event.preventDefault()
+                setHighlight((current) => Math.max(current - 1, -1))
+                return
+              }
+              if (event.key === 'Escape') {
+                setSuggestOpen(false)
+                setHighlight(-1)
+                return
+              }
+              if (event.key === 'Enter' && highlight >= 0 && suggestions[highlight]) {
+                event.preventDefault()
+                choose(suggestions[highlight].url)
+              }
+            }}
+            placeholder={addressPlaceholder(active, searchEngineOf(state.settings.searchEngine).name)}
+            readOnly={builtin}
+          />
+        </form>
+        <LoadProgress tab={active} />
+        <Button variant="ghost" size="icon" className="no-drag" title={bookmarked ? '取消书签' : '添加书签'} onClick={() => void window.browser.toggleBookmark()}><Star fill={bookmarked ? 'currentColor' : 'none'} className={bookmarked ? 'text-amber-500' : ''} /></Button>
+        <Button variant="ghost" size="icon" className="no-drag relative" title="下载" onClick={() => void window.browser.openDownloads()}><Download />{state.downloads.some((d) => d.state === 'progressing') && <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-blue-600" />}</Button>
+        <Button variant="ghost" className="no-drag" title="工作流" onClick={() => void window.browser.openMarket()}><Workflow />工作流</Button>
+        {state.screenRecording && <span className="rounded-md bg-destructive px-1.5 py-0.5 text-xs text-white">录屏</span>}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="no-drag"
+          title="菜单"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            void window.browser.openLayer({ kind: 'menu', x: rect.right, y: rect.bottom })
+          }}
+        >
+          <MoreVertical />
+        </Button>
+      </div>
+      {suggestOpen && !builtin && suggestions.length > 0 && (
+        <div
+          className="mx-2 max-h-72 overflow-y-auto overflow-x-hidden rounded-b-lg border border-t-0 border-neutral-200 bg-white shadow-sm"
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          {suggestions.map((item, index) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`flex w-full items-center gap-2 px-3 py-2 text-left ${index === highlight ? 'bg-neutral-100' : 'hover:bg-neutral-50'}`}
+              onMouseEnter={() => setHighlight(index)}
+              onClick={() => choose(item.url)}
+            >
+              <span className="grid h-4 w-4 shrink-0 place-items-center">
+                {item.kind === 'bookmark' ? <Star size={13} className="text-amber-500" /> : <Clock3 size={13} className="text-neutral-400" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-neutral-900">{item.title}</span>
+                <span className="block truncate text-xs text-neutral-400">{item.url}</span>
+              </span>
+              <span className="shrink-0 text-[10px] text-neutral-400">{item.kind === 'bookmark' ? '书签' : '历史'}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+function BookmarksBar({ state }: { state: UiState }) {
+  if (state.bookmarks.length === 0) return null
+  return (
+    <div className="flex h-8 shrink-0 items-center gap-1 overflow-x-auto border-b border-neutral-200 bg-[#f3f3f3] px-2">
+      {state.bookmarks.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className="flex h-6 max-w-48 shrink-0 items-center gap-1 rounded px-1.5 text-xs text-neutral-700 hover:bg-black/5"
+          title={item.url}
+          onClick={() => void window.browser.openBookmark(item.url)}
+        >
+          {item.favicon ? <img src={item.favicon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-sm object-cover" /> : <Star size={12} className="shrink-0 text-neutral-400" />}
+          <span className="truncate">{item.title || item.url}</span>
+        </button>
+      ))}
+      <span className="min-w-2 flex-1" />
+      <Button variant="ghost" size="icon-xs" className="shrink-0" title="管理书签" onClick={() => void window.browser.openBookmarksPage()}><MoreVertical /></Button>
     </div>
   )
 }
@@ -445,6 +578,11 @@ function PageSurface({ state, active, contentRef, reloadKey }: { state: UiState;
             <HistoryPage key={reloadKey} />
           </div>
         )}
+        {active?.kind === 'bookmarks' && (
+          <div className="absolute inset-0 overflow-hidden bg-white">
+            <BookmarksPage key={reloadKey} state={state} />
+          </div>
+        )}
         {active?.kind === 'settings' && (
           <div className="absolute inset-0 overflow-hidden bg-white">
             <SettingsPage key={reloadKey} state={state} />
@@ -479,6 +617,7 @@ function WorkflowPage({ state, tab }: { state: UiState; tab: TabInfo }) {
 
 function TabIcon({ tab }: { tab: TabInfo }) {
   const [broken, setBroken] = useState(false)
+  if (tab.hibernated) return <Moon size={15} className="shrink-0 text-neutral-400" />
   if (tab.favicon && !broken) {
     return <img key={tab.favicon} src={tab.favicon} alt="" className="h-4 w-4 shrink-0 rounded-sm object-cover" onError={() => setBroken(true)} />
   }

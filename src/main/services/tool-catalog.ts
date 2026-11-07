@@ -244,6 +244,10 @@ tool('env_delete', '关掉这套环境的窗口并清掉登录。默认环境不
   storage.groups = storage.groups.filter((item) => item.envId !== id)
   storage.saveEnvs()
   storage.saveGroups()
+  storage.clearSession(id)
+  storage.clearHistory(id)
+  storage.clearBookmarks(id)
+  storage.clearPermissions(id)
   return { env: id }
 })
 

@@ -8,6 +8,9 @@ import {
   type GroupInfo,
   type WorkflowApp,
   type HistoryEntry,
+  type BookmarkEntry,
+  type PermissionRule,
+  type SessionState,
   type Settings
 } from '@shared/types'
 import { createId, rememberId } from '../ids'
@@ -65,6 +68,9 @@ export class StorageService {
   runs: RunLog[] = []
   settings: Settings = defaultSettings()
   history: HistoryEntry[] = []
+  bookmarks: BookmarkEntry[] = []
+  permissions: PermissionRule[] = []
+  sessions: Record<string, SessionState> = {}
 
   load(): void {
     mkdirSync(app.getPath('userData'), { recursive: true })
@@ -84,6 +90,13 @@ export class StorageService {
     this.history = readJson<HistoryEntry[]>('history.json', [])
       .filter((item) => item && typeof item.id === 'string' && typeof item.envId === 'string' && typeof item.url === 'string' && typeof item.title === 'string' && typeof item.visitedAt === 'number')
       .slice(0, 3000)
+    this.bookmarks = readJson<BookmarkEntry[]>('bookmarks.json', [])
+      .filter((item) => item && typeof item.id === 'string' && typeof item.envId === 'string' && typeof item.url === 'string' && typeof item.title === 'string')
+      .slice(0, 500)
+    this.permissions = readJson<PermissionRule[]>('permissions.json', [])
+      .filter((item) => item && typeof item.id === 'string' && typeof item.envId === 'string' && typeof item.origin === 'string' && typeof item.permission === 'string')
+      .slice(0, 500)
+    this.sessions = readJson<Record<string, SessionState>>('session.json', {})
     this.settings = { ...defaultSettings(), ...readJson<Partial<Settings>>('settings.json', {}) }
     for (const env of this.envs) rememberId(env.id)
     for (const group of this.groups) rememberId(group.id)
@@ -147,6 +160,84 @@ export class StorageService {
   clearHistory(envId: string): void {
     this.history = this.history.filter((item) => item.envId !== envId)
     writeJson('history.json', this.history)
+  }
+
+  bookmarksFor(envId: string): BookmarkEntry[] {
+    return this.bookmarks.filter((item) => item.envId === envId)
+  }
+
+  toggleBookmark(input: { envId: string; url: string; title: string; favicon?: string }): boolean {
+    const existing = this.bookmarks.find((item) => item.envId === input.envId && item.url === input.url)
+    if (existing) {
+      this.bookmarks = this.bookmarks.filter((item) => item.id !== existing.id)
+      writeJson('bookmarks.json', this.bookmarks)
+      return false
+    }
+    this.bookmarks.unshift({
+      id: createId('bm'),
+      envId: input.envId,
+      url: input.url,
+      title: input.title || input.url,
+      favicon: input.favicon,
+      createdAt: Date.now()
+    })
+    this.bookmarks = this.bookmarks.slice(0, 500)
+    writeJson('bookmarks.json', this.bookmarks)
+    return true
+  }
+
+  removeBookmark(id: string): void {
+    this.bookmarks = this.bookmarks.filter((item) => item.id !== id)
+    writeJson('bookmarks.json', this.bookmarks)
+  }
+
+  clearBookmarks(envId: string): void {
+    this.bookmarks = this.bookmarks.filter((item) => item.envId !== envId)
+    writeJson('bookmarks.json', this.bookmarks)
+  }
+
+  permissionFor(envId: string, origin: string, permission: string): PermissionRule['decision'] | undefined {
+    return this.permissions.find((item) => item.envId === envId && item.origin === origin && item.permission === permission)?.decision
+  }
+
+  setPermission(input: { envId: string; origin: string; permission: string; decision: PermissionRule['decision'] }): void {
+    const existing = this.permissions.find((item) => item.envId === input.envId && item.origin === input.origin && item.permission === input.permission)
+    if (existing) {
+      existing.decision = input.decision
+      existing.updatedAt = Date.now()
+    } else {
+      this.permissions.unshift({ id: createId('perm'), ...input, updatedAt: Date.now() })
+      this.permissions = this.permissions.slice(0, 500)
+    }
+    writeJson('permissions.json', this.permissions)
+  }
+
+  permissionsFor(envId: string): PermissionRule[] {
+    return this.permissions.filter((item) => item.envId === envId)
+  }
+
+  revokePermission(id: string): void {
+    this.permissions = this.permissions.filter((item) => item.id !== id)
+    writeJson('permissions.json', this.permissions)
+  }
+
+  clearPermissions(envId: string): void {
+    this.permissions = this.permissions.filter((item) => item.envId !== envId)
+    writeJson('permissions.json', this.permissions)
+  }
+
+  saveSession(envId: string, state: { tabs: SessionState['tabs']; activeUrl?: string }): void {
+    this.sessions[envId] = { ...state, tabs: state.tabs.slice(0, 30), savedAt: Date.now() }
+    writeJson('session.json', this.sessions)
+  }
+
+  sessionFor(envId: string): SessionState | undefined {
+    return this.sessions[envId]
+  }
+
+  clearSession(envId: string): void {
+    delete this.sessions[envId]
+    writeJson('session.json', this.sessions)
   }
 
   dir(name: string): string {

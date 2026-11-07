@@ -1,10 +1,10 @@
 import { app, BrowserWindow, clipboard, dialog, Menu, session, WebContentsView } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { DEFAULT_ENV } from '@shared/types'
+import { DEFAULT_ENV, type LayerPayload } from '@shared/types'
 import { chromeUserAgent } from './ua'
 import { createId } from './ids'
-import { DOWNLOADS_PAGE, HISTORY_PAGE, MARKET_PAGE, RUNS_PAGE, SETTINGS_PAGE, workflowPage } from '@shared/market'
+import { BOOKMARKS_PAGE, DOWNLOADS_PAGE, HISTORY_PAGE, MARKET_PAGE, RUNS_PAGE, SETTINGS_PAGE, workflowPage } from '@shared/market'
 import { storage } from './services/store'
 import {
   activePage,
@@ -37,6 +37,73 @@ function windowIcon(): string | undefined {
   return undefined
 }
 
+const permissionReady = new Set<string>()
+
+function originOf(url: string): string | undefined {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'file:' ? parsed.origin : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function permissionLabel(permission: string): string {
+  if (permission === 'media') return '摄像头或麦克风'
+  if (permission === 'geolocation') return '位置'
+  if (permission === 'notifications') return '通知'
+  if (permission === 'clipboard-read') return '剪贴板'
+  if (permission === 'display-capture') return '屏幕共享'
+  if (permission === 'midiSysex') return 'MIDI 设备'
+  if (permission === 'pointerLock') return '鼠标锁定'
+  if (permission === 'fullscreen') return '全屏'
+  if (permission === 'openExternal') return '打开外部应用'
+  return permission
+}
+
+function configurePermissions(ses: Electron.Session, envId: string): void {
+  if (permissionReady.has(envId)) return
+  permissionReady.add(envId)
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const origin = originOf(details.requestingUrl || wc.getURL())
+    if (!origin) {
+      callback(false)
+      return
+    }
+    const name = String(permission)
+    const rule = storage.permissionFor(envId, origin, name)
+    if (rule) {
+      callback(rule === 'allow')
+      return
+    }
+    const runtime = windows.get(envId)
+    if (!runtime || runtime.headless) {
+      callback(false)
+      return
+    }
+    const options: Electron.MessageBoxOptions = {
+      type: 'question',
+      buttons: ['允许', '拒绝'],
+      defaultId: 1,
+      cancelId: 1,
+      title: '站点权限',
+      message: `${origin} 想使用${permissionLabel(name)}`,
+      detail: '只影响这套环境里的这个网站。',
+      checkboxLabel: '记住这次选择',
+      checkboxChecked: true
+    }
+    const ask = dialog.showMessageBox(runtime.win, options)
+    void ask
+      .then((result) => {
+        const allow = result.response === 0
+        if (result.checkboxChecked) storage.setPermission({ envId, origin, permission: name, decision: allow ? 'allow' : 'deny' })
+        callback(allow)
+        bridge.broadcast(envId)
+      })
+      .catch(() => callback(false))
+  })
+}
+
 export function createBrowserWindow(envId: string, headless: boolean): WindowRuntime {
   const existing = windows.get(envId)
   if (existing) {
@@ -48,6 +115,7 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
   const ses = session.fromPartition(`persist:${envId}`)
   const ua = chromeUserAgent()
   ses.setUserAgent(ua)
+  configurePermissions(ses, envId)
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -133,6 +201,10 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
   railView.webContents.on('did-finish-load', () => bindShortcuts(railView.webContents, envId))
   windows.set(envId, runtime)
   win.on('close', () => {
+    const pending = sessionTimers.get(envId)
+    if (pending) clearTimeout(pending)
+    sessionTimers.delete(envId)
+    saveSessionNow(runtime)
     for (const tab of runtime.tabs) tab.view?.webContents.close()
     windows.delete(envId)
     bridge.broadcast()
@@ -188,12 +260,134 @@ export function applyHeadless(runtime: WindowRuntime, headless: boolean): void {
   if (env) runtime.win.setTitle(`${env.name} · BrowserPilot`)
 }
 
+const sessionTimers = new Map<string, ReturnType<typeof setTimeout>>()
+let restoringSession = false
+
+function sessionTabs(runtime: WindowRuntime): { url: string; title: string; groupId: string | null }[] {
+  return runtime.tabs
+    .filter((tab) => tab.kind === 'page' && tab.url && !tab.url.startsWith('browserpilot://'))
+    .map((tab) => ({ url: tab.url, title: tab.title, groupId: tab.groupId }))
+}
+
+export function saveSessionNow(runtime: WindowRuntime): void {
+  if (restoringSession) return
+  const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
+  storage.saveSession(runtime.envId, {
+    tabs: sessionTabs(runtime),
+    activeUrl: active?.kind === 'page' ? active.url : undefined
+  })
+}
+
+function scheduleSessionSave(runtime: WindowRuntime): void {
+  const old = sessionTimers.get(runtime.envId)
+  if (old) clearTimeout(old)
+  sessionTimers.set(
+    runtime.envId,
+    setTimeout(() => {
+      sessionTimers.delete(runtime.envId)
+      saveSessionNow(runtime)
+    }, 500)
+  )
+}
+
+function addHibernatedTab(runtime: WindowRuntime, item: { url: string; title: string; groupId?: string | null }): TabRuntime {
+  const tab: TabRuntime = {
+    id: createId('tab'),
+    envId: runtime.envId,
+    groupId: item.groupId ?? null,
+    kind: 'page',
+    title: item.title || '新标签页',
+    url: item.url,
+    loading: false,
+    progress: 0,
+    control: 'free',
+    handoffMessage: '',
+    userTookOver: false,
+    refs: new Map(),
+    documentHtml: '',
+    hibernated: true
+  }
+  runtime.tabs.push(tab)
+  return tab
+}
+
+function restoreSession(runtime: WindowRuntime): boolean {
+  const saved = storage.sessionFor(runtime.envId)
+  const tabs = (saved?.tabs ?? [])
+    .filter((item) => item && typeof item.url === 'string' && item.url && !item.url.startsWith('browserpilot://'))
+    .slice(0, 20)
+  if (!tabs.length) return false
+  restoringSession = true
+  for (const item of tabs) addHibernatedTab(runtime, item)
+  const active = runtime.tabs.find((tab) => tab.kind === 'page' && tab.url === saved?.activeUrl) ?? runtime.tabs[runtime.tabs.length - 1]
+  restoringSession = false
+  if (active) activateTab(runtime, active.id)
+  return true
+}
+
+export function toggleBookmark(runtime: WindowRuntime, tab: TabRuntime): boolean {
+  const added = storage.toggleBookmark({ envId: runtime.envId, url: tab.url, title: tab.title, favicon: tab.favicon })
+  bridge.broadcast(runtime.envId)
+  return added
+}
+
+export function openBookmark(runtime: WindowRuntime, url: string): void {
+  const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
+  if (active?.kind === 'page') {
+    if (active.hibernated) {
+      active.hibernated = false
+      active.url = url
+      restoreTabView(active)
+      return
+    }
+    void active.view?.webContents.loadURL(url)
+    return
+  }
+  addTab(runtime, url)
+}
+
+export function hibernateTab(runtime: WindowRuntime, tabId: string): boolean {
+  const tab = runtime.tabs.find((item) => item.id === tabId)
+  if (!tab || tab.kind !== 'page' || tab.hibernated || tab.id === runtime.activeTabId) return false
+  const view = tab.view
+  tab.view = undefined
+  tab.hibernated = true
+  tab.loading = false
+  tab.progress = 0
+  if (view) {
+    try {
+      view.webContents.close()
+    } catch {
+      /* 已经关闭 */
+    }
+    try {
+      runtime.win.contentView.removeChildView(view)
+    } catch {
+      /* 已经不在树上 */
+    }
+  }
+  scheduleSessionSave(runtime)
+  bridge.layout(runtime.envId)
+  bridge.broadcast(runtime.envId)
+  return true
+}
+
+export function hibernateOtherTabs(runtime: WindowRuntime): number {
+  let count = 0
+  for (const tab of runtime.tabs) {
+    if (tab.id !== runtime.activeTabId && hibernateTab(runtime, tab.id)) count += 1
+  }
+  return count
+}
+
 export function openEnvironment(envId: string, headless: boolean): WindowRuntime {
   if (headless && !windows.has(envId) && headlessCount() >= storage.settings.headlessLimit) {
     throw new Error(`无头窗口已到上限 ${storage.settings.headlessLimit}`)
   }
   const runtime = createBrowserWindow(envId, headless)
-  if (runtime.tabs.length === 0) addTab(runtime, startUrl())
+  if (runtime.tabs.length === 0) {
+    if (!restoreSession(runtime)) addTab(runtime, startUrl())
+  }
   applyHeadless(runtime, headless)
   bridge.layout(envId)
   bridge.broadcast(envId)
@@ -243,7 +437,7 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
   return tab
 }
 
-function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings' | 'downloads' | 'runs' | 'history', title: string, url: string): TabRuntime {
+function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings' | 'downloads' | 'runs' | 'history' | 'bookmarks', title: string, url: string): TabRuntime {
   const existing = runtime.tabs.find((tab) => tab.kind === kind)
   if (existing) {
     activateTab(runtime, existing.id)
@@ -404,6 +598,17 @@ export function openHistoryPage(runtime: WindowRuntime): TabRuntime {
   return openBuiltin(runtime, 'history', '历史记录', HISTORY_PAGE)
 }
 
+export function openBookmarksPage(runtime: WindowRuntime): TabRuntime {
+  return openBuiltin(runtime, 'bookmarks', '书签', BOOKMARKS_PAGE)
+}
+
+export function showPopup(runtime: WindowRuntime, payload: LayerPayload): void {
+  runtime.popupPayload = payload
+  runtime.popupOpen = true
+  layoutWindow(runtime.envId)
+  runtime.popupView?.webContents.send('layer:show', payload)
+}
+
 export function openRunsPage(runtime: WindowRuntime, workflowId?: string): TabRuntime {
   const url = workflowId ? `${RUNS_PAGE}?workflow=${workflowId}` : RUNS_PAGE
   const existing = runtime.tabs.find((tab) => tab.kind === 'runs')
@@ -450,6 +655,11 @@ export function activateTab(runtime: WindowRuntime, tabId: string): void {
   const tab = runtime.tabs.find((item) => item.id === tabId)
   if (!tab) throw new Error(`没有这个标签 ${tabId}`)
   runtime.activeTabId = tabId
+  if (tab.kind === 'page' && tab.hibernated) {
+    tab.hibernated = false
+    restoreTabView(tab)
+  }
+  scheduleSessionSave(runtime)
   bridge.layout(runtime.envId)
   bridge.broadcast(runtime.envId)
   if (!runtime.headless) runtime.win.focus()
@@ -479,6 +689,7 @@ export function closeTab(runtime: WindowRuntime, tabId: string): void {
     runtime.activeTabId = next?.id ?? null
   }
   if (!runtime.tabs.some((item) => item.kind === 'page')) addTab(runtime, startUrl())
+  scheduleSessionSave(runtime)
   bridge.layout(runtime.envId)
   bridge.broadcast(runtime.envId)
 }
@@ -488,6 +699,7 @@ export function restoreTabView(tab: TabRuntime): boolean {
   const runtime = windows.get(tab.envId)
   if (!runtime || tab.kind !== 'page') return false
   if (tab.view && !tab.view.webContents.isDestroyed()) return true
+  tab.hibernated = false
   const old = tab.view
   const ses = session.fromPartition(`persist:${runtime.envId}`)
   ses.setUserAgent(chromeUserAgent())
@@ -531,6 +743,11 @@ export function reloadTab(runtime: WindowRuntime, tabId: string): void {
   if (!tab) return
   if (tab.view) {
     tab.view.webContents.reload()
+    return
+  }
+  if (tab.kind === 'page' && tab.hibernated) {
+    tab.hibernated = false
+    restoreTabView(tab)
     return
   }
   runtime.win.webContents.send('builtin-reload', tab.id)
@@ -747,6 +964,7 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
       tab.title = wc.getTitle() || tab.title
       tab.url = wc.getURL() || tab.url
       rememberSite(runtime.envId, tab.url)
+      scheduleSessionSave(runtime)
     }
     bridge.broadcast(runtime.envId)
   }
@@ -786,8 +1004,8 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
     rememberHistory()
     sync()
   })
-  wc.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
-    if (!isMainFrame) return
+  wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+    if (!isMainFrame || isInPlace) return
     if (tab.error) {
       tab.error = undefined
       bridge.layout(runtime.envId)
@@ -903,8 +1121,14 @@ function bindShortcuts(wc: Electron.WebContents, envId: string): void {
       handled()
       return
     }
-    if (ctrl && (key === 'l' || key === 'd') && !input.alt) {
+    if (ctrl && key === 'l' && !input.alt) {
       runtime.win.webContents.send('focus-address')
+      handled()
+      return
+    }
+    if (ctrl && key === 'd') {
+      const page = activePage(runtime)
+      if (page) toggleBookmark(runtime, page)
       handled()
       return
     }
@@ -915,6 +1139,16 @@ function bindShortcuts(wc: Electron.WebContents, envId: string): void {
     }
     if (ctrl && key === 'h') {
       openHistoryPage(runtime)
+      handled()
+      return
+    }
+    if (ctrl && input.shift && key === 'a') {
+      showPopup(runtime, { kind: 'tabs' })
+      handled()
+      return
+    }
+    if (ctrl && input.shift && key === 'o') {
+      openBookmarksPage(runtime)
       handled()
       return
     }

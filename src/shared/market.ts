@@ -4,4 +4,5 @@ export const SETTINGS_PAGE = 'browserpilot://settings'
 export const DOWNLOADS_PAGE = 'browserpilot://downloads'
 export const RUNS_PAGE = 'browserpilot://runs'
 export const HISTORY_PAGE = 'browserpilot://history'
+export const BOOKMARKS_PAGE = 'browserpilot://bookmarks'
 export const workflowPage = (id: string): string => `browserpilot://workflow/${id}`

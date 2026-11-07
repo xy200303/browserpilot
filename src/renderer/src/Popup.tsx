@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Moon, Search } from 'lucide-react'
 import type { LayerPayload, TabInfo, UiState } from '../../shared/types'
 import { Button } from '@/components/ui/button'
 import {
@@ -60,6 +61,7 @@ export function PopupApp() {
         <GroupForm state={state} tab={groupFor} name={groupName} setName={setGroupName} close={close} />
       )}
       {layer.kind === 'about' && state && <AboutCard version={state.version} close={close} />}
+      {layer.kind === 'tabs' && state && <TabSearch state={state} close={close} />}
     </div>
   )
 }
@@ -154,6 +156,84 @@ function AboutCard({ version, close }: { version: string; close: () => void }) {
   )
 }
 
+function TabSearch({ state, close }: { state: UiState; close: () => void }) {
+  const [query, setQuery] = useState('')
+  const [highlight, setHighlight] = useState(0)
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    ref.current?.focus()
+  }, [])
+  useEffect(() => {
+    setHighlight(0)
+  }, [query])
+  const keyword = query.trim().toLowerCase()
+  const tabs = state.tabs.filter(
+    (tab) => !keyword || tab.title.toLowerCase().includes(keyword) || tab.url.toLowerCase().includes(keyword)
+  )
+  const open = (tabId: string): void => {
+    void window.browser.activateTab(tabId)
+    close()
+  }
+  return (
+    <div className="absolute inset-0 grid place-items-start justify-center bg-black/20 pt-[10vh]" onMouseDown={(event) => event.stopPropagation()}>
+      <button type="button" aria-label="关闭" className="absolute inset-0 cursor-default" onClick={close} />
+      <div className="relative z-10 w-[min(42rem,calc(100%-2rem))] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xl">
+        <div className="flex items-center gap-2 border-b border-neutral-200 px-3 py-2">
+          <Search size={16} className="shrink-0 text-neutral-400" />
+          <Input
+            ref={ref}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索标签页"
+            className="border-0 bg-transparent shadow-none focus-visible:ring-0"
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                setHighlight((current) => Math.min(current + 1, tabs.length - 1))
+              }
+              if (event.key === 'ArrowUp') {
+                event.preventDefault()
+                setHighlight((current) => Math.max(current - 1, 0))
+              }
+              if (event.key === 'Enter' && tabs[highlight]) open(tabs[highlight].id)
+            }}
+          />
+        </div>
+        <div className="max-h-[50vh] overflow-y-auto p-1">
+          {tabs.length === 0 && <p className="p-4 text-sm text-neutral-500">没有匹配的标签页</p>}
+          {tabs.map((tab, index) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left ${index === highlight ? 'bg-neutral-100' : 'hover:bg-neutral-50'}`}
+              onMouseEnter={() => setHighlight(index)}
+              onClick={() => open(tab.id)}
+            >
+              <span className="grid h-4 w-4 shrink-0 place-items-center">
+                {tab.hibernated ? (
+                  <Moon size={14} className="text-neutral-400" />
+                ) : tab.favicon ? (
+                  <img src={tab.favicon} alt="" className="h-4 w-4 rounded-sm object-cover" />
+                ) : (
+                  <span className="grid h-4 w-4 place-items-center rounded-sm bg-neutral-200 text-[9px] text-neutral-500">
+                    {(tab.title || '新').slice(0, 1)}
+                  </span>
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-neutral-900">{tab.title || '新标签页'}</span>
+                <span className="block truncate text-xs text-neutral-400">{tab.url}</span>
+              </span>
+              {tab.active && <span className="shrink-0 text-[10px] text-neutral-400">当前</span>}
+            </button>
+          ))}
+        </div>
+        <div className="border-t border-neutral-100 px-3 py-1.5 text-[11px] text-neutral-400">↑↓ 选择 · Enter 打开 · Esc 关闭</div>
+      </div>
+    </div>
+  )
+}
+
 function after(task: Promise<unknown>, close: () => void): void {
   void task.then(() => close())
 }
@@ -166,6 +246,8 @@ function WindowMenu({ x, y, state, close }: { x: number; y: number; state: UiSta
       <DropdownMenuItem onSelect={() => after(window.browser.devtools(), close)}>开发者工具</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => after(window.browser.toggleScreen(), close)}>{state.screenRecording ? '停止录屏' : '开始录屏'}</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => after(window.browser.openHistoryPage(), close)}>历史记录</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.openBookmarksPage(), close)}>书签</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void window.browser.openTabSearch()}>搜索标签页<DropdownMenuShortcut>Ctrl+Shift+A</DropdownMenuShortcut></DropdownMenuItem>
       <DropdownMenuItem onSelect={() => after(window.browser.restoreTab(), close)}>重新打开关闭的标签页</DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem onSelect={() => after(window.browser.openSettings(), close)}>设置</DropdownMenuItem>
@@ -202,6 +284,8 @@ function TabMenu({
       <DropdownMenuItem onSelect={() => { void window.browser.duplicateTab(tab.id); close() }}>复制标签页<DropdownMenuShortcut>Ctrl+Shift+K</DropdownMenuShortcut></DropdownMenuItem>
       <DropdownMenuItem onSelect={() => { void window.browser.pinTab(tab.id); close() }}>{tab.pinned ? '取消固定标签页' : '固定标签页'}</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => { void window.browser.muteTab(tab.id); close() }}>{tab.muted ? '取消标签页静音' : '使标签页静音'}<DropdownMenuShortcut>Ctrl+M</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuItem disabled={tab.hibernated || tab.kind !== 'page' || tab.active} onSelect={() => { void window.browser.hibernateTab(tab.id); close() }}>休眠标签页</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.hibernateOtherTabs(); close() }}>休眠其他标签页</DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem onSelect={() => { void window.browser.closeTab(tab.id); close() }}>关闭标签页<DropdownMenuShortcut>Ctrl+W</DropdownMenuShortcut></DropdownMenuItem>
       <DropdownMenuItem onSelect={() => { void window.browser.closeOtherTabs(tab.id); close() }}>关闭其他标签页</DropdownMenuItem>

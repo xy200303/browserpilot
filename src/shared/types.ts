@@ -53,7 +53,7 @@ export type TabInfo = {
   id: string
   envId: string
   groupId: string | null
-  kind: 'page' | 'settings' | 'market' | 'workflow' | 'downloads' | 'runs' | 'history'
+  kind: 'page' | 'settings' | 'market' | 'workflow' | 'downloads' | 'runs' | 'history' | 'bookmarks'
   title: string
   url: string
   favicon?: string
@@ -64,6 +64,7 @@ export type TabInfo = {
   pinned?: boolean
   muted?: boolean
   audible?: boolean
+  hibernated?: boolean
   control: Control
 }
 
@@ -76,6 +77,38 @@ export type HistoryEntry = {
   title: string
   favicon?: string
   visitedAt: number
+}
+
+export type BookmarkEntry = {
+  id: string
+  envId: string
+  url: string
+  title: string
+  favicon?: string
+  createdAt: number
+}
+
+export type PermissionDecision = 'allow' | 'deny'
+
+export type PermissionRule = {
+  id: string
+  envId: string
+  origin: string
+  permission: string
+  decision: PermissionDecision
+  updatedAt: number
+}
+
+export type SessionTab = {
+  url: string
+  title: string
+  groupId?: string | null
+}
+
+export type SessionState = {
+  tabs: SessionTab[]
+  activeUrl?: string
+  savedAt: number
 }
 
 export type CaptureInfo = {
@@ -135,6 +168,8 @@ export type UiState = {
   screenRecording: boolean
   handoffMessage: string
   settings: Settings
+  bookmarks: BookmarkEntry[]
+  permissions: PermissionRule[]
   version: string
   maximized: boolean
   railPinned: boolean
@@ -158,8 +193,9 @@ export type LayerPayload =
   | { kind: 'menu'; x: number; y: number }
   | { kind: 'context'; x: number; y: number; tab: TabInfo }
   | { kind: 'about' }
-  | { kind: 'settings'; section: '环境' | '抓包' | '通用' | '关于' }
+  | { kind: 'settings'; section: '环境' | '抓包' | '通用' | '隐私' | '关于' }
   | { kind: 'workflow'; id: string }
+  | { kind: 'tabs' }
 
 export type Locator = { selector?: string; xpath?: string; pierce?: boolean }
 
