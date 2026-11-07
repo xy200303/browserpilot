@@ -199,6 +199,36 @@ export async function queryLocator(tab: TabRuntime, locator: Locator): Promise<{
   })
 }
 
+const DEEP_FIND = `(function (selector, xpath) {
+  let found = null
+  const walk = (root) => {
+    if (found) return
+    let hits = []
+    if (selector) { try { hits = [...root.querySelectorAll(selector)] } catch (e) { hits = [] } }
+    else if (xpath) {
+      try {
+        const doc = root instanceof Document ? root : root.ownerDocument
+        const r = doc.evaluate(xpath, root, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null)
+        if (r.singleNodeValue) hits = [r.singleNodeValue]
+      } catch (e) { hits = [] }
+    }
+    for (const el of hits) {
+      if (el && el.nodeType === 1) { found = el; return }
+    }
+    for (const el of root.querySelectorAll('*')) {
+      if (el.shadowRoot) walk(el.shadowRoot)
+    }
+    for (const f of root.querySelectorAll('iframe')) {
+      try {
+        const d = f.contentDocument
+        if (d) walk(d)
+      } catch (e) { /* 跨域 iframe 进不去 */ }
+    }
+  }
+  walk(document)
+  return found
+})`
+
 const DEEP_QUERY = `(function (selector, xpath, doScroll) {
   const out = []
   const textOf = (el) => {
@@ -290,14 +320,14 @@ async function settlePoint(tab: TabRuntime, x: number, y: number): Promise<void>
 }
 
 export async function clickDeep(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp', button: 'left' | 'right' = 'left'): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const match = await deepOne(tab, locator, true)
   await settlePoint(tab, match.x + match.w / 2, match.y + match.h / 2)
   await clickPoint(tab, match.x + match.w / 2, match.y + match.h / 2, via, undefined, button)
 }
 
 export async function typeDeep(tab: TabRuntime, locator: Locator, text: string, via: ActVia = 'cdp'): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const match = await deepOne(tab, locator, true)
   await settlePoint(tab, match.x + match.w / 2, match.y + match.h / 2)
   await clickPoint(tab, match.x + match.w / 2, match.y + match.h / 2, via === 'inject' ? 'cdp' : via)
@@ -502,7 +532,7 @@ async function failWithScene(tab: TabRuntime, locator: Locator, message: string)
 }
 
 export async function clickLocator(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp', until?: Locator, button: 'left' | 'right' = 'left', count = 1): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const rounds = until ? 3 : 2
   for (let round = 0; round < rounds; round += 1) {
     try {
@@ -536,7 +566,7 @@ async function focusResolved(tab: TabRuntime, target: AxRef): Promise<void> {
 }
 
 export async function typeLocator(tab: TabRuntime, locator: Locator, text: string, via: ActVia = 'cdp'): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const target = await resolveLocator(tab, locator)
   if (via === 'inject') {
     const wrote = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, target.backendNodeId ?? 0, INJECT_TEXT, [text]))
@@ -556,7 +586,20 @@ export async function typeLocator(tab: TabRuntime, locator: Locator, text: strin
 }
 
 export async function pasteLocator(tab: TabRuntime, locator: Locator, text: string, via: ActVia = 'cdp'): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
+  if (locator.pierce) {
+    const match = await deepOne(tab, locator, true)
+    await clickPoint(tab, match.x + match.w / 2, match.y + match.h / 2, 'cdp')
+    if (via === 'native') {
+      clipboard.writeText(text)
+      await pressShortcut(tab, 'Ctrl+V', 'native')
+      return
+    }
+    await withDebugger(wcOf(tab), async (dbg) => {
+      await dbg.sendCommand('Input.insertText', { text })
+    })
+    return
+  }
   const target = await resolveLocator(tab, locator)
   if (via === 'inject') {
     const wrote = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, target.backendNodeId ?? 0, INJECT_TEXT, [text]))
@@ -576,7 +619,26 @@ export async function pasteLocator(tab: TabRuntime, locator: Locator, text: stri
 }
 
 export async function selectLocator(tab: TabRuntime, locator: Locator, option: string, via: ActVia = 'cdp'): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
+  if (locator.pierce) {
+    const source = `(() => {
+      const el = (${DEEP_FIND})(${JSON.stringify(locator.selector || '')}, ${JSON.stringify(locator.xpath || '')})
+      if (!el) return 'missing-el'
+      if (el.tagName !== 'SELECT') return 'not-select'
+      const wanted = ${JSON.stringify(option)}
+      const opt = [...el.options].find((item) => item.text === wanted || item.value === wanted)
+      if (!opt) return 'missing'
+      el.value = opt.value
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+      return 'selected'
+    })()`
+    const result = (await evalSource(tab, source).catch(() => 'missing-el')) as string
+    if (result === 'selected') return
+    if (result === 'missing') throw new Error(`没有可选项「${option}」`)
+    if (result === 'not-select') throw new Error('穿透找到的不是原生 select，自定义下拉框请用坐标点开后再点选项')
+    throw new Error('穿透没找到这个下拉框（跨域 iframe 里的控件请用坐标操作）')
+  }
   const target = await resolveLocator(tab, locator)
   if (via === 'inject') {
     const picked = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, target.backendNodeId ?? 0, INJECT_SELECT, [option]))
@@ -593,6 +655,11 @@ export async function selectLocator(tab: TabRuntime, locator: Locator, option: s
 }
 
 async function matchCount(tab: TabRuntime, locator: Locator): Promise<number> {
+  if (locator.pierce) {
+    const deep = await deepQuery(tab, locator).catch(() => ({ total: 0, matches: [] as DeepMatch[] }))
+    if (deep.total) return deep.total
+    return (await crossQuery(tab, locator).catch(() => ({ total: 0, matches: [] as DeepMatch[] }))).total
+  }
   return withDebugger(wcOf(tab), async (dbg) => (await collectMatches(dbg, locator)).total)
 }
 
@@ -698,7 +765,7 @@ export async function clickPoint(tab: TabRuntime, x: number, y: number, via: Act
 }
 
 export async function clickAt(tab: TabRuntime, x: number, y: number, button: 'left' | 'right' = 'left', count = 1): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const wc = wcOf(tab)
   const ix = Math.round(x)
   const iy = Math.round(y)
@@ -712,7 +779,7 @@ export async function clickAt(tab: TabRuntime, x: number, y: number, button: 'le
 }
 
 async function clickAtCdp(tab: TabRuntime, x: number, y: number, button: 'left' | 'right' = 'left', count = 1): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const ix = Math.round(x)
   const iy = Math.round(y)
   const buttons = button === 'right' ? 2 : 1
@@ -753,11 +820,40 @@ async function pointForClick(dbg: Electron.Debugger, tab: TabRuntime, backendNod
 
 // 鼠标/键盘输入只对可见的标签页生效：后台标签的 view 是隐藏的，
 // CDP 的 Input 会静默丢掉。需要真实输入的入口先把它切到前台。
-function ensureActive(tab: TabRuntime): void {
+let lastVisibility = { tabId: '', at: 0 }
+
+// 窗口被别的窗口完全挡住时，Chromium 会把页面标成 hidden，合成输入会被丢掉。
+// 这时把窗口拉到前面再输入；不然工具会「成功」但页面什么都没发生。
+async function ensurePageVisible(tab: TabRuntime, runtime: { win: Electron.BrowserWindow; headless: boolean }): Promise<void> {
+  const now = Date.now()
+  if (lastVisibility.tabId === tab.id && now - lastVisibility.at < 500) return
+  const state = (await tab.view?.webContents.executeJavaScript('document.visibilityState').catch(() => 'visible')) as string | undefined
+  lastVisibility = { tabId: tab.id, at: Date.now() }
+  if (state !== 'hidden' || runtime.headless) return
+  if (runtime.win.isMinimized()) runtime.win.restore()
+  runtime.win.show()
+  runtime.win.focus()
+  await sleep(150)
+}
+
+const warmedTabs = new Set<string>()
+
+async function ensureActive(tab: TabRuntime): Promise<void> {
   const runtime = windows.get(tab.envId)
   if (!runtime) return
-  if (runtime.activeTabId === tab.id) return
-  bridge.activateTab(tab.id)
+  if (runtime.activeTabId !== tab.id) {
+    bridge.activateTab(tab.id)
+    // 刚切到前台的 view 要等一帧再收输入，否则第一次点击会被丢掉
+    await sleep(120)
+  }
+  if (!warmedTabs.has(tab.id)) {
+    warmedTabs.add(tab.id)
+    // 新标签的 view 可能还没排过版，先按当前布局摆一次再算坐标
+    bridge.layout(runtime.envId)
+    await sleep(150)
+  }
+  await ensurePageVisible(tab, runtime)
+  tab.view?.webContents.focus()
 }
 
 function isStaleNodeError(error: unknown): boolean {
@@ -945,7 +1041,7 @@ export function parseShortcut(shortcut: string): { key: string; modifiers: Array
 }
 
 export async function pressShortcut(tab: TabRuntime, shortcut: string, via: GestureVia = 'cdp'): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const wc = wcOf(tab)
   const { key, modifiers } = parseShortcut(shortcut)
   sendingToPage += 1
@@ -1067,7 +1163,7 @@ async function typeStepsFrom(dbg: Electron.Debugger, steps: TypeStep[], index: n
 }
 
 async function typeByCdp(tab: TabRuntime, text: string): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const steps = typeSteps(text)
   await withDebugger(wcOf(tab), (dbg) => typeStepsFrom(dbg, steps, 0))
 }
@@ -1088,7 +1184,7 @@ function viewport(tab: TabRuntime): [number, number] {
 }
 
 async function wheelAt(tab: TabRuntime, via: GestureVia, x: number, y: number, deltaDown: number): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const wc = wcOf(tab)
   const ix = Math.round(x)
   const iy = Math.round(y)
@@ -1257,7 +1353,7 @@ export async function dragPage(
   dx: number,
   dy: number
 ): Promise<{ from: { x: number; y: number }; to: { x: number; y: number } }> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const [width, height] = viewport(tab)
   if (start.x < 0 || start.y < 0 || start.x > width || start.y > height) {
     throw new Error(`起点 (${Math.round(start.x)}, ${Math.round(start.y)}) 不在视口 ${width}x${height} 里，先把目标滚进视口再拖`)
@@ -1305,7 +1401,7 @@ export async function swipePage(
   until?: Locator,
   via: GestureVia = 'cdp'
 ): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const once = async (): Promise<void> => {
     const [width, height] = viewport(tab)
     let bounds: { left: number; top: number; right: number; bottom: number } | undefined
@@ -1498,7 +1594,7 @@ export async function navigate(tab: TabRuntime, url: string): Promise<void> {
 }
 
 export async function screenshot(tab: TabRuntime, dir: string): Promise<{ path: string; width: number; height: number }> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const wc = wcOf(tab)
   const reveal = (): void => {
     const runtime = windows.get(tab.envId)
@@ -1689,6 +1785,16 @@ export type ElementInfo = {
 }
 
 export async function inspectElement(tab: TabRuntime, target: { locator?: Locator; point?: { x: number; y: number } }): Promise<ElementInfo> {
+  if (target.locator?.pierce) {
+    const source = `(() => {
+      const el = (${DEEP_FIND})(${JSON.stringify(target.locator.selector || '')}, ${JSON.stringify(target.locator.xpath || '')})
+      if (!el) return null
+      return (${CLASSIFY_JS}).call(el)
+    })()`
+    const info = await evalSource(tab, source)
+    if (!info) throw new Error(`穿透没找到 ${locatorLabel(target.locator)}`)
+    return info as ElementInfo
+  }
   if (target.locator) {
     const resolved = await resolveLocator(tab, target.locator)
     const info = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, resolved.backendNodeId ?? 0, CLASSIFY_JS))
@@ -2260,7 +2366,7 @@ const INJECT_HOVER = `function () {
 }`
 
 async function hoverAtCdp(tab: TabRuntime, x: number, y: number): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const ix = Math.round(x)
   const iy = Math.round(y)
   await withDebugger(wcOf(tab), async (dbg) => {
@@ -2269,7 +2375,7 @@ async function hoverAtCdp(tab: TabRuntime, x: number, y: number): Promise<void> 
 }
 
 async function hoverKnown(tab: TabRuntime, target: AxRef, via: ActVia): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const wc = wcOf(tab)
   if (via === 'inject') {
     const hovered = await withDebugger(wc, async (dbg) => {
@@ -2290,13 +2396,18 @@ async function hoverKnown(tab: TabRuntime, target: AxRef, via: ActVia): Promise<
 }
 
 export async function hoverLocator(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp'): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
+  if (locator.pierce) {
+    const match = await deepOne(tab, locator, true)
+    await hoverPoint(tab, match.x + match.w / 2, match.y + match.h / 2, undefined, via)
+    return
+  }
   const target = await resolveLocator(tab, locator)
   await hoverKnown(tab, target, via)
 }
 
 export async function hoverPoint(tab: TabRuntime, x: number, y: number, shot?: ShotRef, via: ActVia = 'cdp'): Promise<void> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const point = mapPoint(tab, x, y, shot)
   if (via === 'cdp') await hoverAtCdp(tab, point.x, point.y)
   else wcOf(tab).sendInputEvent({ type: 'mouseMove', x: Math.round(point.x), y: Math.round(point.y) })
@@ -2307,9 +2418,13 @@ export async function screenshotRegion(
   target: { locator?: Locator; rect?: { x: number; y: number; width: number; height: number } },
   dir: string
 ): Promise<{ path: string; width: number; height: number; x: number; y: number; full: boolean }> {
-  ensureActive(tab)
+  await ensureActive(tab)
   const wc = wcOf(tab)
   let rect = target.rect
+  if (!rect && target.locator?.pierce) {
+    const match = await deepOne(tab, target.locator, true)
+    rect = { x: match.x, y: match.y, width: match.w, height: match.h }
+  }
   if (!rect && target.locator) {
     const found = await resolveLocator(tab, target.locator)
     rect = await withDebugger(wc, async (dbg) => {

@@ -48,7 +48,7 @@ browserpilot call workflow_run --json-file args.json
 
 点、输入、滚动这些操作会自动把那扇标签切到前台，不用先 `tab_activate`；刚切过去时节点偶尔会失效，工具会自动重试一次。
 
-`pierce: true` 能进 Shadow DOM 和同源 iframe，点击/输入都走这条；跨域 iframe 走 CDP 单独会话，坐标也能对上。
+`pierce: true` 能进 Shadow DOM 和同源 iframe：点击、输入、粘贴、下拉、等待、悬停、元素截图、inspect/save_media 都走这条；跨域 iframe 走 CDP 单独会话，点击/输入也能对上坐标。
 
 `page_swipe` 只对响应指针拖拽的组件（轮播、滑块、拖拽排序）有效；原生滚动容器（overflow）用 `page_scroll`，横向滚动用 `page_script` 设 `scrollLeft`。
 

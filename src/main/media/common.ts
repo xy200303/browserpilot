@@ -54,8 +54,10 @@ export async function downloadDirect(tab: TabRuntime, src: string, kind: string,
     buf = Buffer.from(base64, 'base64')
   } else if (src.startsWith('data:')) {
     const comma = src.indexOf(',')
-    contentType = src.slice(5, src.indexOf(';'))
-    buf = Buffer.from(src.slice(comma + 1), 'base64')
+    const meta = src.slice(5, comma)
+    contentType = meta.split(';')[0]
+    const payload = src.slice(comma + 1)
+    buf = /;base64/i.test(meta) ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'utf8')
   } else if (/^https?:/.test(src)) {
     if (/\.(m3u8|mpd)(\?|$)/i.test(src)) throw new Error('这是流媒体清单（m3u8/mpd），不是单个文件，下不了')
     try {
