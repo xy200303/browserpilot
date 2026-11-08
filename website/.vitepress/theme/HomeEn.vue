@@ -47,7 +47,7 @@ const heroChars = heroGroups.map((line) => ({
 }))
 
 const stats = [
-  { value: '69', label: 'MCP tools', note: 'actual count in tool-catalog.ts' },
+  { value: '99', label: 'MCP tools', note: 'actual count in tool-catalog.ts' },
   { value: '22', label: 'workflow nodes', note: 'start, end, branch and loop included' },
   { value: '200', label: 'runs kept', note: 'the UI lists the latest 50' },
   { value: '3', label: 'concurrency and headless', note: 'default 3 each, adjustable in settings' }
@@ -64,7 +64,7 @@ const modes = [
     name: 'Agent direct',
     lead: 'Say it in Claude Code, Kimi Code or Cursor. The agent finds elements, clicks, waits and reads results over MCP. Best for one-off tasks and flows that are not settled yet.',
     items: [
-      { t: '69 tools', d: 'navigation, clicking, forms, screenshots, window preview, capture, media, captchas in one catalog' },
+      { t: '99 tools', d: 'navigation, clicking, forms, screenshots, window preview, capture, media, captchas in one catalog' },
       { t: 'Failures keep evidence', d: 'a failed tool returns an errorShot, so the next turn can look at the screenshot and fix the locator' },
       { t: 'No fixed sleeps', d: 'page_wait waits for an element to appear or disappear, 1 to 60 seconds' },
       { t: 'Take over anytime', d: 'press Take over on the overlay and control returns to the human' }
@@ -361,16 +361,17 @@ onUnmounted(() => {
       <DotField class="hero-field" :gap="22" :radius="140" :push="34" />
       <div class="inner">
         <a class="notice" href="#changelog">
-          <span class="notice-tag">v0.14.0</span>
+          <span class="notice-tag">v0.17.1</span>
           <span class="notice-text">Screenshots return as images; new window preview and recording status</span>
           <span class="notice-arrow" v-html="ICONS.arrow" />
         </a>
         <div class="hero-inner">
-          <span class="hero-kicker">MCP · 69 TOOLS · 0.14.0</span>
+          <span class="hero-kicker">MCP · 99 TOOLS · 0.17.1</span>
           <h1 class="hero-title">
-            <span v-for="(line, li) in heroChars" :key="li" :class="['line', line.cls]">
-              <span v-for="c in line.chars" :key="c.i" class="ch" :style="{ '--ci': c.i }">{{ c.ch }}</span>
-            </span>
+            <span class="line desktop-line">The browser you are already</span>
+            <span class="line desktop-line">signed in to. Your agent drives.</span>
+            <span class="line mobile-line">Already signed in,</span>
+            <span class="line mobile-line">your agent drives.</span>
           </h1>
           <p class="hero-sub">
             One login per environment. The agent clicks, fills, waits and extracts in that same window; you can take over whenever you want.
@@ -654,7 +655,7 @@ onUnmounted(() => {
         <span class="eyebrow reveal"><i>05</i>Integration</span>
         <h2 class="display reveal">Agents use MCP, <span>humans use the UI</span></h2>
         <p class="lead reveal">
-          MCP is the main entry: agents call 69 tools through it. The CLI wraps the same tool set for scripts and scheduled tasks.
+          MCP is the main entry: agents call 99 tools through it. The CLI wraps the same tool set for scripts and scheduled tasks.
           The app itself has no timer.
         </p>
         <div class="integration-grid">
