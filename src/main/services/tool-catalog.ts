@@ -789,10 +789,11 @@ tool('password_list', '列出这套环境保存的登录账号，只有站点和
   return { env: envId, passwords: listPasswords(envId), storage: passwordStorageStatus() }
 })
 
-const SETTING_KEYS = ['tabLayout', 'searchEngine', 'passwordSave', 'passwordAutofill', 'batchConcurrency', 'headlessLimit', 'toolMode'] as const
+const SETTING_KEYS = ['language', 'tabLayout', 'searchEngine', 'passwordSave', 'passwordAutofill', 'batchConcurrency', 'headlessLimit', 'toolMode'] as const
 
 function pickSettings(): Record<string, unknown> {
   return {
+    language: storage.settings.language ?? 'auto',
     tabLayout: storage.settings.tabLayout,
     searchEngine: storage.settings.searchEngine,
     passwordSave: storage.settings.passwordSave,
@@ -803,9 +804,10 @@ function pickSettings(): Record<string, unknown> {
   }
 }
 
-tool('settings_get', '读取浏览器设置：标签栏位置、搜索引擎、密码开关、批量并发、无头窗口上限。端口和 MCP 开关属于本机服务配置，不在这里。', z.object({}), async () => ({ settings: pickSettings() }))
+tool('settings_get', '读取浏览器设置：界面语言、标签栏位置、搜索引擎、密码开关、批量并发、无头窗口上限。端口和 MCP 开关属于本机服务配置，不在这里。', z.object({}), async () => ({ settings: pickSettings() }))
 
-tool('settings_set', '改浏览器设置。只支持 tabLayout（top/left）、searchEngine、passwordSave、passwordAutofill、batchConcurrency、headlessLimit、toolMode（full / search）。改完立即生效。', z.object({
+tool('settings_set', '改浏览器设置。只支持 language（auto / zh-CN / en-US，只影响界面）、tabLayout（top/left）、searchEngine、passwordSave、passwordAutofill、batchConcurrency、headlessLimit、toolMode（full / search）。改完立即生效。', z.object({
+  language: z.enum(['auto', 'zh-CN', 'en-US']).optional(),
   tabLayout: z.enum(['top', 'left']).optional(),
   searchEngine: z.string().optional(),
   passwordSave: z.boolean().optional(),

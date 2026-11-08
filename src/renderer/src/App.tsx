@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
+import { applyLanguage } from './i18n'
 import { ChevronLeft, ChevronRight, Minus, Moon, Plus, Square, TriangleAlert, Volume2, VolumeX, X } from 'lucide-react'
-import type { TabInfo, UiState } from '../../shared/types'
+import type { LanguageSetting, TabInfo, UiState } from '../../shared/types'
 import { MarketPage } from './MarketPage'
 import { SettingsPage } from './Settings'
 import { WorkflowEditor } from './Workflow'
@@ -25,6 +26,7 @@ function pickMime(): string | null {
 
 export function App() {
   const [state, setState] = useState<UiState | null>(null)
+  const [language, setLanguage] = useState<LanguageSetting>('auto')
   const [address, setAddress] = useState('')
   const [findOpen, setFindOpen] = useState(false)
   const [findText, setFindText] = useState('')
@@ -37,8 +39,19 @@ export function App() {
   }
 
   useEffect(() => {
-    void window.browser.getState().then(setState)
-    const offState = window.browser.onState(setState)
+    applyLanguage(language)
+  }, [language])
+
+  useEffect(() => {
+    void window.browser.getState().then((next) => {
+      setState(next)
+      if (next) setLanguage(next.settings.language ?? 'auto')
+    })
+    const offState = window.browser.onState((next) => {
+      if (!next) return
+      setState(next)
+      setLanguage(next.settings.language ?? 'auto')
+    })
     const offFocus = window.browser.onFocusAddress(() => {
       addressRef.current?.focus()
       addressRef.current?.select()

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Info, KeyRound, Layers, Plus, Radio, Search, Shield, SlidersHorizontal, X } from 'lucide-react'
 import { Dialog } from 'radix-ui'
-import { searchEngines, type PasswordEntry, type SearchEngineId, type TabLayout, type UiState } from '../../shared/types'
+import { useTranslation } from 'react-i18next'
+import { searchEngines, type LanguageSetting, type PasswordEntry, type SearchEngineId, type TabLayout, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,22 +11,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { cn } from 'cn'
 
-const sections = ['环境', '抓包', '通用', '密码', '隐私', '关于'] as const
+const sections = ['env', 'net', 'general', 'passwords', 'privacy', 'about'] as const
 type Section = (typeof sections)[number]
 type Env = UiState['envs'][number]
 
 const icons = {
-  环境: Layers,
-  抓包: Radio,
-  通用: SlidersHorizontal,
-  密码: KeyRound,
-  隐私: Shield,
-  关于: Info
+  env: Layers,
+  net: Radio,
+  general: SlidersHorizontal,
+  passwords: KeyRound,
+  privacy: Shield,
+  about: Info
 }
 
 export function SettingsPage({ state: external }: { state?: UiState }) {
   const requested = new URLSearchParams(window.location.search).get('section')
-  const initial = sections.find((item) => item === requested) ?? '环境'
+  const legacy: Record<string, Section> = { 环境: 'env', 抓包: 'net', 通用: 'general', 密码: 'passwords', 隐私: 'privacy', 关于: 'about' }
+  const initial = sections.find((item) => item === requested) ?? legacy[requested ?? ''] ?? 'env'
   const [local, setLocal] = useState<UiState | null>(null)
   useEffect(() => {
     if (external) return
@@ -38,11 +40,12 @@ export function SettingsPage({ state: external }: { state?: UiState }) {
 }
 
 function SettingsDialog({ state, initial }: { state: UiState; initial: Section }) {
+  const { t } = useTranslation()
   const [section, setSection] = useState<Section>(initial)
   return (
     <div className="flex h-full bg-white text-sm text-foreground">
       <nav className="flex w-44 shrink-0 flex-col gap-1 border-r p-3">
-        <div className="px-2 py-1.5 text-sm font-medium">设置</div>
+        <div className="px-2 py-1.5 text-sm font-medium">{t('settings.title')}</div>
         {sections.map((item) => {
           const Icon = icons[item]
           return (
@@ -57,18 +60,18 @@ function SettingsDialog({ state, initial }: { state: UiState; initial: Section }
               onClick={() => setSection(item)}
             >
               <Icon />
-              {item}
+              {t(`settings.sections.${item}`)}
             </Button>
           )
         })}
       </nav>
       <div className="min-h-0 min-w-0 flex-1">
-        {section === '环境' && <EnvPage state={state} />}
-        {section === '抓包' && <div className="h-full overflow-y-auto"><Captures state={state} /></div>}
-        {section === '通用' && <div className="h-full overflow-y-auto"><General state={state} /></div>}
-        {section === '密码' && <div className="h-full overflow-y-auto"><Passwords state={state} /></div>}
-        {section === '隐私' && <div className="h-full overflow-y-auto"><Privacy state={state} /></div>}
-        {section === '关于' && <div className="h-full overflow-y-auto"><About state={state} /></div>}
+        {section === 'env' && <EnvPage state={state} />}
+        {section === 'net' && <div className="h-full overflow-y-auto"><Captures state={state} /></div>}
+        {section === 'general' && <div className="h-full overflow-y-auto"><General state={state} /></div>}
+        {section === 'passwords' && <div className="h-full overflow-y-auto"><Passwords state={state} /></div>}
+        {section === 'privacy' && <div className="h-full overflow-y-auto"><Privacy state={state} /></div>}
+        {section === 'about' && <div className="h-full overflow-y-auto"><About state={state} /></div>}
       </div>
     </div>
   )
@@ -481,11 +484,22 @@ function Passwords({ state }: { state: UiState }) {
 }
 
 function General({ state }: { state: UiState }) {
+  const { t } = useTranslation()
   const settings = state.settings
   return (
     <section>
-      <Heading title="通用" detail="这些选项保存在本机，改完即生效。" />
+      <Heading title={t('settings.general.title')} detail={t('settings.general.detail')} />
       <Card>
+        <Row title={t('settings.general.language.title')} detail={t('settings.general.language.detail')}>
+          <Select value={settings.language ?? 'auto'} onValueChange={(value) => void window.browser.updateSettings({ language: value as LanguageSetting })}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">{t('settings.general.language.auto')}</SelectItem>
+              <SelectItem value="zh-CN">简体中文</SelectItem>
+              <SelectItem value="en-US">English</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
         <Row title="搜索引擎" detail="新标签页打开这个搜索引擎的首页。地址栏里输入文字时，也用它来搜索。">
           <Select value={settings.searchEngine} onValueChange={(value) => void window.browser.updateSettings({ searchEngine: value as SearchEngineId })}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>

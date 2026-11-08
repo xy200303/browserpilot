@@ -16,7 +16,12 @@ export function searchEngineOf(id: string | undefined): (typeof searchEngines)[n
   return searchEngines.find((item) => item.id === id) ?? searchEngines[0]
 }
 
+export type AppLanguage = 'zh-CN' | 'en-US'
+
+export type LanguageSetting = 'auto' | AppLanguage
+
 export type Settings = {
+  language: LanguageSetting
   tabLayout: TabLayout
   searchEngine: SearchEngineId
   mcpEnabled: boolean
@@ -273,6 +278,7 @@ export type WorkflowApp = {
 export const DEFAULT_ENV = 'env-default'
 
 export const defaultSettings = (): Settings => ({
+  language: 'auto',
   tabLayout: 'top',
   searchEngine: 'bing',
   mcpEnabled: true,
