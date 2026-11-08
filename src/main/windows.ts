@@ -344,13 +344,16 @@ export function toggleBookmark(runtime: WindowRuntime, tab: TabRuntime): boolean
 export function openBookmark(runtime: WindowRuntime, url: string): void {
   const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
   if (active?.kind === 'page') {
-    if (active.hibernated) {
-      active.hibernated = false
-      active.url = url
-      restoreTabView(active)
+    const wc = active.view?.webContents
+    // 视图可能已经被休眠、崩溃或回收，这时没有 webContents，直接复用会炸
+    if (!active.hibernated && wc && !wc.isDestroyed()) {
+      void wc.loadURL(url).catch(() => undefined)
       return
     }
-    void active.view?.webContents.loadURL(url)
+    active.hibernated = false
+    active.url = url
+    if (restoreTabView(active)) return
+    addTab(runtime, url)
     return
   }
   addTab(runtime, url)
@@ -780,8 +783,9 @@ export function duplicateTab(runtime: WindowRuntime, tabId: string): TabRuntime 
 export function reloadTab(runtime: WindowRuntime, tabId: string): void {
   const tab = runtime.tabs.find((item) => item.id === tabId)
   if (!tab) return
-  if (tab.view) {
-    tab.view.webContents.reload()
+  const wc = tab.view?.webContents
+  if (wc && !wc.isDestroyed()) {
+    wc.reload()
     return
   }
   if (tab.kind === 'page' && tab.hibernated) {
@@ -794,9 +798,10 @@ export function reloadTab(runtime: WindowRuntime, tabId: string): void {
 
 export function muteTab(runtime: WindowRuntime, tabId: string): void {
   const tab = runtime.tabs.find((item) => item.id === tabId)
-  if (!tab?.view) return
+  const wc = tab?.view?.webContents
+  if (!tab || !wc || wc.isDestroyed()) return
   tab.muted = !tab.muted
-  tab.view.webContents.setAudioMuted(Boolean(tab.muted))
+  wc.setAudioMuted(Boolean(tab.muted))
   bridge.broadcast(runtime.envId)
 }
 

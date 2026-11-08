@@ -10,6 +10,14 @@ import { windows } from './runtime'
 applyUserAgentFallback()
 app.setPath('userData', join(app.getPath('appData'), 'BrowserPilot'))
 
+// 主进程里一个没接住的异常会弹系统错误框并打断使用。记进日志，别让整个应用停在这里。
+process.on('uncaughtException', (error) => {
+  console.error('[main uncaught]', error)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[main rejection]', reason)
+})
+
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
