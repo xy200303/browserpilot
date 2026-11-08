@@ -2646,8 +2646,8 @@ const TEXT_HIT_SOURCE = `(function (text, match) {
   if (related) {
     const input = document.getElementById(related)
     if (input) {
-      const proxy = input.closest('.ui-radio') || input.closest('label')
-      target = proxy ? (proxy.querySelector('a.jqradio') || proxy.querySelector('label') || proxy) : input
+      const proxy = input.closest('.ui-radio') || input.closest('.ui-checkbox') || input.closest('label')
+      target = proxy ? (proxy.querySelector('a.jqradio') || proxy.querySelector('a.jqcheck') || proxy.querySelector('label') || proxy) : input
       if (target === input && input.getBoundingClientRect().width < 2) {
         input.click()
         return { x: best.rect.left, y: best.rect.top, w: best.rect.width, h: best.rect.height, label: best.label.slice(0, 80), tag: 'input', dom: true }
@@ -2778,4 +2778,203 @@ export async function hoverTextInFrame(tab: TabRuntime, frame: string, text: str
   const offset = await frameOffset(tab, frame)
   await hoverPoint(tab, offset.x + hit.x + hit.w / 2, offset.y + hit.y + hit.h / 2, undefined, via)
   return hit
+}
+
+export type HitQuery = {
+  selector?: string
+  xpath?: string
+  text?: string
+  textMatch?: 'exact' | 'contains'
+  role?: string
+  name?: string
+  nameMatch?: 'exact' | 'contains'
+  within?: string
+  index?: number
+}
+
+const HIT_SOURCE = `(function (query) {
+  const norm = (value) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim()
+  const wantedText = norm(query.text || '')
+  const wantedName = norm(query.name || '')
+  const roleOf = (el) => {
+    const explicit = (el.getAttribute('role') || '').trim().toLowerCase()
+    if (explicit) return explicit
+    const tag = el.tagName.toLowerCase()
+    if (tag === 'button') return 'button'
+    if (tag === 'a' && el.hasAttribute('href')) return 'link'
+    if (tag === 'input') {
+      const type = (el.getAttribute('type') || 'text').toLowerCase()
+      if (type === 'submit' || type === 'button' || type === 'reset') return 'button'
+      if (type === 'checkbox') return 'checkbox'
+      if (type === 'radio') return 'radio'
+      if (type === 'search') return 'searchbox'
+      return 'textbox'
+    }
+    if (tag === 'select') return 'combobox'
+    if (tag === 'textarea') return 'textbox'
+    if (/^h[1-6]$/.test(tag)) return 'heading'
+    if (tag === 'img') return 'img'
+    return ''
+  }
+  const nameOf = (el) => {
+    const aria = el.getAttribute('aria-label')
+    if (aria) return norm(aria)
+    const by = el.getAttribute('aria-labelledby')
+    if (by) {
+      const target = document.getElementById(by)
+      if (target) return norm(target.innerText)
+    }
+    if (el.id) {
+      try {
+        const label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]')
+        if (label) return norm(label.innerText)
+      } catch (e) { /* id 里有特殊字符 */ }
+    }
+    const wrap = el.closest('label')
+    if (wrap) return norm(wrap.innerText)
+    return norm(el.innerText || el.value || el.getAttribute('alt') || el.getAttribute('title') || el.getAttribute('placeholder') || '')
+  }
+  const roots = query.within ? [...document.querySelectorAll(query.within)] : [document]
+  if (!roots.length) return null
+  const seen = new Set()
+  const items = []
+  const collect = (root) => {
+    let found = []
+    if (query.selector) {
+      try { found = [...root.querySelectorAll(query.selector)] } catch (e) { found = [] }
+    } else if (query.xpath) {
+      try {
+        const result = document.evaluate(query.xpath, root, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null)
+        for (let i = 0; i < result.snapshotLength; i += 1) found.push(result.snapshotItem(i))
+      } catch (e) { found = [] }
+    } else {
+      found = [...root.querySelectorAll('a,button,input,select,textarea,label,li,span,div,td,th,h1,h2,h3,h4,p,summary,[role]')]
+    }
+    for (const el of found) {
+      if (!el || el.nodeType !== 1 || seen.has(el)) continue
+      seen.add(el)
+      if (el === document.body || el === document.documentElement) continue
+      const style = getComputedStyle(el)
+      if (style.visibility === 'hidden' || style.display === 'none' || style.pointerEvents === 'none') continue
+      const rect = el.getBoundingClientRect()
+      if (rect.width < 2 || rect.height < 2) continue
+      if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= innerHeight || rect.left >= innerWidth) continue
+      if (rect.width * rect.height > 600000) continue
+      if (query.role && roleOf(el) !== String(query.role).toLowerCase()) continue
+      const name = nameOf(el)
+      if (query.name) {
+        const exact = query.nameMatch === 'exact'
+        if (exact ? name !== wantedName : !name.includes(wantedName)) continue
+      }
+      if (query.text) {
+        const text = norm(el.innerText || el.value || '')
+        const exact = query.textMatch === 'exact'
+        if (exact ? text !== wantedText : !text.includes(wantedText)) continue
+      }
+      items.push({ el, label: name || norm(el.innerText), rect })
+    }
+  }
+  for (const root of roots) collect(root)
+  if (!items.length) return null
+  let best = null
+  if (typeof query.index === 'number' && query.index >= 0) {
+    if (query.index >= items.length) return { missing: true, total: items.length }
+    best = items[query.index]
+  } else {
+    items.sort((a, b) => a.rect.width * a.rect.height - b.rect.width * b.rect.height)
+    best = items[0]
+  }
+  let target = null
+  const related = (best.el.getAttribute && best.el.getAttribute('for')) || ''
+  if (related) {
+    const input = document.getElementById(related)
+    if (input) {
+      const proxy = input.closest('.ui-radio') || input.closest('.ui-checkbox') || input.closest('label')
+      target = proxy ? (proxy.querySelector('a.jqradio') || proxy.querySelector('a.jqcheck') || proxy.querySelector('label') || proxy) : input
+      if (target === input && input.getBoundingClientRect().width < 2) {
+        input.click()
+        return { x: best.rect.left, y: best.rect.top, w: best.rect.width, h: best.rect.height, label: best.label.slice(0, 80), tag: 'input', dom: true, total: items.length }
+      }
+    }
+  }
+  if (!target) target = best.el.closest('a,button,input,select,textarea,label,summary,[role=button],[onclick]') || best.el
+  const rect = target.getBoundingClientRect()
+  if (rect.width < 2 || rect.height < 2) {
+    target.click()
+    return { x: best.rect.left, y: best.rect.top, w: best.rect.width, h: best.rect.height, label: best.label.slice(0, 80), tag: target.tagName.toLowerCase(), dom: true, total: items.length }
+  }
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
+  const at = document.elementFromPoint(cx, cy)
+  const cover = at && at !== target && !target.contains(at) && !at.contains(target)
+    ? at.tagName.toLowerCase() + (at.className ? '.' + String(at.className).split(' ')[0] : '')
+    : ''
+  return {
+    x: rect.left,
+    y: rect.top,
+    w: rect.width,
+    h: rect.height,
+    label: best.label.slice(0, 80),
+    tag: target.tagName.toLowerCase(),
+    blocked: cover,
+    total: items.length
+  }
+})`
+
+const LABEL_FOCUS_SOURCE = `(function (text) {
+  const norm = (value) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim()
+  const wanted = norm(text)
+  const focus = (el) => {
+    if (!el) return false
+    el.scrollIntoView({ block: 'center', inline: 'nearest' })
+    el.focus()
+    return true
+  }
+  for (const label of document.querySelectorAll('label')) {
+    if (!norm(label.innerText).includes(wanted)) continue
+    const forId = label.getAttribute('for')
+    if (forId) {
+      const input = document.getElementById(forId)
+      if (input && focus(input)) return true
+    }
+    const inner = label.querySelector('input,textarea,select')
+    if (inner && focus(inner)) return true
+  }
+  for (const input of document.querySelectorAll('input,textarea,select')) {
+    const hints = [input.getAttribute('aria-label'), input.getAttribute('placeholder'), input.getAttribute('name'), input.getAttribute('title')]
+    if (hints.some((hint) => hint && norm(hint).includes(wanted))) {
+      if (focus(input)) return true
+    }
+  }
+  return false
+})`
+
+export async function resolveHit(tab: TabRuntime, query: HitQuery, frame?: string): Promise<(TextHit & { total?: number }) | null> {
+  await ensureActive(tab)
+  const source = `(${HIT_SOURCE})(${JSON.stringify(query)})`
+  const hit = (frame ? await evalInFrame(tab, source, frame) : await evalSource(tab, source)) as (TextHit & { total?: number; missing?: boolean }) | null
+  if (!hit) return null
+  if (hit.missing) throw new Error(`只匹配到 ${hit.total ?? 0} 个，没有第 ${(query.index ?? 0) + 1} 个（index 从 0 开始）`)
+  if (frame && !hit.dom) {
+    const offset = await frameOffset(tab, frame)
+    hit.x += offset.x
+    hit.y += offset.y
+  }
+  return hit
+}
+
+export async function clickHit(tab: TabRuntime, hit: TextHit, via: ActVia = 'cdp'): Promise<void> {
+  if (hit.blocked) throw new Error(`目标被 ${hit.blocked} 挡住，先关掉弹层再点`)
+  if (!hit.dom) await clickPoint(tab, hit.x + hit.w / 2, hit.y + hit.h / 2, via)
+}
+
+export async function hoverHit(tab: TabRuntime, hit: TextHit, via: ActVia = 'cdp'): Promise<void> {
+  await hoverPoint(tab, hit.x + hit.w / 2, hit.y + hit.h / 2, undefined, via)
+}
+
+export async function typeByLabel(tab: TabRuntime, label: string, text: string): Promise<void> {
+  await ensureActive(tab)
+  const focused = await evalSource(tab, `(${LABEL_FOCUS_SOURCE})(${JSON.stringify(label)})`)
+  if (focused !== true) throw new Error(`找不到标签或占位符包含「${label}」的输入框`)
+  await typeByCdp(tab, text)
 }

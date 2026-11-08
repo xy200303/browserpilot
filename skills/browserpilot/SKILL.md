@@ -50,7 +50,7 @@ browserpilot call workflow_run --json-file args.json
 
 `pierce: true` 能进 Shadow DOM 和同源 iframe：点击、输入、粘贴、下拉、等待、悬停、元素截图、inspect/save_media 都走这条；跨域 iframe 里的元素给 `page_click` / `page_hover` / `page_type` 传 `frame`（src 里的一段），再配 selector/xpath 或 text，不用自己算 iframe 偏移。
 
-多行文本、整段文档用 `page_paste`，不要用 `page_type` 逐键输入，部分页面会把逐键的回车改掉。
+多行文本、整段文档用 `page_paste`，不要用 `page_type` 逐键输入，部分页面会把逐键的回车改掉。填表优先用 `page_type` 的 `label`（按关联标签、placeholder、name 找输入框），比写 selector 稳。
 
 `page_swipe` 只对响应指针拖拽的组件（轮播、滑块、拖拽排序）有效；原生滚动容器（overflow）用 `page_scroll`，横向滚动用 `page_script` 设 `scrollLeft`。
 
@@ -58,7 +58,7 @@ browserpilot call workflow_run --json-file args.json
 
 需要读页面上的链接、编号、订单号这类文字时，用 `page_script` 读 DOM，不要从截图里认字——大小写和形近字很容易看错。
 
-定位优先用 `text`（页面上可见的文字，默认包含匹配，`textMatch: "exact"` 精确匹配），也可以只用 `xpath` 或 `selector`。点击、输入、粘贴、选择必须恰好匹配一个元素。匹配到多个就停，不取第一条。画布上没有稳定节点时，`page_click` 用 `x` 和 `y`；按截图点坐标时，最省事的是把 `page_screenshot` 返回的 `shotId` 原样传给 `page_click` / `page_hover` / `page_type` 的 `shotId`，`x`、`y` 直接用图片像素（整页和局部截图都会自动换算，不要自己除 DPR）；也可以把返回的 `width`、`height` 传给 `shotWidth`、`shotHeight` 手动换算；按 `captcha_panel` 这类裁剪图点坐标时，再带上 `shotX`、`shotY`（rect 前两个值）和 `shotScale`（scale）。`page_click` 加 `button: "right"` 是右键。`page_inspect` 识别元素类型（video/image/canvas/audio/link/input/text）和地址；`page_save_media` 抓媒体文件：直链直接下，B站这类 MSE 流媒体自动抓 DASH 轨（没有 ffmpeg 会自动装到用户目录 tools/，其它平台的 m3u8/mpd 清单也交给 ffmpeg 拉）；`page_record_video` 是最后的兜底——把正在播放的视频用 captureStream 实时录成 webm，任何能播的站都行，代价是要播完。
+定位优先用 `text`（页面上可见的文字，默认包含匹配，`textMatch: "exact"` 精确匹配），或用 `role` + `name`（可访问角色和名称，`nameMatch: "exact"`）；也可以用 `xpath` 或 `selector`。`within` 把搜索限制在某个 CSS 容器里，`index` 取第几个匹配（从 0 开始），适合“这一行里的删除按钮”“第 3 个卡片”。点击、输入、粘贴、选择必须恰好匹配一个元素。匹配到多个就停，不取第一条。画布上没有稳定节点时，`page_click` 用 `x` 和 `y`；按截图点坐标时，最省事的是把 `page_screenshot` 返回的 `shotId` 原样传给 `page_click` / `page_hover` / `page_type` 的 `shotId`，`x`、`y` 直接用图片像素（整页和局部截图都会自动换算，不要自己除 DPR）；也可以把返回的 `width`、`height` 传给 `shotWidth`、`shotHeight` 手动换算；按 `captcha_panel` 这类裁剪图点坐标时，再带上 `shotX`、`shotY`（rect 前两个值）和 `shotScale`（scale）。`page_click` 加 `button: "right"` 是右键。`page_inspect` 识别元素类型（video/image/canvas/audio/link/input/text）和地址；`page_save_media` 抓媒体文件：直链直接下，B站这类 MSE 流媒体自动抓 DASH 轨（没有 ffmpeg 会自动装到用户目录 tools/，其它平台的 m3u8/mpd 清单也交给 ffmpeg 拉）；`page_record_video` 是最后的兜底——把正在播放的视频用 captureStream 实时录成 webm，任何能播的站都行，代价是要播完。
 
 书签、历史、会话、Cookie 都能用工具直接管，不用去点界面：`bookmark_list` / `bookmark_add`（同网址再传就改标题）/ `bookmark_remove`（id、url 或 all）；`history_list` / `history_remove`（导航会自动记录，不用手动加）；`session_list` / `session_save` / `session_restore` / `session_clear`（会话就是关窗口时保存的标签组）；`cookie_list` / `cookie_set` / `cookie_remove`（按域名或 url + name）。这些数据都按环境隔离，传 `env` 指定，不传就是默认环境。Cookie 值里可能有登录令牌，别贴进对话里。
 

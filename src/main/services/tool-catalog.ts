@@ -37,6 +37,7 @@ import {
 import {
   clickDeep,
   clickLocator,
+  clickHit,
   clickPoint,
   clickText,
   clickTextInFrame,
@@ -57,6 +58,7 @@ import {
   hitPoint,
   hoverLocator,
   hoverLocatorInFrame,
+  hoverHit,
   hoverPoint,
   hoverText,
   hoverTextInFrame,
@@ -73,6 +75,7 @@ import {
   readTree,
   queryLocator,
   recordVideo,
+  resolveHit,
   resolveLocator,
   saveMedia,
   screenshotRegion,
@@ -83,6 +86,7 @@ import {
   sendCdpBatch,
   swipePage,
   typeAtPoint,
+  typeByLabel,
   typeDeep,
   typeLocator,
   typeLocatorInFrame,
@@ -278,9 +282,9 @@ const TOOL_KEYWORDS: Record<string, string> = {
   page_dialog: '弹窗 对话框 确认框 alert confirm prompt',
   page_console: '控制台 console 报错 js错误 日志',
   page_find: '页内查找 查找文字 ctrl+f find',
-  page_hover: '悬停 悬浮 移上去 hover 按文字 text frame iframe',
-  page_click: '点击 双击 右键 click dblclick 按文字 文本 text frame iframe',
-  page_type: '输入 填写 打字 type frame iframe',
+  page_hover: '悬停 悬浮 移上去 hover 按文字 text role name within index frame iframe',
+  page_click: '点击 双击 右键 click dblclick 按文字 文本 text role name 角色 名称 within index 第几个 frame iframe',
+  page_type: '输入 填写 打字 type label 标签 placeholder frame iframe',
   page_wait: '等待 等元素 wait',
   page_wait_load: '等加载 加载完成 页面加载完',
   page_save_media: '保存图片 保存视频 下载媒体 抓图 存媒体',
@@ -806,11 +810,16 @@ tool('page_query', '按同一种定位取出所有匹配，返回数组。每一
   return { tabId: tabRef.id, total: found.total, matches: found.matches }
 })
 
-tool('page_click', '点击元素。优先用 text 按可见文字点（可选 textMatch: exact，默认包含），不用自己算坐标；也可以用 xpath 或 selector，必须恰好匹配一个。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。button 传 right 是右键。画布这种没有稳定节点的目标改用 x 和 y：不带截图信息时是当前视口的 CSS 像素；把 page_screenshot 返回的 shotId 原样传进来，x 和 y 就用图片上的像素，工具会自动换算到视口（也可以继续用 shotWidth、shotHeight、shotX、shotY、shotScale 手动换算）。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。inject 在该点的元素上派发指针事件。untilXpath 或 untilSelector 只在按元素点击时使用，表示点完后要出现的元素；没出现会在同一个定位上再点，最多 3 次。失败时带上匹配个数、文字和当时能不能点到。count 传 2 是双击（最多 3 连击）。', z.object({
+tool('page_click', '点击元素。优先用 text 按可见文字点（可选 textMatch: exact，默认包含），不用自己算坐标；也可以用 role + name（可访问角色和名称，nameMatch: exact），或用 xpath 或 selector。within 限定了搜索容器（CSS 选择器），index 取第几个匹配（从 0 开始）。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。button 传 right 是右键。画布这种没有稳定节点的目标改用 x 和 y：不带截图信息时是当前视口的 CSS 像素；把 page_screenshot 返回的 shotId 原样传进来，x 和 y 就用图片上的像素，工具会自动换算到视口（也可以继续用 shotWidth、shotHeight、shotX、shotY、shotScale 手动换算）。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。inject 在该点的元素上派发指针事件。untilXpath 或 untilSelector 只在按元素点击时使用，表示点完后要出现的元素；没出现会在同一个定位上再点，最多 3 次。失败时带上匹配个数、文字和当时能不能点到。count 传 2 是双击（最多 3 连击）。', z.object({
   ...pageArgs,
   ...locateFields,
   text: z.string().optional(),
   textMatch: z.enum(['exact', 'contains']).optional(),
+  role: z.string().optional(),
+  name: z.string().optional(),
+  nameMatch: z.enum(['exact', 'contains']).optional(),
+  within: z.string().optional(),
+  index: z.number().optional(),
   frame: z.string().optional(),
   x: z.union([z.number(), z.string()]).optional(),
   y: z.union([z.number(), z.string()]).optional(),
@@ -832,6 +841,23 @@ tool('page_click', '点击元素。优先用 text 按可见文字点（可选 te
   const frame = typeof args.frame === 'string' && args.frame ? String(args.frame) : ''
   const text = typeof args.text === 'string' && args.text.trim() ? String(args.text) : ''
   const textMatch = args.textMatch === 'exact' ? 'exact' as const : 'contains' as const
+  const needsHit = Boolean(args.role || args.name || args.within || args.index !== undefined)
+  if (needsHit) {
+    const hit = await resolveHit(tabRef, {
+      selector: typeof args.selector === 'string' ? String(args.selector) : undefined,
+      xpath: typeof args.xpath === 'string' ? String(args.xpath) : undefined,
+      text: text || undefined,
+      textMatch,
+      role: args.role ? String(args.role) : undefined,
+      name: args.name ? String(args.name) : undefined,
+      nameMatch: args.nameMatch === 'exact' ? 'exact' : 'contains',
+      within: args.within ? String(args.within) : undefined,
+      index: args.index === undefined ? undefined : Number(args.index)
+    }, frame || undefined)
+    if (!hit) throw new Error('没有匹配到目标元素')
+    await clickHit(tabRef, hit, viaOf(args.via))
+    return { tabId: tabRef.id, text: hit.label, x: Math.round(hit.x), y: Math.round(hit.y), index: typeof args.index === 'number' ? args.index : undefined }
+  }
   if (frame) {
     if (text) {
       const hit = await clickTextInFrame(tabRef, frame, text, textMatch, viaOf(args.via))
@@ -888,8 +914,9 @@ tool('page_wait', '等元素出现或消失。state 默认 appear（出现），
   return { tabId: tabRef.id, state: args.state }
 })
 
-tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 xpath 或 selector 指定目标，pierce 为 true 穿透 Shadow DOM 和同源 iframe；跨域 iframe 里的输入框传 frame（src 包含的一段）+ xpath/selector；也可以用 x、y 坐标（先点击该点聚焦再输入；带 page_screenshot 的 shotId 时 x、y 用图片像素）。多行文本、整段文档用 page_paste，逐键输入会被部分页面改写。native 先真实点击再逐键输入。inject 直接写入。', z.object({
+tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 label 按关联标签/占位符找输入框（最省事）；也可以用 xpath 或 selector，pierce 为 true 穿透 Shadow DOM 和同源 iframe；跨域 iframe 里的输入框传 frame（src 包含的一段）+ xpath/selector；也可以用 x、y 坐标（先点击该点聚焦再输入；带 page_screenshot 的 shotId 时 x、y 用图片像素）。多行文本、整段文档用 page_paste，逐键输入会被部分页面改写。native 先真实点击再逐键输入。inject 直接写入。', z.object({
   ...pageArgs, text: z.string(), ...locateFields,
+  label: z.string().optional(),
   frame: z.string().optional(),
   x: z.union([z.number(), z.string()]).optional(),
   y: z.union([z.number(), z.string()]).optional(),
@@ -903,6 +930,10 @@ tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，�
 }), async (args) => {
   const tabRef = await pageTab(args)
   const frame = typeof args.frame === 'string' && args.frame ? String(args.frame) : ''
+  if (typeof args.label === 'string' && args.label.trim()) {
+    await typeByLabel(tabRef, String(args.label), String(args.text))
+    return { tabId: tabRef.id }
+  }
   if (frame) {
     const located = locatorFrom(args)
     if (!located) throw new Error('frame 里输入需要 xpath 或 selector')
@@ -1264,11 +1295,16 @@ tool('page_dialog', '页面弹窗（alert / confirm / prompt）会自动按策�
   }
 })
 
-tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单、悬浮提示这类悬停交互。优先用 text 按可见文字找目标（可选 textMatch: exact）；也可以用 xpath / selector，或坐标 x、y；带 page_screenshot 的 shotId 时 x、y 直接用图片像素。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。via 默认 cdp，native 用 sendInputEvent，inject 在元素上派发 mouseover/mouseenter。', z.object({
+tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单、悬浮提示这类悬停交互。优先用 text 按可见文字找目标（可选 textMatch: exact），或用 role + name；也可以用 xpath / selector，或坐标 x、y；within / index 的用法和 page_click 一样；带 page_screenshot 的 shotId 时 x、y 直接用图片像素。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。via 默认 cdp，native 用 sendInputEvent，inject 在元素上派发 mouseover/mouseenter。', z.object({
   ...pageArgs,
   ...locateFields,
   text: z.string().optional(),
   textMatch: z.enum(['exact', 'contains']).optional(),
+  role: z.string().optional(),
+  name: z.string().optional(),
+  nameMatch: z.enum(['exact', 'contains']).optional(),
+  within: z.string().optional(),
+  index: z.number().optional(),
   frame: z.string().optional(),
   x: z.union([z.number(), z.string()]).optional(),
   y: z.union([z.number(), z.string()]).optional(),
@@ -1284,6 +1320,23 @@ tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单
   const frame = typeof args.frame === 'string' && args.frame ? String(args.frame) : ''
   const text = typeof args.text === 'string' && args.text.trim() ? String(args.text) : ''
   const textMatch = args.textMatch === 'exact' ? 'exact' as const : 'contains' as const
+  const needsHit = Boolean(args.role || args.name || args.within || args.index !== undefined)
+  if (needsHit) {
+    const hit = await resolveHit(tabRef, {
+      selector: typeof args.selector === 'string' ? String(args.selector) : undefined,
+      xpath: typeof args.xpath === 'string' ? String(args.xpath) : undefined,
+      text: text || undefined,
+      textMatch,
+      role: args.role ? String(args.role) : undefined,
+      name: args.name ? String(args.name) : undefined,
+      nameMatch: args.nameMatch === 'exact' ? 'exact' : 'contains',
+      within: args.within ? String(args.within) : undefined,
+      index: args.index === undefined ? undefined : Number(args.index)
+    }, frame || undefined)
+    if (!hit) throw new Error('没有匹配到目标元素')
+    await hoverHit(tabRef, hit, viaOf(args.via))
+    return { tabId: tabRef.id, text: hit.label }
+  }
   if (frame) {
     if (text) {
       const hit = await hoverTextInFrame(tabRef, frame, text, textMatch, viaOf(args.via))
