@@ -3,12 +3,12 @@ import type { zhCN } from './zh-CN'
 
 export const enUS: MessageShape<typeof zhCN> = {
   hero: {
-    notice: { tag: 'v0.17.1', text: 'Screenshots return as images; new window preview and recording status' },
-    kicker: 'MCP · 99 TOOLS · 0.17.1',
+    notice: { tag: 'v0.18.0', text: 'Bilingual interface; all 99 tool descriptions now English' },
+    kicker: 'MCP · 99 TOOLS · 0.18.0',
     title: ['The browser you are already', 'signed in to. Your agent drives.'],
     titleMobile: ['Already signed in,', 'your agent drives.'],
     sub: 'One login per environment. The agent clicks, fills, waits and extracts in that same window; you can take over whenever you want. Windows, macOS and Linux, all local.',
-    cta: { download: 'Download v0.17.1', watch: 'Watch it run' },
+    cta: { download: 'Download v0.18.0', watch: 'Watch it run' },
     meta: ['Local MCP · 127.0.0.1', '22 workflow nodes', 'Geetest v4 sliders', 'Unsigned installers']
   },
   demo: {
@@ -282,7 +282,7 @@ export const enUS: MessageShape<typeof zhCN> = {
     lead: 'Version, driving, locating, concurrency, credentials and where data lands. Numbers come from the repository and the current installer.'
   },
   specs: [
-    { k: 'Version', v: '0.17.1' },
+    { k: 'Version', v: '0.18.0' },
     { k: 'Runtime', v: 'Electron 45 · React 19 · TypeScript 5; Windows installer about 118 MiB, roughly 460 MB installed' },
     { k: 'Driving', v: 'Electron WebContentsView plus Chrome DevTools Protocol (Input, DOM, Accessibility, Network)' },
     { k: 'Locating', v: 'XPath or CSS; exactly one match; pierces shadow DOM and same-origin iframes, falling back to cross-origin frames' },
@@ -319,7 +319,7 @@ export const enUS: MessageShape<typeof zhCN> = {
       'Main process, React UI and Go CLI in one repository; there is no server.',
       'Windows installers are not code-signed.'
     ],
-    note: 'As of v0.17.1 the repository has no LICENSE file. The source is public, but until the author grants written permission, do not redistribute it as MIT or Apache. The actual repository file is authoritative.'
+    note: 'As of v0.18.0 the repository has no LICENSE file. The source is public, but until the author grants written permission, do not redistribute it as MIT or Apache. The actual repository file is authoritative.'
   },
   changelogSection: {
     eyebrow: 'Changelog',
@@ -328,6 +328,15 @@ export const enUS: MessageShape<typeof zhCN> = {
     more: 'Full history in'
   },
   changelog: [
+    {
+      v: 'v0.18.0',
+      when: '2026-11-08',
+      items: [
+        'Interface in Chinese and English: follow the system, or pin one language in settings.',
+        'All 99 tool descriptions rewritten in English and shortened; search gained aliases and a partial-match fallback.',
+        'Fixed main-process crashes when opening a bookmark, the page context menu or window preview after a view was recycled.'
+      ]
+    },
     {
       v: 'v0.17.1',
       when: '2026-11-08',
@@ -344,15 +353,6 @@ export const enUS: MessageShape<typeof zhCN> = {
         'New stroke node draws along an SVG path with real pointer events, so strokes land in the site document.',
         'Pointer dispatch is pipelined: a stroke that took 81 seconds in a background window now takes about 1 second.',
         'Workflow locators accept visible text and role plus accessible name, not only selectors.'
-      ]
-    },
-    {
-      v: 'v0.16.0',
-      when: '2026-11-07',
-      items: [
-        'Screenshots carry a coordinate grid by default, with the crop origin printed in the corner.',
-        'window_preview supports cropped previews; grid colors follow the background of each block.',
-        'Media saving and window recording default to the system download folder.'
       ]
     }
   ],
@@ -373,6 +373,6 @@ export const enUS: MessageShape<typeof zhCN> = {
     download: 'Download the latest',
     docs: 'Getting started',
     footnote: 'Source is public; no LICENSE in the repository yet · unsigned installers · © 2026 BrowserPilot',
-    footnote2: 'Recordings and screenshots come from real windows; the UI is unchanged in 0.17.1.'
+    footnote2: 'Recordings and screenshots come from real windows; the interface language can be switched in settings.'
   }
 }

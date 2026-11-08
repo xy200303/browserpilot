@@ -1,11 +1,11 @@
 export const zhCN = {
   hero: {
-    notice: { tag: 'v0.17.1', text: '截图直接回给 Agent；新增整窗合成预览与录屏状态' },
-    kicker: 'MCP · 99 TOOLS · 0.17.1',
+    notice: { tag: 'v0.18.0', text: '界面中英双语；99 个工具描述全部英文化' },
+    kicker: 'MCP · 99 TOOLS · 0.18.0',
     title: ['你已经登录的浏览器，', 'Agent 接着用。'],
     titleMobile: ['你已经登录，', 'Agent 接着点。'],
     sub: '一套环境一套登录。Agent 在同一扇窗口里点击、填表、等待、提取结果；你随时能接管。 Windows / macOS / Linux，都在本机。',
-    cta: { download: '下载 v0.17.1', watch: '看它跑一遍' },
+    cta: { download: '下载 v0.18.0', watch: '看它跑一遍' },
     meta: ['本机 MCP · 127.0.0.1', '22 种工作流节点', '极验 v4 滑块', '安装包未签名']
   },
   demo: {
@@ -279,7 +279,7 @@ export const zhCN = {
     lead: '版本、驱动、定位方式、并发、凭据和数据落盘位置。数字来自仓库和当前安装包。'
   },
   specs: [
-    { k: '版本', v: '0.17.1' },
+    { k: '版本', v: '0.18.0' },
     { k: '运行时', v: 'Electron 45 · React 19 · TypeScript 5；Windows 安装包约 118 MiB，解压后约 460 MB' },
     { k: '驱动方式', v: 'Electron WebContentsView + Chrome DevTools Protocol（Input / DOM / Accessibility / Network）' },
     { k: '定位', v: 'XPath 或 CSS；必须恰好匹配一个；可穿透 Shadow DOM、同源 iframe，顶层找不到时查跨域 iframe' },
@@ -316,7 +316,7 @@ export const zhCN = {
       '主进程、React 界面、Go CLI 同仓；没有服务端。',
       'Windows 安装包未做代码签名。'
     ],
-    note: '截至 v0.17.1，仓库没有 LICENSE 文件。源码公开可读，但在作者给出书面许可前，不要把它当作 MIT / Apache 等开源许可再分发。许可证以仓库实际文件为准。'
+    note: '截至 v0.18.0，仓库没有 LICENSE 文件。源码公开可读，但在作者给出书面许可前，不要把它当作 MIT / Apache 等开源许可再分发。许可证以仓库实际文件为准。'
   },
   changelogSection: {
     eyebrow: '更新日志',
@@ -325,6 +325,15 @@ export const zhCN = {
     more: '完整历史见'
   },
   changelog: [
+    {
+      v: 'v0.18.0',
+      when: '2026-11-08',
+      items: [
+        '界面中英双语：跟随系统，也可在设置里固定中文或英文。',
+        '99 个工具描述改为英文并精简；检索加同义词别名与部分命中兜底。',
+        '修视图被休眠或回收后，打开书签、页面右键菜单、整窗预览的主进程崩溃。'
+      ]
+    },
     {
       v: 'v0.17.1',
       when: '2026-11-08',
@@ -341,15 +350,6 @@ export const zhCN = {
         '新增 stroke 节点：沿 SVG 路径发真实指针事件，画进站点文档。',
         '指针事件改为流水线发送，后台窗口下一次落笔从 81 秒降到约 1 秒。',
         '工作流定位支持可见文字和 role + name，不再只认选择器。'
-      ]
-    },
-    {
-      v: 'v0.16.0',
-      when: '2026-11-07',
-      items: [
-        '截图默认带坐标网格，局部截图左上角标出裁剪起点。',
-        'window_preview 支持局部截图；网格颜色按每 32px 块的背景自动选。',
-        '媒体保存与窗口录屏默认落到系统下载目录。'
       ]
     }
   ],
@@ -370,6 +370,6 @@ export const zhCN = {
     download: '下载最新版',
     docs: '快速上手',
     footnote: '源码公开可读，仓库暂未附 LICENSE · 安装包未签名 · © 2026 BrowserPilot',
-    footnote2: '页面里的运行录屏与截图来自真实窗口；界面在 0.17.1 未有变化。'
+    footnote2: '页面里的运行录屏与截图来自真实窗口；界面语言可在设置里切换。'
   }
 } as const

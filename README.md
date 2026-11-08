@@ -140,7 +140,7 @@ npm run dist:win     # package for the current platform (dist:mac, dist:linux)
 npm run deploy:win   # skip the installer: overwrite the install dir and restart
 ```
 
-Pushes to `main` run typecheck and build; pushing a tag that matches `package.json` (for example `v0.17.1`) makes CI package on Windows, macOS and Linux and publish a release.
+Pushes to `main` run typecheck and build; pushing a tag that matches `package.json` (for example `v0.18.0`) makes CI package on Windows, macOS and Linux and publish a release.
 
 The website lives in `website/`:
 
