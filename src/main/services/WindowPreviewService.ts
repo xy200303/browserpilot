@@ -16,12 +16,15 @@ function isEmpty(image: NativeImage): boolean {
   return image.isEmpty() || image.getSize().width <= 0 || image.getSize().height <= 0
 }
 
-async function cdpShot(wc: WebContents): Promise<NativeImage> {
+async function cdpShot(wc: WebContents, size?: { width: number; height: number }): Promise<NativeImage> {
   const shot = (await withDebugger(wc, (dbg) =>
     dbg.sendCommand('Page.captureScreenshot', {
       format: 'png',
       fromSurface: true,
-      captureBeyondViewport: false
+      captureBeyondViewport: false,
+      ...(size && size.width > 0 && size.height > 0
+        ? { clip: { x: 0, y: 0, width: Math.round(size.width), height: Math.round(size.height), scale: 1 } }
+        : {})
     })
   )) as { data: string }
   const image = nativeImage.createFromBuffer(Buffer.from(shot.data, 'base64'))
@@ -29,7 +32,7 @@ async function cdpShot(wc: WebContents): Promise<NativeImage> {
   return image
 }
 
-async function captureWebContents(wc: WebContents, preferCdp: boolean): Promise<NativeImage> {
+async function captureWebContents(wc: WebContents, preferCdp: boolean, size?: { width: number; height: number }): Promise<NativeImage> {
   if (!preferCdp) {
     try {
       const image = await wc.capturePage()
@@ -39,7 +42,7 @@ async function captureWebContents(wc: WebContents, preferCdp: boolean): Promise<
     }
   }
   try {
-    return await cdpShot(wc)
+    return await cdpShot(wc, size)
   } catch (error) {
     if (!preferCdp) throw error
     const image = await wc.capturePage()
@@ -162,7 +165,7 @@ export async function windowPreview(
   const scaleX = baseSize.width / Math.max(1, contentWidth)
   const scaleY = baseSize.height / Math.max(1, contentHeight)
 
-  const canvas = Buffer.from(base.toBitmap())
+  const canvas = base.toBitmap()
   const layers = await collectLayers(runtime)
   for (const layer of layers) blend(canvas, baseSize.width, baseSize.height, layer, scaleX, scaleY)
 
@@ -204,12 +207,14 @@ export async function windowPreview(
       showOrigin: Boolean(crop),
       edgeOnly,
       spanWidth,
-      spanHeight
+      spanHeight,
+      jpeg: true
     })
   }
   const dir = storage.dir('screenshots')
-  const path = join(dir, `preview-${Date.now()}.png`)
-  const data = image.toPNG()
+  const jpeg = grid > 0
+  const path = join(dir, `preview-${Date.now()}.${jpeg ? 'jpg' : 'png'}`)
+  const data = jpeg ? image.toJPEG(90) : image.toPNG()
   writeFileSync(path, data)
   return {
     path,

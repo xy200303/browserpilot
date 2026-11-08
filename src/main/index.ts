@@ -4,7 +4,6 @@ import { applyUserAgentFallback } from './ua'
 import { storage } from './services/store'
 import { wireIpc, broadcast } from './ipc'
 import { bootDefaultWindow, reapIdle } from './windows'
-import { startMcp } from './services/McpService'
 import { cleanupEnvs, cleanupIfDue, cacheCleanupDue, waitCacheCleanup } from './services/CacheService'
 import { runDepth, windows } from './runtime'
 import { applyMainLanguage } from './i18n'
@@ -74,8 +73,18 @@ if (!gotLock) {
         })
       }, 120_000).unref()
     }
-    await startMcp()
     broadcast()
+    // MCP 和整个工具目录不挡首屏：等主窗口首帧加载后再起，失败也不影响窗口使用
+    let mcpStarted = false
+    const startMcpLater = (): void => {
+      if (mcpStarted) return
+      mcpStarted = true
+      void import('./services/McpService')
+        .then((mod) => mod.startMcp())
+        .catch((error) => console.error('[mcp]', error))
+    }
+    // 首屏渲染完成后再起 MCP，别和 React 挂载抢主线程
+    setTimeout(startMcpLater, 1500).unref()
   })
 
   app.on('window-all-closed', () => {

@@ -16,6 +16,8 @@ export type GridRenderOptions = {
   // 这张图覆盖的 CSS 尺寸，用来把图片像素换算回 CSS 坐标
   spanWidth: number
   spanHeight: number
+  // 给 Agent 看的预览可以用 JPEG，编码更快、文件更小
+  jpeg?: boolean
 }
 
 const BLOCK = 32
@@ -134,7 +136,8 @@ export async function renderGrid(wc: WebContents, image: NativeImage, options: G
       toneWidth: lineMap.width,
       toneHeight: lineMap.height,
       tone: lineMap.tone,
-      colors: lineMap.colors
+      colors: lineMap.colors,
+      jpeg: Boolean(options.jpeg)
     }
   }
 

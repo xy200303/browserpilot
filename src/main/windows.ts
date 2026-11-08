@@ -141,6 +141,7 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      spellcheck: false,
       backgroundThrottling: false
     }
   })
@@ -223,6 +224,7 @@ function ensurePopupView(runtime: WindowRuntime): WebContentsView | undefined {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      spellcheck: false,
       transparent: true
     }
   })
@@ -248,7 +250,8 @@ function ensureRailView(runtime: WindowRuntime): WebContentsView | undefined {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      spellcheck: false
     }
   })
   view.setBackgroundColor('#f3f3f3')
@@ -269,6 +272,7 @@ function ensureLockView(runtime: WindowRuntime): WebContentsView | undefined {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      spellcheck: false,
       transparent: true
     }
   })
@@ -383,7 +387,18 @@ function restoreSession(runtime: WindowRuntime): boolean {
   for (const item of tabs) addHibernatedTab(runtime, item)
   const active = runtime.tabs.find((tab) => tab.kind === 'page' && tab.url === saved?.activeUrl) ?? runtime.tabs[runtime.tabs.length - 1]
   restoringSession = false
-  if (active) activateTab(runtime, active.id)
+  if (active) {
+    runtime.activeTabId = active.id
+    active.lastActiveAt = Date.now()
+    const start = (): void => {
+      if (runtime.win.isDestroyed() || windows.get(runtime.envId) !== runtime) return
+      if (runtime.activeTabId !== active.id) return
+      activateTab(runtime, active.id, false)
+    }
+    // 先让外壳（React）出首帧，再起页面渲染进程；期间任何工具调用都会按需恢复
+    if (runtime.headless) setTimeout(start, 0)
+    else runtime.win.webContents.once('did-finish-load', () => setTimeout(start, 120))
+  }
   return true
 }
 
@@ -454,13 +469,14 @@ export function hibernateOtherTabs(runtime: WindowRuntime): number {
 }
 
 /** 每个窗口最多保留这么多活着页面，其余按最久未用休眠，兜住“开一上午标签”的内存。 */
-const MAX_LIVE_TABS = 8
+const MAX_LIVE_TABS = 4
 
 function enforceLiveTabLimit(runtime: WindowRuntime): void {
   const live = runtime.tabs.filter(
     (tab) => tab.kind === 'page' && tab.view && !tab.hibernated && tab.id !== runtime.activeTabId
   )
-  const excess = live.length + 1 - MAX_LIVE_TABS
+  const maxLive = Math.max(1, Math.min(20, Math.round(Number(storage.settings.maxLiveTabs) || MAX_LIVE_TABS)))
+  const excess = live.length + 1 - maxLive
   if (excess <= 0) return
   const candidates = live
     .filter((tab) => tab.control !== 'agent' && !tab.audible)
@@ -473,6 +489,10 @@ function enforceLiveTabLimit(runtime: WindowRuntime): void {
   if (count) console.log('[tabs] hibernate', count, 'over live limit')
 }
 
+export function enforceLiveTabLimits(): void {
+  for (const runtime of windows.values()) enforceLiveTabLimit(runtime)
+}
+
 function ownMemoryMB(): number {
   return app.getAppMetrics().reduce((sum, metric) => sum + (metric.memory?.workingSetSize ?? 0), 0) / 1024
 }
@@ -483,7 +503,7 @@ function reapMemoryPressure(): void {
   const mem = process.getSystemMemoryInfo()
   if (!mem.total) return
   const freeRatio = mem.free / mem.total
-  const pressure = freeRatio < 0.1 || (ownMemoryMB() > 1536 && freeRatio < 0.25)
+  const pressure = freeRatio < 0.1 || (ownMemoryMB() > 1200 && freeRatio < 0.3)
   if (!pressure) return
   for (const runtime of windows.values()) {
     if (runtime.screenRecording || runtime.win.isDestroyed()) continue
@@ -580,6 +600,7 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      spellcheck: false,
       backgroundThrottling: false,
       preload: join(__dirname, '../preload/page.js')
     }
@@ -908,6 +929,7 @@ export function restoreTabView(tab: TabRuntime): boolean {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      spellcheck: false,
       backgroundThrottling: false,
       preload: join(__dirname, '../preload/page.js')
     }
@@ -1009,6 +1031,10 @@ export function layoutWindow(envId: string): void {
     if (!tab.view) continue
     const show = active?.id === tab.id && active.kind === 'page' && !active.error
     tab.view.setVisible(show)
+    if (!tab.view.webContents.isDestroyed()) {
+      // 隐藏的后台页不再保持全速定时器；Agent 控制的标签和有声页面例外
+      tab.view.webContents.setBackgroundThrottling(show || tab.control === 'agent' || Boolean(tab.audible))
+    }
     if (show) tab.view.setBounds(runtime.bounds)
   }
   placeRail(runtime)

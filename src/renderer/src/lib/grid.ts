@@ -145,6 +145,6 @@ export async function drawGrid(png: Uint8Array, options: GridRenderOptions): Pro
     ctx.fillText(text, 2, 2)
   }
 
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, options.jpeg ? 'image/jpeg' : 'image/png', 0.9))
   return blob ? new Uint8Array(await blob.arrayBuffer()) : png
 }

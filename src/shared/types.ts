@@ -28,6 +28,8 @@ export type Settings = {
   port: number
   batchConcurrency: number
   headlessLimit: number
+  // 每个窗口最多同时保留几个活跃页面，超出按最久未用休眠
+  maxLiveTabs: number
   // 非活动标签空闲多少分钟后休眠（0 关闭）
   tabHibernateMinutes: number
   // 最小化或隐藏的窗口空闲多少分钟后关窗（0 关闭）
@@ -291,6 +293,7 @@ export const defaultSettings = (): Settings => ({
   port: 39221,
   batchConcurrency: 3,
   headlessLimit: 3,
+  maxLiveTabs: 4,
   tabHibernateMinutes: 15,
   closeIdleMinutes: 0,
   cacheCleanup: 'weekly',

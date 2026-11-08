@@ -21,6 +21,7 @@ import {
   closeTabsBelow,
   duplicateTab,
   emitContextMenu,
+  enforceLiveTabLimits,
   layoutWindow,
   muteTab,
   reloadTab,
@@ -40,7 +41,7 @@ import {
   windowFromSender
 } from './windows'
 import { normalizeUrl, startUrl } from './page'
-import { callTool, screenStartWaiters, screenWaiters } from './services/tool-catalog'
+import { screenStartWaiters, screenWaiters } from './services/screen-waiters'
 import { createId } from './ids'
 import { buildState, broadcast } from './ipc/state'
 import { registerLayerIpc } from './ipc/layers'
@@ -60,6 +61,10 @@ function paramHint(param: WorkflowParam): string {
 }
 
 const screenParts = new Map<string, { path: string; bytes: number }>()
+
+async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+  return (await import('./services/tool-catalog')).callTool(name, args)
+}
 
 export function wireIpc(): void {
   registerLayerIpc()
@@ -421,6 +426,9 @@ export function wireIpc(): void {
     if (patch.searchEngine !== undefined && !searchEngines.some((item) => item.id === patch.searchEngine)) {
       delete patch.searchEngine
     }
+    if (patch.maxLiveTabs !== undefined) {
+      patch.maxLiveTabs = Math.min(20, Math.max(1, Math.round(Number(patch.maxLiveTabs) || 1)))
+    }
     if (patch.tabHibernateMinutes !== undefined) {
       patch.tabHibernateMinutes = Math.min(240, Math.max(0, Math.round(Number(patch.tabHibernateMinutes) || 0)))
     }
@@ -433,6 +441,7 @@ export function wireIpc(): void {
     storage.settings = { ...storage.settings, ...patch }
     storage.saveSettings()
     if (patch.language !== undefined) applyMainLanguage(storage.settings.language)
+    if (patch.maxLiveTabs !== undefined) enforceLiveTabLimits()
     if (patch.tabLayout !== undefined) {
       for (const runtime of windows.values()) layoutWindow(runtime.envId)
     }

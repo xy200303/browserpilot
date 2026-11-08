@@ -591,6 +591,15 @@ function General({ state }: { state: UiState }) {
                 onChange={(event) => void window.browser.updateSettings({ headlessLimit: Math.max(1, Number(event.target.value) || 1) })}
               />
             </Field>
+            <Field label={i18n.t('settings.general.field.maxLiveTabs')}>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={settings.maxLiveTabs}
+                onChange={(event) => void window.browser.updateSettings({ maxLiveTabs: Math.min(20, Math.max(1, Number(event.target.value) || 1)) })}
+              />
+            </Field>
             <Field label={i18n.t('settings.general.field.hibernateMinutes')}>
               <Input
                 type="number"

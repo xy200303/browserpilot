@@ -13,6 +13,7 @@ export type GridRenderOptions = {
   toneHeight: number
   tone: number[]
   colors: string[]
+  jpeg?: boolean
 }
 
 export type GridRenderRequest = {

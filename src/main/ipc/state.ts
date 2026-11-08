@@ -36,9 +36,11 @@ async function envView(item: StoredEnv): Promise<UiState['envs'][number]> {
   }
 }
 
-export async function buildState(runtime: WindowRuntime): Promise<UiState> {
+export async function buildState(runtime: WindowRuntime, full = true): Promise<UiState> {
   const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
   const nav = active?.view?.webContents.navigationHistory
+  // 普通浏览时只发轻状态；工作流图、抓包正文这类重字段等真正打开对应页面再发
+  const heavy = full || active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow'
   return {
     envId: runtime.envId,
     envName: storage.envs.find((item) => item.id === runtime.envId)?.name ?? runtime.envId,
@@ -86,9 +88,9 @@ export async function buildState(runtime: WindowRuntime): Promise<UiState> {
       remark: item.app.description,
       icon: item.app.icon || '',
       params: workflowParams(item),
-      graph: item.workflow.graph
+      graph: heavy ? item.workflow.graph : { nodes: [], edges: [] }
     })),
-    captures: active ? netList(active.id) : [],
+    captures: heavy && active ? netList(active.id) : [],
     canBack: Boolean(nav?.canGoBack()),
     canForward: Boolean(nav?.canGoForward()),
     screenRecording: runtime.screenRecording,
@@ -108,7 +110,9 @@ const pendingEnvs = new Set<string>()
 let pendingAll = false
 
 async function flushState(runtime: WindowRuntime): Promise<void> {
-  const state = await buildState(runtime)
+  const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
+  const full = active?.kind === 'market' || active?.kind === 'settings' || active?.kind === 'workflow'
+  const state = await buildState(runtime, full)
   if (runtime.win.isDestroyed()) return
   runtime.win.webContents.send('state', state)
   if (runtime.popupOpen && runtime.popupView && !runtime.popupView.webContents.isDestroyed()) {

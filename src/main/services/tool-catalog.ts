@@ -10,6 +10,7 @@ import { createId } from '../ids'
 import { applyMainLanguage } from '../i18n'
 import { bridge, publicControl, windows, type TabRuntime } from '../runtime'
 import { storage } from './store'
+import { screenStartWaiters, screenWaiters } from './screen-waiters'
 import { downloadCancel, downloadCopyLink, downloadForget, downloadOpen, downloadPause, downloadResume, downloadShow, downloadTargetDir, downloadsClear, listDownloads } from './DownloadService'
 import { clearPasswords } from './PasswordService'
 import { listPasswords, passwordStorageStatus } from './PasswordService'
@@ -27,6 +28,7 @@ import {
   closeWorkflowPages,
   closeOtherTabs,
   duplicateTab,
+  enforceLiveTabLimits,
   muteTab,
   restoreTab,
   openEnvironment,
@@ -149,6 +151,9 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 function imageOf(path: string): { mimeType: string; data: string; bytes: number } | undefined {
   const data = readFileSync(path)
   if (!data.length || data.length > MAX_IMAGE_BYTES) return undefined
+  if (data[0] === 0xff && data[1] === 0xd8) {
+    return { mimeType: 'image/jpeg', data: data.toString('base64'), bytes: data.length }
+  }
   // 2x 屏的 PNG 动辄两三 MB，base64 后还要再涨三分之一；大图转 JPEG 保持尺寸不变，
   // Agent 读图用的坐标仍然和 shot 元数据一致。
   if (data.length > 800 * 1024) {
@@ -870,7 +875,7 @@ tool('password_list', 'List saved logins for this environment: site and account 
   return { env: envId, passwords: listPasswords(envId), storage: passwordStorageStatus() }
 })
 
-const SETTING_KEYS = ['language', 'tabLayout', 'searchEngine', 'passwordSave', 'passwordAutofill', 'batchConcurrency', 'headlessLimit', 'tabHibernateMinutes', 'closeIdleMinutes', 'cacheCleanup', 'toolMode'] as const
+const SETTING_KEYS = ['language', 'tabLayout', 'searchEngine', 'passwordSave', 'passwordAutofill', 'batchConcurrency', 'headlessLimit', 'maxLiveTabs', 'tabHibernateMinutes', 'closeIdleMinutes', 'cacheCleanup', 'toolMode'] as const
 
 function pickSettings(): Record<string, unknown> {
   return {
@@ -881,6 +886,7 @@ function pickSettings(): Record<string, unknown> {
     passwordAutofill: storage.settings.passwordAutofill,
     batchConcurrency: storage.settings.batchConcurrency,
     headlessLimit: storage.settings.headlessLimit,
+    maxLiveTabs: storage.settings.maxLiveTabs,
     tabHibernateMinutes: storage.settings.tabHibernateMinutes,
     closeIdleMinutes: storage.settings.closeIdleMinutes,
     cacheCleanup: storage.settings.cacheCleanup,
@@ -890,7 +896,7 @@ function pickSettings(): Record<string, unknown> {
 
 tool('settings_get', 'Read browser settings: UI language, tab layout, search engine, password switches, batch concurrency, headless limit, idle tab hibernation, idle window close, cache cleanup. Port and MCP switches are local service config, not included.', z.object({}), async () => ({ settings: pickSettings() }))
 
-tool('settings_set', 'Change browser settings: language (auto, zh-CN or en-US, UI only), tabLayout (top or left), searchEngine, passwordSave, passwordAutofill, batchConcurrency, headlessLimit, tabHibernateMinutes (0 disables), closeIdleMinutes (0 disables), cacheCleanup (off, onClose or weekly; clears site caches but keeps logins), toolMode (full or search). Applies immediately.', z.object({
+tool('settings_set', 'Change browser settings: language (auto, zh-CN or en-US, UI only), tabLayout (top or left), searchEngine, passwordSave, passwordAutofill, batchConcurrency, headlessLimit, maxLiveTabs (1-20), tabHibernateMinutes (0 disables), closeIdleMinutes (0 disables), cacheCleanup (off, onClose or weekly; clears site caches but keeps logins), toolMode (full or search). Applies immediately.', z.object({
   language: z.enum(['auto', 'zh-CN', 'en-US']).optional(),
   tabLayout: z.enum(['top', 'left']).optional(),
   searchEngine: z.string().optional(),
@@ -898,6 +904,7 @@ tool('settings_set', 'Change browser settings: language (auto, zh-CN or en-US, U
   passwordAutofill: z.boolean().optional(),
   batchConcurrency: z.number().optional(),
   headlessLimit: z.number().optional(),
+  maxLiveTabs: z.number().optional(),
   tabHibernateMinutes: z.number().optional(),
   closeIdleMinutes: z.number().optional(),
   cacheCleanup: z.enum(['off', 'onClose', 'weekly']).optional(),
@@ -913,11 +920,13 @@ tool('settings_set', 'Change browser settings: language (auto, zh-CN or en-US, U
   }
   if (patch.batchConcurrency !== undefined) patch.batchConcurrency = Math.max(1, Math.min(3, Number(patch.batchConcurrency) || 1))
   if (patch.headlessLimit !== undefined) patch.headlessLimit = Math.max(1, Number(patch.headlessLimit) || 1)
+  if (patch.maxLiveTabs !== undefined) patch.maxLiveTabs = Math.max(1, Math.min(20, Math.round(Number(patch.maxLiveTabs) || 1)))
   if (patch.tabHibernateMinutes !== undefined) patch.tabHibernateMinutes = Math.max(0, Math.min(240, Math.round(Number(patch.tabHibernateMinutes) || 0)))
   if (patch.closeIdleMinutes !== undefined) patch.closeIdleMinutes = Math.max(0, Math.min(1440, Math.round(Number(patch.closeIdleMinutes) || 0)))
   storage.settings = { ...storage.settings, ...patch }
   if (patch.language !== undefined) applyMainLanguage(storage.settings.language)
   storage.saveSettings()
+  if (patch.maxLiveTabs !== undefined) enforceLiveTabLimits()
   if (patch.tabLayout !== undefined) {
     for (const runtime of windows.values()) bridge.layout(runtime.envId)
   }
@@ -2520,8 +2529,7 @@ tool('cookie_remove', 'Delete cookies: url plus name for one, domain for all of 
   throw new Error(mt('main.tc.needUrlNameAll'))
 })
 
-export const screenWaiters = new Map<string, { resolve: (path: string) => void; reject: (error: Error) => void }>()
-export const screenStartWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void }>()
+
 
 const CORE_TOOLS = new Set([
   'search_tools',
