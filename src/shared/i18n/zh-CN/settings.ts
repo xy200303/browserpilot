@@ -16,10 +16,35 @@ export const zhSettings = {
         title: '界面语言',
         detail: '只影响界面。工具描述和报错走模型侧，始终是英文，避免同一份提示词随语言翻倍。',
         auto: '跟随系统'
+      },
+      searchEngine: '搜索引擎',
+      searchEngineDetail: '新标签页打开这个搜索引擎的首页。地址栏里输入文字时，也用它来搜索。',
+      tabLayout: '标签栏',
+      tabLayoutDetail: '顶部是横条。左侧是竖排，靠近时盖住网页展开，点顶部固定后网页才让开。',
+      top: '顶部',
+      left: '左侧',
+      downloadDir: '下载位置',
+      downloadDirDetail: '网页下载、Agent 保存的图片/视频、窗口录屏都默认放这里。不改就是系统下载目录（Windows 的「下载」、macOS / Linux 的 Downloads）。',
+      systemDir: '系统下载目录',
+      choose: '选择…',
+      resetDefault: '恢复默认',
+      toolMode: '工具列表',
+      toolModeDetail: 'Agent 能看到的工具。按需搜索只先给核心工具，其它用 search_tools 查；全部则一次给全，占上下文更多。',
+      search: '按需搜索',
+      full: '全部',
+      connect: '接入 Agent',
+      connectDetail: '复制一段提示词给 Agent：里面带 MCP 地址和口令、skill 和命令行工具的安装方法。',
+      copyPrompt: '复制提示词',
+      mcp: 'MCP',
+      mcpDetail: '只听 127.0.0.1。关掉后再打开会换一次端口上的服务。',
+      field: {
+        address: '监听地址',
+        port: '端口',
+        endpoint: '端点',
+        concurrency: '批量并发上限',
+        headlessLimit: '无头窗口上限'
       }
-    }
-  },
-  settings2: {
+    },
     env: {
       search: '搜索环境或网站',
       new: '新建',
@@ -112,40 +137,11 @@ export const zhSettings = {
       delete: '删除',
       clear: '清空这套环境的密码'
     },
-    general: {
-      searchEngine: '搜索引擎',
-      searchEngineDetail: '新标签页打开这个搜索引擎的首页。地址栏里输入文字时，也用它来搜索。',
-      tabLayout: '标签栏',
-      tabLayoutDetail: '顶部是横条。左侧是竖排，靠近时盖住网页展开，点顶部固定后网页才让开。',
-      top: '顶部',
-      left: '左侧',
-      downloadDir: '下载位置',
-      downloadDirDetail: '网页下载、Agent 保存的图片/视频、窗口录屏都默认放这里。不改就是系统下载目录（Windows 的「下载」、macOS / Linux 的 Downloads）。',
-      systemDir: '系统下载目录',
-      choose: '选择…',
-      resetDefault: '恢复默认',
-      toolMode: '工具列表',
-      toolModeDetail: 'Agent 能看到的工具。按需搜索只先给核心工具，其它用 search_tools 查；全部则一次给全，占上下文更多。',
-      search: '按需搜索',
-      full: '全部',
-      connect: '接入 Agent',
-      connectDetail: '复制一段提示词给 Agent：里面带 MCP 地址和口令、skill 和命令行工具的安装方法。',
-      copyPrompt: '复制提示词',
-      mcp: 'MCP',
-      mcpDetail: '只听 127.0.0.1。关掉后再打开会换一次端口上的服务。',
-      field: {
-        address: '监听地址',
-        port: '端口',
-        endpoint: '端点',
-        concurrency: '批量并发上限',
-        headlessLimit: '无头窗口上限'
-      }
-    },
     about: {
       title: '关于',
       tagline: '给 Agent 用的浏览器。同一个进程里可以开多套环境，一套环境一扇窗口。',
       version: '当前版本',
       versionDetail: '安装包里的版本号'
     }
-  }
+  },
 } as const

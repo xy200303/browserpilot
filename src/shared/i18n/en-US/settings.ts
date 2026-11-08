@@ -1,6 +1,5 @@
 import type { MessageShape } from '../shape'
 import type { zhSettings } from '../zh-CN/settings'
-
 export const enSettings: MessageShape<typeof zhSettings> = {
   settings: {
     title: 'Settings',
@@ -19,10 +18,35 @@ export const enSettings: MessageShape<typeof zhSettings> = {
         title: 'Language',
         detail: 'Interface only. Tool descriptions and errors stay in English so the same prompt is not doubled per language.',
         auto: 'Follow system'
+      },
+      searchEngine: 'Search engine',
+      searchEngineDetail: 'New tabs open this engine home page. Typing in the address bar also searches with it.',
+      tabLayout: 'Tab bar',
+      tabLayoutDetail: 'Top is a horizontal strip. Left is vertical and overlays the page until pinned.',
+      top: 'Top',
+      left: 'Left',
+      downloadDir: 'Download folder',
+      downloadDirDetail: 'Page downloads, media saved by the agent and window recordings land here. Default is the system download folder.',
+      systemDir: 'System download folder',
+      choose: 'Choose…',
+      resetDefault: 'Reset to default',
+      toolMode: 'Tool list',
+      toolModeDetail: 'What the agent can see. Search mode exposes core tools and leaves the rest to search_tools; full mode exposes everything and costs more context.',
+      search: 'On demand',
+      full: 'All',
+      connect: 'Connect an agent',
+      connectDetail: 'Copy a prompt for another agent: MCP address and token, skill and CLI installation.',
+      copyPrompt: 'Copy prompt',
+      mcp: 'MCP',
+      mcpDetail: 'Listens on 127.0.0.1 only. Turning it off and on again restarts the service on the port.',
+      field: {
+        address: 'Listen address',
+        port: 'Port',
+        endpoint: 'Endpoint',
+        concurrency: 'Batch concurrency',
+        headlessLimit: 'Headless window limit'
       }
-    }
-  },
-  settings2: {
+    },
     env: {
       search: 'Search environments or sites',
       new: 'New',
@@ -115,40 +139,11 @@ export const enSettings: MessageShape<typeof zhSettings> = {
       delete: 'Delete',
       clear: 'Clear passwords for this environment'
     },
-    general: {
-      searchEngine: 'Search engine',
-      searchEngineDetail: 'New tabs open this engine home page. Typing in the address bar also searches with it.',
-      tabLayout: 'Tab bar',
-      tabLayoutDetail: 'Top is a horizontal strip. Left is vertical and overlays the page until pinned.',
-      top: 'Top',
-      left: 'Left',
-      downloadDir: 'Download folder',
-      downloadDirDetail: 'Page downloads, media saved by the agent and window recordings land here. Default is the system download folder.',
-      systemDir: 'System download folder',
-      choose: 'Choose…',
-      resetDefault: 'Reset to default',
-      toolMode: 'Tool list',
-      toolModeDetail: 'What the agent can see. Search mode exposes core tools and leaves the rest to search_tools; full mode exposes everything and costs more context.',
-      search: 'On demand',
-      full: 'All',
-      connect: 'Connect an agent',
-      connectDetail: 'Copy a prompt for another agent: MCP address and token, skill and CLI installation.',
-      copyPrompt: 'Copy prompt',
-      mcp: 'MCP',
-      mcpDetail: 'Listens on 127.0.0.1 only. Turning it off and on again restarts the service on the port.',
-      field: {
-        address: 'Listen address',
-        port: 'Port',
-        endpoint: 'Endpoint',
-        concurrency: 'Batch concurrency',
-        headlessLimit: 'Headless window limit'
-      }
-    },
     about: {
       title: 'About',
       tagline: 'A browser for agents. Multiple isolated environments in one process, one window each.',
       version: 'Version',
       versionDetail: 'Version shipped in the installer'
     }
-  }
+  },
 }
