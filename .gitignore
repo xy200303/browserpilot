@@ -19,3 +19,7 @@ release
 /*.webm
 /*.ogg
 /*.m4s
+
+# VitePress 构建缓存与产物
+website/.vitepress/cache
+website/.vitepress/dist
