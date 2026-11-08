@@ -32,6 +32,8 @@ export type Settings = {
   tabHibernateMinutes: number
   // 最小化或隐藏的窗口空闲多少分钟后关窗（0 关闭）
   closeIdleMinutes: number
+  // 站点缓存清理：off / 关窗时 / 每周一次
+  cacheCleanup: 'off' | 'onClose' | 'weekly'
   downloadDir: string
   passwordSave: boolean
   passwordAutofill: boolean
@@ -291,6 +293,7 @@ export const defaultSettings = (): Settings => ({
   headlessLimit: 3,
   tabHibernateMinutes: 15,
   closeIdleMinutes: 0,
+  cacheCleanup: 'weekly',
   downloadDir: '',
   passwordSave: true,
   passwordAutofill: true,

@@ -1,19 +1,21 @@
-import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
 import i18n, { applyLanguage } from './i18n'
 import { ChevronLeft, ChevronRight, Minus, Moon, Plus, Square, TriangleAlert, Volume2, VolumeX, X } from 'lucide-react'
 import type { LanguageSetting, TabInfo, UiState } from '../../shared/types'
 import { useTranslation } from 'react-i18next'
-import { MarketPage } from './MarketPage'
-import { SettingsPage } from './Settings'
-import { WorkflowEditor } from './Workflow'
 import { workflowPage } from '../../shared/market'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { DownloadsPage } from './DownloadsPage'
-import { RunsPage } from './RunsPage'
 import { AddressBar } from './AddressBar'
-import { HistoryPage } from './HistoryPage'
-import { BookmarksPage } from './BookmarksPage'
+
+// 页面按需加载：工作流编辑器带着 @xyflow（约 360KB），不该在启动时就解析
+const MarketPage = lazy(() => import('./MarketPage').then((mod) => ({ default: mod.MarketPage })))
+const SettingsPage = lazy(() => import('./Settings').then((mod) => ({ default: mod.SettingsPage })))
+const WorkflowEditor = lazy(() => import('./Workflow').then((mod) => ({ default: mod.WorkflowEditor })))
+const DownloadsPage = lazy(() => import('./DownloadsPage').then((mod) => ({ default: mod.DownloadsPage })))
+const RunsPage = lazy(() => import('./RunsPage').then((mod) => ({ default: mod.RunsPage })))
+const HistoryPage = lazy(() => import('./HistoryPage').then((mod) => ({ default: mod.HistoryPage })))
+const BookmarksPage = lazy(() => import('./BookmarksPage').then((mod) => ({ default: mod.BookmarksPage })))
 
 let recorder: MediaRecorder | null = null
 let recordChunks: Blob[] = []
@@ -364,43 +366,45 @@ function PageSurface({ state, active, contentRef, reloadKey }: { state: UiState;
             </div>
           </div>
         )}
-        {active?.kind === 'market' && (
-          <div className="absolute inset-0 overflow-hidden bg-white">
-            <MarketPage key={reloadKey} state={state} />
-          </div>
-        )}
-        {active?.kind === 'downloads' && (
-          <div className="absolute inset-0 overflow-hidden bg-white">
-            <DownloadsPage key={reloadKey} state={state} />
-          </div>
-        )}
-        {active?.kind === 'runs' && (
-          <div className="absolute inset-0 overflow-hidden bg-white">
-            <RunsPage key={reloadKey} state={state} tabUrl={active.url} />
-          </div>
-        )}
-        {active?.kind === 'history' && (
-          <div className="absolute inset-0 overflow-hidden bg-white">
-            <HistoryPage key={reloadKey} />
-          </div>
-        )}
-        {active?.kind === 'bookmarks' && (
-          <div className="absolute inset-0 overflow-hidden bg-white">
-            <BookmarksPage key={reloadKey} state={state} />
-          </div>
-        )}
-        {active?.kind === 'settings' && (
-          <div className="absolute inset-0 overflow-hidden bg-white">
-            <SettingsPage key={reloadKey} state={state} />
-          </div>
-        )}
-        {active?.kind === 'workflow' && (
-          <div className="absolute inset-0 flex overflow-hidden bg-white p-4">
-            <div className="min-h-0 min-w-0 flex-1">
-              <WorkflowPage key={reloadKey} state={state} tab={active} />
+        <Suspense fallback={null}>
+          {active?.kind === 'market' && (
+            <div className="absolute inset-0 overflow-hidden bg-white">
+              <MarketPage key={reloadKey} state={state} />
             </div>
-          </div>
-        )}
+          )}
+          {active?.kind === 'downloads' && (
+            <div className="absolute inset-0 overflow-hidden bg-white">
+              <DownloadsPage key={reloadKey} state={state} />
+            </div>
+          )}
+          {active?.kind === 'runs' && (
+            <div className="absolute inset-0 overflow-hidden bg-white">
+              <RunsPage key={reloadKey} state={state} tabUrl={active.url} />
+            </div>
+          )}
+          {active?.kind === 'history' && (
+            <div className="absolute inset-0 overflow-hidden bg-white">
+              <HistoryPage key={reloadKey} />
+            </div>
+          )}
+          {active?.kind === 'bookmarks' && (
+            <div className="absolute inset-0 overflow-hidden bg-white">
+              <BookmarksPage key={reloadKey} state={state} />
+            </div>
+          )}
+          {active?.kind === 'settings' && (
+            <div className="absolute inset-0 overflow-hidden bg-white">
+              <SettingsPage key={reloadKey} state={state} />
+            </div>
+          )}
+          {active?.kind === 'workflow' && (
+            <div className="absolute inset-0 flex overflow-hidden bg-white p-4">
+              <div className="min-h-0 min-w-0 flex-1">
+                <WorkflowPage key={reloadKey} state={state} tab={active} />
+              </div>
+            </div>
+          )}
+        </Suspense>
       </div>
     </div>
   )

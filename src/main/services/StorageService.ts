@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import {
   DEFAULT_ENV,
@@ -314,6 +314,105 @@ export class StorageService {
   clearSession(envId: string): void {
     delete this.sessions[envId]
     writeJson('session.json', this.sessions)
+  }
+
+  /** 各目录占用（字节）：设置页的「存储」区块和诊断用。 */
+  diskUsage(): Record<'screenshots' | 'runs' | 'media' | 'exports' | 'partitions', number> {
+    const measure = (dir: string): number => {
+      let total = 0
+      const walk = (path: string): void => {
+        let entries: string[] = []
+        try {
+          entries = readdirSync(path)
+        } catch {
+          return
+        }
+        for (const name of entries) {
+          const full = join(path, name)
+          try {
+            const stat = statSync(full)
+            if (stat.isDirectory()) walk(full)
+            else total += stat.size
+          } catch {
+            /* 文件刚被删 */
+          }
+        }
+      }
+      walk(dir)
+      return total
+    }
+    return {
+      screenshots: measure(this.dir('screenshots')),
+      runs: measure(this.dir('runs')),
+      media: measure(this.dir('media')),
+      exports: measure(this.dir('exports')),
+      partitions: measure(this.dir('Partitions'))
+    }
+  }
+
+  /**
+   * 保留策略：截图最多 300 张且不超过 200MB，runs/media 只留 30 天。
+   * 只动这三个目录，不碰登录数据、导出和下载。
+   */
+  pruneStorage(scope: 'auto' | 'all' = 'all'): { files: number; bytes: number } {
+    let files = 0
+    let bytes = 0
+    const remove = (path: string, size: number): void => {
+      try {
+        unlinkSync(path)
+        files += 1
+        bytes += size
+      } catch {
+        /* 已经删掉 */
+      }
+    }
+    const olderThan = (dir: string, days: number): void => {
+      const cutoff = Date.now() - days * 86_400_000
+      let entries: string[] = []
+      try {
+        entries = readdirSync(dir)
+      } catch {
+        return
+      }
+      for (const name of entries) {
+        const full = join(dir, name)
+        try {
+          const stat = statSync(full)
+          if (stat.isFile() && stat.mtimeMs < cutoff) remove(full, stat.size)
+        } catch {
+          /* 刚被删 */
+        }
+      }
+    }
+    const shots: Array<{ path: string; size: number; mtime: number }> = []
+    try {
+      for (const name of readdirSync(this.dir('screenshots'))) {
+        const full = join(this.dir('screenshots'), name)
+        try {
+          const stat = statSync(full)
+          if (stat.isFile()) shots.push({ path: full, size: stat.size, mtime: stat.mtimeMs })
+        } catch {
+          /* 刚被删 */
+        }
+      }
+    } catch {
+      /* 目录还没建 */
+    }
+    shots.sort((a, b) => a.mtime - b.mtime)
+    let total = shots.reduce((sum, shot) => sum + shot.size, 0)
+    let count = shots.length
+    for (const shot of shots) {
+      if (count <= 300 && total <= 200 * 1024 * 1024) break
+      remove(shot.path, shot.size)
+      total -= shot.size
+      count -= 1
+    }
+    // 自动只清 Agent 自己产生的截图；运行记录和媒体可能是有用素材，留给手动清理
+    if (scope === 'all') {
+      olderThan(this.dir('runs'), 30)
+      olderThan(this.dir('media'), 30)
+    }
+    return { files, bytes }
   }
 
   dir(name: string): string {

@@ -1,5 +1,6 @@
 import { ipcMain, session } from 'electron'
 import { storage } from '../services/store'
+import { clearEnvCache } from '../services/CacheService'
 import { broadcast } from './state'
 import {
   addTab,
@@ -94,15 +95,30 @@ export function registerLibraryIpc(): void {
     const runtime = windowFromSender(event.sender)
     if (!runtime) return { ok: false }
     if (options.history) storage.clearHistory(runtime.envId)
-    const ses = session.fromPartition(`persist:${runtime.envId}`)
     if (options.cookies) {
+      const ses = session.fromPartition(`persist:${runtime.envId}`)
       await ses.clearStorageData({
         storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage', 'serviceworkers', 'shadercache', 'filesystem']
       })
     }
-    if (options.cache) await ses.clearCache()
+    if (options.cache) {
+      // HTTP 缓存只是零头，Service Worker 缓存才是大头；登录数据不动
+      await clearEnvCache(runtime.envId)
+    }
     broadcast(runtime.envId)
     return { ok: true }
+  })
+
+  ipcMain.handle('data:usage', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (!runtime) return null
+    return storage.diskUsage()
+  })
+
+  ipcMain.handle('data:prune', (event) => {
+    const runtime = windowFromSender(event.sender)
+    if (!runtime) return { files: 0, bytes: 0 }
+    return storage.pruneStorage()
   })
 
   ipcMain.handle('tab:hibernate', (event, tabId: string) => {

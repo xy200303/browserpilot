@@ -1883,7 +1883,8 @@ async function captureDocumentFinish(wc: WebContents, onHtml: (html: string) => 
     if (requestId && wc.debugger.isAttached()) {
       const body = (await wc.debugger.sendCommand('Network.getResponseBody', { requestId })) as { body: string; base64Encoded: boolean }
       const html = body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body
-      onHtml(html)
+      // page_source 只需要能读，存整份大文档会把主进程堆撑起来；超过 2MB 截断
+      onHtml(html.length > 2 * 1024 * 1024 ? html.slice(0, 2 * 1024 * 1024) : html)
     }
   } catch {
     /* body already gone */

@@ -17,6 +17,7 @@ import {
   type WindowRuntime
 } from './runtime'
 import { downloadBegin, downloadDone, downloadFail, downloadProgress, downloadTargetDir, registerSessionDownload } from './services/DownloadService'
+import { scheduleClearEnvCache } from './services/CacheService'
 import { watchDialogs } from './dialogs'
 import { watchConsole } from './console-log'
 import { inspectElement, isSendingToPage, saveMedia, saveMediaInfo, sendCdp, startUrl, watchDocument, type ElementInfo } from './page'
@@ -160,53 +161,7 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
     railPinned: false,
     bounds: DEFAULT_BOUNDS
   }
-  const lockView = new WebContentsView({
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      transparent: true
-    }
-  })
-  lockView.setBackgroundColor('#00000000')
-  lockView.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(lockHtml())}`)
-  lockView.setVisible(false)
-  runtime.lockView = lockView
-  const popupView = new WebContentsView({
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      transparent: true
-    }
-  })
-  popupView.setBackgroundColor('#00000000')
-  popupView.setVisible(false)
-  runtime.popupView = popupView
-  win.contentView.addChildView(popupView)
-  void loadPopup(popupView)
-  popupView.webContents.on('did-finish-load', () => {
-    if (runtime.popupOpen && runtime.popupPayload) popupView.webContents.send('layer:show', runtime.popupPayload)
-    if (runtime.popupPayload?.kind === 'suggest' && runtime.suggestPayload) {
-      popupView.webContents.send('suggest:data', runtime.suggestPayload)
-    }
-  })
-  const railView = new WebContentsView({
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true
-    }
-  })
-  railView.setBackgroundColor('#f3f3f3')
-  railView.setVisible(false)
-  runtime.railView = railView
-  win.contentView.addChildView(railView)
-  void loadLayer(railView, 'rail')
-  railView.webContents.on('did-finish-load', () => bindShortcuts(railView.webContents, envId))
+  // 锁层、弹层、左侧栏都按需创建：无头窗口永远用不到，有头窗口也只在第一次用到时才起渲染进程
   windows.set(envId, runtime)
   win.on('close', () => {
     const pending = sessionTimers.get(envId)
@@ -215,6 +170,7 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
     saveSessionNow(runtime)
     for (const tab of runtime.tabs) tab.view?.webContents.close()
     windows.delete(envId)
+    if (storage.settings.cacheCleanup === 'onClose') scheduleClearEnvCache(envId)
     bridge.broadcast()
   })
   win.on('resize', () => bridge.layout(envId))
@@ -251,6 +207,73 @@ function loadLayer(view: WebContentsView, layer: string, extra?: Record<string, 
   }
 }
 
+/** 弹层/侧栏/锁层都按需创建，无头窗口不建，省下每窗 1–3 个渲染进程。 */
+function ensurePopupView(runtime: WindowRuntime): WebContentsView | undefined {
+  if (runtime.headless || runtime.win.isDestroyed()) return undefined
+  if (runtime.popupView) return runtime.popupView
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      transparent: true
+    }
+  })
+  view.setBackgroundColor('#00000000')
+  view.setVisible(false)
+  runtime.popupView = view
+  runtime.win.contentView.addChildView(view)
+  void loadPopup(view)
+  view.webContents.on('did-finish-load', () => {
+    if (runtime.popupOpen && runtime.popupPayload) view.webContents.send('layer:show', runtime.popupPayload)
+    if (runtime.popupPayload?.kind === 'suggest' && runtime.suggestPayload) {
+      view.webContents.send('suggest:data', runtime.suggestPayload)
+    }
+  })
+  return view
+}
+
+function ensureRailView(runtime: WindowRuntime): WebContentsView | undefined {
+  if (runtime.headless || runtime.win.isDestroyed()) return undefined
+  if (runtime.railView) return runtime.railView
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  })
+  view.setBackgroundColor('#f3f3f3')
+  view.setVisible(false)
+  runtime.railView = view
+  runtime.win.contentView.addChildView(view)
+  void loadLayer(view, 'rail')
+  view.webContents.on('did-finish-load', () => bindShortcuts(view.webContents, runtime.envId))
+  return view
+}
+
+function ensureLockView(runtime: WindowRuntime): WebContentsView | undefined {
+  if (runtime.headless || runtime.win.isDestroyed()) return undefined
+  if (runtime.lockView) return runtime.lockView
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      transparent: true
+    }
+  })
+  view.setBackgroundColor('#00000000')
+  view.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(lockHtml())}`)
+  view.setVisible(false)
+  runtime.lockView = view
+  runtime.win.contentView.addChildView(view)
+  return view
+}
+
 export function applyHeadless(runtime: WindowRuntime, headless: boolean): void {
   if (headless && !runtime.headless && headlessCount() >= storage.settings.headlessLimit) {
     throw new Error(mt('main.err.headlessLimit', { limit: storage.settings.headlessLimit }))
@@ -262,6 +285,24 @@ export function applyHeadless(runtime: WindowRuntime, headless: boolean): void {
   runtime.headless = headless
   if (headless) {
     if (!previous) runtime.win.hide()
+    // 进无头就把 UI 层收掉：它们不会再显示，留着只是白占三个渲染进程
+    for (const key of ['popupView', 'railView', 'lockView'] as const) {
+      const view = runtime[key]
+      if (!view) continue
+      runtime[key] = undefined
+      try {
+        runtime.win.contentView.removeChildView(view)
+      } catch {
+        /* 已经不在树上 */
+      }
+      try {
+        view.webContents.close()
+      } catch {
+        /* 已经关闭 */
+      }
+    }
+    runtime.popupOpen = false
+    runtime.popupPayload = null
   } else if (previous) {
     // 只在从无头切回有头时显示并聚焦；已经是有头窗口时不要抢焦点
     runtime.win.show()
@@ -369,6 +410,7 @@ export function hibernateTab(runtime: WindowRuntime, tabId: string): boolean {
   tab.hibernated = true
   tab.loading = false
   tab.progress = 0
+  tab.documentHtml = ''
   if (view) {
     try {
       view.webContents.close()
@@ -654,8 +696,10 @@ export function openBookmarksPage(runtime: WindowRuntime): TabRuntime {
 function mountPopup(runtime: WindowRuntime, payload: LayerPayload): void {
   runtime.popupPayload = payload
   runtime.popupOpen = true
+  const view = ensurePopupView(runtime)
+  if (!view) return
   layoutWindow(runtime.envId)
-  runtime.popupView?.webContents.send('layer:show', payload)
+  view.webContents.send('layer:show', payload)
 }
 
 export function closePopup(runtime: WindowRuntime): void {
@@ -894,9 +938,10 @@ export function layoutWindow(envId: string): void {
     if (show) tab.view.setBounds(runtime.bounds)
   }
   placeRail(runtime)
-  const lock = runtime.lockView
+  const needLock = Boolean(active && active.kind === 'page' && active.control === 'agent')
+  const lock = needLock ? ensureLockView(runtime) : runtime.lockView
   if (lock) {
-    const showLock = Boolean(active && active.kind === 'page' && active.control === 'agent')
+    const showLock = needLock
     lock.setVisible(showLock)
     if (showLock) {
       // Electron 44 在 Linux 上先 remove 再 add 会把视图标成 hidden（画面不刷新但输入还进得去）；
@@ -927,13 +972,12 @@ const RAIL_NARROW = 48
 const RAIL_WIDE = 256
 
 function placeRail(runtime: WindowRuntime): void {
-  const rail = runtime.railView
-  if (!rail) return
-  const vertical = storage.settings.tabLayout === 'left' && !runtime.headless
-  if (!vertical) {
-    rail.setVisible(false)
+  if (storage.settings.tabLayout !== 'left' || runtime.headless) {
+    runtime.railView?.setVisible(false)
     return
   }
+  const rail = ensureRailView(runtime)
+  if (!rail) return
   const wide = runtime.railPinned || runtime.railOpen
   const gutter = runtime.railPinned ? RAIL_WIDE : RAIL_NARROW
   rail.setBounds({

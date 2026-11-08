@@ -534,6 +534,16 @@ function General({ state }: { state: UiState }) {
             )}
           </div>
         </Row>
+        <Row title={i18n.t('settings.general.cacheCleanup')} detail={i18n.t('settings.general.cacheCleanupDetail')}>
+          <Select value={settings.cacheCleanup} onValueChange={(value) => void window.browser.updateSettings({ cacheCleanup: value as 'off' | 'onClose' | 'weekly' })}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">{i18n.t('settings.general.cacheOff')}</SelectItem>
+              <SelectItem value="onClose">{i18n.t('settings.general.cacheOnClose')}</SelectItem>
+              <SelectItem value="weekly">{i18n.t('settings.general.cacheWeekly')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
         <Row title={i18n.t('settings.general.toolMode')} detail={i18n.t('settings.general.toolModeDetail')}>
           <Select value={settings.toolMode} onValueChange={(value) => void window.browser.updateSettings({ toolMode: value as 'full' | 'search' })}>
             <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
@@ -602,7 +612,71 @@ function General({ state }: { state: UiState }) {
           </div>
         </div>
       </Card>
+      <StorageCard />
     </section>
+  )
+}
+
+function StorageCard() {
+  const { t } = useTranslation()
+  const [usage, setUsage] = useState<Record<string, number> | null>(null)
+  const [notice, setNotice] = useState('')
+  const refresh = async (): Promise<void> => {
+    setUsage(await window.browser.dataUsage())
+  }
+  useEffect(() => {
+    void refresh()
+  }, [])
+  const size = (value?: number): string => {
+    if (!value) return '0'
+    if (value >= 1024 * 1024 * 1024) return `${(value / 1024 ** 3).toFixed(1)} GB`
+    return `${Math.round(value / 1024 / 1024)} MB`
+  }
+  return (
+    <Card>
+      <div className="grid gap-3 px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm">{t('settings.general.storage.title')}</div>
+            <div className="text-xs text-muted-foreground">{t('settings.general.storage.detail')}</div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              const result = await window.browser.pruneData()
+              await refresh()
+              setNotice(
+                result.files
+                  ? t('settings.general.storage.freed', { files: result.files, mb: Math.max(1, Math.round(result.bytes / 1024 / 1024)) })
+                  : t('settings.general.storage.nothing')
+              )
+            }}
+          >
+            {t('settings.general.storage.clean')}
+          </Button>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+          <div className="rounded-md border px-2.5 py-2">
+            <div className="text-muted-foreground">{t('settings.general.storage.screenshots')}</div>
+            <div className="mt-0.5 text-sm">{size(usage?.screenshots)}</div>
+          </div>
+          <div className="rounded-md border px-2.5 py-2">
+            <div className="text-muted-foreground">{t('settings.general.storage.runs')}</div>
+            <div className="mt-0.5 text-sm">{size(usage?.runs)}</div>
+          </div>
+          <div className="rounded-md border px-2.5 py-2">
+            <div className="text-muted-foreground">{t('settings.general.storage.media')}</div>
+            <div className="mt-0.5 text-sm">{size(usage?.media)}</div>
+          </div>
+          <div className="rounded-md border px-2.5 py-2">
+            <div className="text-muted-foreground">{t('settings.general.storage.partitions')}</div>
+            <div className="mt-0.5 text-sm">{size(usage?.partitions)}</div>
+          </div>
+        </div>
+        {notice && <div className="text-xs text-muted-foreground">{notice}</div>}
+      </div>
+    </Card>
   )
 }
 

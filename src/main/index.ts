@@ -5,7 +5,8 @@ import { storage } from './services/store'
 import { wireIpc, broadcast } from './ipc'
 import { bootDefaultWindow, reapIdle } from './windows'
 import { startMcp } from './services/McpService'
-import { windows } from './runtime'
+import { cleanupEnvs, cleanupIfDue, cacheCleanupDue, waitCacheCleanup } from './services/CacheService'
+import { runDepth, windows } from './runtime'
 import { applyMainLanguage } from './i18n'
 
 applyUserAgentFallback()
@@ -57,11 +58,27 @@ if (!gotLock) {
     bootDefaultWindow()
     // 一分钟看一次空闲：非活动标签休眠、最小化的窗口关掉
     setInterval(reapIdle, 60_000).unref()
+    storage.pruneStorage('auto')
+    // 启动时先清没开着的环境；开着的那扇等两分钟，避开刚启动的页面加载
+    const due = cacheCleanupDue()
+    void cleanupIfDue(new Set(windows.keys())).then((count) => {
+      if (count) console.log('[cache] cleaned', count, 'environments')
+    })
+    if (due) {
+      setTimeout(() => {
+        if (runDepth > 0) return
+        void cleanupEnvs([...windows.keys()]).then((count) => {
+          if (count) console.log('[cache] cleaned', count, 'open environments')
+        })
+      }, 120_000).unref()
+    }
     await startMcp()
     broadcast()
   })
 
   app.on('window-all-closed', () => {
-    if (windows.size === 0) app.quit()
+    if (windows.size !== 0) return
+    // 关窗清理可能还在排队，等它跑完再退，最多 3 秒
+    void waitCacheCleanup().finally(() => app.quit())
   })
 }

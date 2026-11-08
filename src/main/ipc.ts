@@ -425,6 +425,9 @@ export function wireIpc(): void {
     if (patch.closeIdleMinutes !== undefined) {
       patch.closeIdleMinutes = Math.min(1440, Math.max(0, Math.round(Number(patch.closeIdleMinutes) || 0)))
     }
+    if (patch.cacheCleanup !== undefined && !['off', 'onClose', 'weekly'].includes(patch.cacheCleanup)) {
+      delete patch.cacheCleanup
+    }
     storage.settings = { ...storage.settings, ...patch }
     storage.saveSettings()
     if (patch.language !== undefined) applyMainLanguage(storage.settings.language)

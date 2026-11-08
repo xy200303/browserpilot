@@ -861,7 +861,7 @@ tool('password_list', 'List saved logins for this environment: site and account 
   return { env: envId, passwords: listPasswords(envId), storage: passwordStorageStatus() }
 })
 
-const SETTING_KEYS = ['language', 'tabLayout', 'searchEngine', 'passwordSave', 'passwordAutofill', 'batchConcurrency', 'headlessLimit', 'tabHibernateMinutes', 'closeIdleMinutes', 'toolMode'] as const
+const SETTING_KEYS = ['language', 'tabLayout', 'searchEngine', 'passwordSave', 'passwordAutofill', 'batchConcurrency', 'headlessLimit', 'tabHibernateMinutes', 'closeIdleMinutes', 'cacheCleanup', 'toolMode'] as const
 
 function pickSettings(): Record<string, unknown> {
   return {
@@ -874,13 +874,14 @@ function pickSettings(): Record<string, unknown> {
     headlessLimit: storage.settings.headlessLimit,
     tabHibernateMinutes: storage.settings.tabHibernateMinutes,
     closeIdleMinutes: storage.settings.closeIdleMinutes,
+    cacheCleanup: storage.settings.cacheCleanup,
     toolMode: storage.settings.toolMode
   }
 }
 
-tool('settings_get', 'Read browser settings: UI language, tab layout, search engine, password switches, batch concurrency, headless limit, idle tab hibernation, idle window close. Port and MCP switches are local service config, not included.', z.object({}), async () => ({ settings: pickSettings() }))
+tool('settings_get', 'Read browser settings: UI language, tab layout, search engine, password switches, batch concurrency, headless limit, idle tab hibernation, idle window close, cache cleanup. Port and MCP switches are local service config, not included.', z.object({}), async () => ({ settings: pickSettings() }))
 
-tool('settings_set', 'Change browser settings: language (auto, zh-CN or en-US, UI only), tabLayout (top or left), searchEngine, passwordSave, passwordAutofill, batchConcurrency, headlessLimit, tabHibernateMinutes (0 disables), closeIdleMinutes (0 disables), toolMode (full or search). Applies immediately.', z.object({
+tool('settings_set', 'Change browser settings: language (auto, zh-CN or en-US, UI only), tabLayout (top or left), searchEngine, passwordSave, passwordAutofill, batchConcurrency, headlessLimit, tabHibernateMinutes (0 disables), closeIdleMinutes (0 disables), cacheCleanup (off, onClose or weekly; clears site caches but keeps logins), toolMode (full or search). Applies immediately.', z.object({
   language: z.enum(['auto', 'zh-CN', 'en-US']).optional(),
   tabLayout: z.enum(['top', 'left']).optional(),
   searchEngine: z.string().optional(),
@@ -890,6 +891,7 @@ tool('settings_set', 'Change browser settings: language (auto, zh-CN or en-US, U
   headlessLimit: z.number().optional(),
   tabHibernateMinutes: z.number().optional(),
   closeIdleMinutes: z.number().optional(),
+  cacheCleanup: z.enum(['off', 'onClose', 'weekly']).optional(),
   toolMode: z.enum(['full', 'search']).optional()
 }), async (args) => {
   const patch: Record<string, unknown> = {}
