@@ -42,9 +42,11 @@ function walk(dir, files = []) {
 
 const keys = collectKeys()
 const used = new Set()
-for (const file of walk(join(root, 'src/renderer/src'))) {
-  const source = readFileSync(file, 'utf8')
-  for (const match of source.matchAll(/(?:\bt|i18n\.t)\(\s*['"`]([a-zA-Z0-9_.]+)['"`]/g)) used.add(match[1])
+for (const dir of ['src/renderer/src', 'src/main']) {
+  for (const file of walk(join(root, dir))) {
+    const source = readFileSync(file, 'utf8')
+    for (const match of source.matchAll(/(?:\bt|i18n\.t|\bmt)\(\s*['"`]([a-zA-Z0-9_.]+)['"`]/g)) used.add(match[1])
+  }
 }
 
 const missing = [...used].filter((key) => !keys.has(key))

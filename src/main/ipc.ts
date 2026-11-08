@@ -46,16 +46,17 @@ import { buildState, broadcast } from './ipc/state'
 import { registerLayerIpc } from './ipc/layers'
 import { registerLibraryIpc } from './ipc/library'
 import { registerPasswordIpc } from './ipc/passwords'
+import { applyMainLanguage, mt } from './i18n'
 
 export { buildState, broadcast }
 
 function paramHint(param: WorkflowParam): string {
-  if (param.type === 'number') return '数字'
-  if (param.type === 'time') return '时间，写成 2026-09-30 11:58'
-  if (param.type === 'time-range') return '时间范围，写成 2026-09-30 11:58 ~ 2026-09-30 18:00'
-  if (param.type === 'select') return param.options.length ? `单选：${param.options.join('、')}` : '单选'
-  if (param.type === 'checkbox') return param.options.length ? `复选，多项用逗号分开：${param.options.join('、')}` : '复选，多项用逗号分开'
-  return '文本'
+  if (param.type === 'number') return mt('main.paramHint.number')
+  if (param.type === 'time') return mt('main.paramHint.time')
+  if (param.type === 'time-range') return mt('main.paramHint.timeRange')
+  if (param.type === 'select') return param.options.length ? mt('main.paramHint.select', { options: param.options.join(', ') }) : mt('main.paramHint.selectAny')
+  if (param.type === 'checkbox') return param.options.length ? mt('main.paramHint.checkbox', { options: param.options.join(', ') }) : mt('main.paramHint.checkboxAny')
+  return mt('main.paramHint.text')
 }
 
 export function wireIpc(): void {
@@ -240,7 +241,7 @@ export function wireIpc(): void {
   })
 
   ipcMain.handle('env:create', async (_event, input: { name?: string; remark?: string }) => {
-    return callTool('env_create', { name: input.name || '新环境', remark: input.remark?.trim() || '未填写备注' })
+    return callTool('env_create', { name: input.name || mt('main.placeholder.newEnv'), remark: input.remark?.trim() || mt('main.placeholder.noRemark') })
   })
 
   ipcMain.handle('env:open', async (_event, envId: string) => callTool('env_open', { env: envId, headless: false }))
@@ -252,11 +253,11 @@ export function wireIpc(): void {
   ipcMain.handle('workflow:export', async (event, id: string) => {
     const runtime = windowFromSender(event.sender)
     const appItem = storage.workflows.find((item) => item.id === id)
-    if (!appItem) throw new Error(`没有这个工作流 ${id}`)
+    if (!appItem) throw new Error(mt('main.err.noWorkflow', { id }))
     const options = {
-      title: '导出工作流',
+      title: mt('main.dialog.exportWorkflow'),
       defaultPath: `${appItem.app.name}.json`,
-      filters: [{ name: '工作流', extensions: ['json'] }]
+      filters: [{ name: mt('main.dialog.json'), extensions: ['json'] }]
     }
     const picked = runtime ? await dialog.showSaveDialog(runtime.win, options) : await dialog.showSaveDialog(options)
     if (picked.canceled || !picked.filePath) return { canceled: true }
@@ -266,8 +267,8 @@ export function wireIpc(): void {
   ipcMain.handle('workflow:import', async (event) => {
     const runtime = windowFromSender(event.sender)
     const options = {
-      title: '导入工作流',
-      filters: [{ name: '工作流', extensions: ['json'] }],
+      title: mt('main.dialog.importWorkflow'),
+      filters: [{ name: mt('main.dialog.json'), extensions: ['json'] }],
       properties: ['openFile'] as 'openFile'[]
     }
     const picked = runtime ? await dialog.showOpenDialog(runtime.win, options) : await dialog.showOpenDialog(options)
@@ -320,12 +321,12 @@ export function wireIpc(): void {
     const appItem = findWorkflow(id)
     const params = workflowParams(appItem)
     const lines = [
-      `请用 BrowserPilot 执行已经装好的工作流「${appItem.app.name}」。`,
-      `调用 workflow_run，name 为「${appItem.app.name}」。`,
+      mt('main.agent.runInstalled', { name: appItem.app.name }),
+      mt('main.agent.runHint', { name: appItem.app.name }),
       params.length
-        ? `inputs 使用下面这些值。空着的先问我，不要自己编：\n${params.map((item) => `${item.name} (${paramHint(item)}): `).join('\n')}`
-        : '这次没有输入参数。',
-      '跑完后调用 page_unlock。'
+        ? mt('main.agent.inputs', { list: params.map((item) => `${item.name} (${paramHint(item)}): `).join('\n') })
+        : mt('main.agent.noParams'),
+      mt('main.agent.unlock')
     ]
     clipboard.writeText(lines.join('\n'))
     return { copied: true }
@@ -357,7 +358,7 @@ export function wireIpc(): void {
 
   ipcMain.handle('menu:settings', (event) => {
     const runtime = windowFromSender(event.sender)
-    if (runtime) openSettingsPage(runtime, '环境')
+    if (runtime) openSettingsPage(runtime)
   })
 
   ipcMain.handle('workflow:runs', (_event, id?: string) => (id ? storage.runs.filter((run) => run.workflowId === id) : storage.runs).slice(0, 50))
@@ -397,7 +398,7 @@ export function wireIpc(): void {
   ipcMain.handle('settings:pickDownloadDir', async (event) => {
     const runtime = windowFromSender(event.sender)
     const options = {
-      title: '选择下载目录',
+      title: mt('main.dialog.selectDownloadDir'),
       defaultPath: storage.settings.downloadDir || downloadTargetDir(),
       properties: ['openDirectory', 'createDirectory'] as 'openDirectory'[]
     }
@@ -420,6 +421,7 @@ export function wireIpc(): void {
     }
     storage.settings = { ...storage.settings, ...patch }
     storage.saveSettings()
+    if (patch.language !== undefined) applyMainLanguage(storage.settings.language)
     if (patch.tabLayout !== undefined) {
       for (const runtime of windows.values()) layoutWindow(runtime.envId)
     }
@@ -456,7 +458,7 @@ export function wireIpc(): void {
     if (!runtime) return
     runtime.screenRecording = false
     runtime.screenStartedAt = undefined
-    screenStartWaiters.get(runtime.envId)?.reject(new Error(message || '录屏没有开始'))
+    screenStartWaiters.get(runtime.envId)?.reject(new Error(message || mt('main.screen.notStarted')))
     screenStartWaiters.delete(runtime.envId)
     broadcast(runtime.envId)
   })
@@ -467,10 +469,10 @@ export function wireIpc(): void {
     if (!payload.mime.includes('mp4') || !(payload.data?.byteLength || payload.data?.length)) {
       runtime.screenRecording = false
       runtime.screenStartedAt = undefined
-      screenWaiters.get(runtime.envId)?.reject(new Error('这次没能写成 mp4'))
+      screenWaiters.get(runtime.envId)?.reject(new Error(mt('main.screen.notMp4')))
       screenWaiters.delete(runtime.envId)
       broadcast(runtime.envId)
-      throw new Error('这次没能写成 mp4')
+      throw new Error(mt('main.screen.notMp4'))
     }
     const path = join(downloadTargetDir(), `screen-${createId('clip')}.mp4`)
     const temp = `${path}.part`

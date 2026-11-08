@@ -7,6 +7,7 @@ import { isAbsolute, join } from 'path'
 import { DEFAULT_ENV, type ActVia, type Control, type Locator, type WorkflowApp, type WorkflowNode } from '@shared/types'
 import { searchEngines } from '@shared/types'
 import { createId } from '../ids'
+import { applyMainLanguage } from '../i18n'
 import { bridge, publicControl, windows, type TabRuntime } from '../runtime'
 import { storage } from './store'
 import { downloadCancel, downloadCopyLink, downloadForget, downloadOpen, downloadPause, downloadResume, downloadShow, downloadTargetDir, downloadsClear, listDownloads } from './DownloadService'
@@ -829,6 +830,7 @@ tool('settings_set', 'Change browser settings: language (auto, zh-CN or en-US, U
   if (patch.batchConcurrency !== undefined) patch.batchConcurrency = Math.max(1, Math.min(3, Number(patch.batchConcurrency) || 1))
   if (patch.headlessLimit !== undefined) patch.headlessLimit = Math.max(1, Number(patch.headlessLimit) || 1)
   storage.settings = { ...storage.settings, ...patch }
+  if (patch.language !== undefined) applyMainLanguage(storage.settings.language)
   storage.saveSettings()
   if (patch.tabLayout !== undefined) {
     for (const runtime of windows.values()) bridge.layout(runtime.envId)

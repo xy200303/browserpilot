@@ -20,8 +20,9 @@ import { downloadBegin, downloadDone, downloadFail, downloadProgress, downloadTa
 import { watchDialogs } from './dialogs'
 import { watchConsole } from './console-log'
 import { inspectElement, isSendingToPage, saveMedia, saveMediaInfo, sendCdp, startUrl, watchDocument, type ElementInfo } from './page'
+import { mt } from './i18n'
 
-const LOCK_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:rgba(32,33,36,.45);font-family:Segoe UI,sans-serif;color:#fff"><div style="text-align:center"><div style="font-size:18px">Agent 正在操作浏览器</div><button id="take" style="margin-top:16px;padding:8px 18px;border:0;border-radius:8px;background:#fff;color:#202124;font-size:14px">接管</button></div></body></html>`
+const lockHtml = (): string => `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:rgba(32,33,36,.45);font-family:Segoe UI,sans-serif;color:#fff"><div style="text-align:center"><div style="font-size:18px">${mt('main.lock.working')}</div><button id="take" style="margin-top:16px;padding:8px 18px;border:0;border-radius:8px;background:#fff;color:#202124;font-size:14px">${mt('main.lock.takeOver')}</button></div></body></html>`
 
 const DEFAULT_BOUNDS: Bounds = { x: 0, y: 96, width: 1280, height: 704 }
 
@@ -51,15 +52,15 @@ export function originOf(url: string): string | undefined {
 }
 
 function permissionLabel(permission: string): string {
-  if (permission === 'media') return '摄像头或麦克风'
-  if (permission === 'geolocation') return '位置'
-  if (permission === 'notifications') return '通知'
-  if (permission === 'clipboard-read') return '剪贴板'
-  if (permission === 'display-capture') return '屏幕共享'
-  if (permission === 'midiSysex') return 'MIDI 设备'
-  if (permission === 'pointerLock') return '鼠标锁定'
-  if (permission === 'fullscreen') return '全屏'
-  if (permission === 'openExternal') return '打开外部应用'
+  if (permission === 'media') return mt('main.perm.media')
+  if (permission === 'geolocation') return mt('main.perm.geolocation')
+  if (permission === 'notifications') return mt('main.perm.notifications')
+  if (permission === 'clipboard-read') return mt('main.perm.clipboard')
+  if (permission === 'display-capture') return mt('main.perm.display')
+  if (permission === 'midiSysex') return mt('main.perm.midi')
+  if (permission === 'pointerLock') return mt('main.perm.pointerLock')
+  if (permission === 'fullscreen') return mt('main.perm.fullscreen')
+  if (permission === 'openExternal') return mt('main.perm.openExternal')
   return permission
 }
 
@@ -85,13 +86,13 @@ function configurePermissions(ses: Electron.Session, envId: string): void {
     }
     const options: Electron.MessageBoxOptions = {
       type: 'question',
-      buttons: ['允许', '拒绝'],
+      buttons: [mt('main.prompt.allow'), mt('main.prompt.deny')],
       defaultId: 1,
       cancelId: 1,
-      title: '站点权限',
-      message: `${origin} 想使用${permissionLabel(name)}`,
-      detail: '只影响这套环境里的这个网站。',
-      checkboxLabel: '记住这次选择',
+      title: mt('main.prompt.title'),
+      message: mt('main.prompt.message', { origin, permission: permissionLabel(name) }),
+      detail: mt('main.prompt.detail'),
+      checkboxLabel: mt('main.prompt.remember'),
       checkboxChecked: true
     }
     const ask = dialog.showMessageBox(runtime.win, options)
@@ -114,7 +115,7 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
     return existing
   }
   const env = storage.envs.find((item) => item.id === envId)
-  if (!env) throw new Error(`没有这套环境 ${envId}`)
+  if (!env) throw new Error(mt('main.err.noEnv', { id: envId }))
   const ses = session.fromPartition(`persist:${envId}`)
   const ua = chromeUserAgent()
   ses.setUserAgent(ua)
@@ -169,7 +170,7 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
     }
   })
   lockView.setBackgroundColor('#00000000')
-  lockView.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOCK_HTML)}`)
+  lockView.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(lockHtml())}`)
   lockView.setVisible(false)
   runtime.lockView = lockView
   const popupView = new WebContentsView({
@@ -252,10 +253,10 @@ function loadLayer(view: WebContentsView, layer: string, extra?: Record<string, 
 
 export function applyHeadless(runtime: WindowRuntime, headless: boolean): void {
   if (headless && !runtime.headless && headlessCount() >= storage.settings.headlessLimit) {
-    throw new Error(`无头窗口已到上限 ${storage.settings.headlessLimit}`)
+    throw new Error(mt('main.err.headlessLimit', { limit: storage.settings.headlessLimit }))
   }
   if (headless && headlessCount() >= storage.settings.headlessLimit && !runtime.headless) {
-    throw new Error(`无头窗口已到上限 ${storage.settings.headlessLimit}`)
+    throw new Error(mt('main.err.headlessLimit', { limit: storage.settings.headlessLimit }))
   }
   const previous = runtime.headless
   runtime.headless = headless
@@ -306,7 +307,7 @@ function addHibernatedTab(runtime: WindowRuntime, item: { url: string; title: st
     envId: runtime.envId,
     groupId: item.groupId ?? null,
     kind: 'page',
-    title: item.title || '新标签页',
+    title: item.title || mt('shell.tabs.untitled'),
     url: item.url,
     loading: false,
     progress: 0,
@@ -395,7 +396,7 @@ export function hibernateOtherTabs(runtime: WindowRuntime): number {
 
 export function openEnvironment(envId: string, headless: boolean): WindowRuntime {
   if (headless && !windows.has(envId) && headlessCount() >= storage.settings.headlessLimit) {
-    throw new Error(`无头窗口已到上限 ${storage.settings.headlessLimit}`)
+    throw new Error(mt('main.err.headlessLimit', { limit: storage.settings.headlessLimit }))
   }
   const runtime = createBrowserWindow(envId, headless)
   if (runtime.tabs.length === 0) {
@@ -413,7 +414,7 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
     envId: runtime.envId,
     groupId,
     kind: 'page',
-    title: '新标签页',
+    title: mt('shell.tabs.untitled'),
     url: url || startUrl(),
     loading: true,
     progress: 0,
@@ -480,41 +481,41 @@ function buildPageMenuItems(runtime: WindowRuntime, tab: TabRuntime, info: Eleme
   const items: Electron.MenuItemConstructorOptions[] = []
   const wc = tab.view!.webContents
   if (info?.href) {
-    items.push({ label: '在新标签页打开链接', click: () => addTab(runtime, info.href!) })
-    items.push({ label: '复制链接', click: () => clipboard.writeText(info.href!) })
+    items.push({ label: mt('main.menu.openInNewTab'), click: () => addTab(runtime, info.href!) })
+    items.push({ label: mt('main.menu.copyLink'), click: () => clipboard.writeText(info.href!) })
   }
   if (info?.kind === 'image' && info.src) {
-    items.push({ label: '在新标签页打开图像', click: () => addTab(runtime, info.src!) })
-    items.push({ label: '将图像另存为…', click: () => void saveMediaAs(runtime, tab, { srcURL: info.src!, mediaType: 'image', x, y }) })
-    items.push({ label: '复制图像', click: () => wc.copyImageAt(x, y) })
-    items.push({ label: '复制图像链接', click: () => clipboard.writeText(info.src!) })
+    items.push({ label: mt('main.menu.viewImage'), click: () => addTab(runtime, info.src!) })
+    items.push({ label: mt('main.menu.saveImageAs'), click: () => void saveMediaAs(runtime, tab, { srcURL: info.src!, mediaType: 'image', x, y }) })
+    items.push({ label: mt('main.menu.copyImage'), click: () => wc.copyImageAt(x, y) })
+    items.push({ label: mt('main.menu.copyImageAddress'), click: () => clipboard.writeText(info.src!) })
   }
   if ((info?.kind === 'video' || info?.kind === 'audio') && info.src) {
     items.push({
-      label: info.kind === 'video' ? '将视频另存为…' : '将音频另存为…',
+      label: info.kind === 'video' ? mt('main.menu.saveVideoAs') : mt('main.menu.saveAudioAs'),
       click: () => void saveMediaAs(runtime, tab, { srcURL: info.src!, mediaType: info.kind as 'video' | 'audio', x, y })
     })
   }
   if (info?.kind === 'input') {
     if (items.length) items.push({ type: 'separator' })
-    items.push({ label: '剪切', role: 'cut' })
-    items.push({ label: '复制', role: 'copy' })
-    items.push({ label: '粘贴', role: 'paste' })
+    items.push({ label: mt('main.menu.cut'), role: 'cut' })
+    items.push({ label: mt('main.menu.copy'), role: 'copy' })
+    items.push({ label: mt('main.menu.paste'), role: 'paste' })
   }
   if (info?.text) {
     if (items.length) items.push({ type: 'separator' })
-    items.push({ label: '复制', role: 'copy' })
+    items.push({ label: mt('main.menu.copy'), role: 'copy' })
   }
   if (items.length) items.push({ type: 'separator' })
   items.push({
-    label: '检查',
+    label: mt('main.menu.inspect'),
     click: () => {
       wc.openDevTools({ mode: 'detach' })
       wc.inspectElement(x, y)
     }
   })
   items.push({
-    label: '网页自带菜单',
+    label: mt('main.menu.nativeMenu'),
     click: () => {
       contextMenuReplayUntil = Date.now() + 1500
       void (async () => {
@@ -554,7 +555,7 @@ async function saveMediaAs(runtime: WindowRuntime, tab: TabRuntime, params: { sr
   })()
   // 视频统一出 mp4（抓轨后合并），图像按源地址扩展名
   const kind = params.mediaType === 'video' ? 'mp4' : params.mediaType === 'audio' ? urlExt || 'm4a' : urlExt || 'png'
-  const labels: Record<string, string> = { mp4: 'MP4 视频', m4a: '音频', png: 'PNG 图像', jpg: 'JPEG 图像', jpeg: 'JPEG 图像', webp: 'WebP 图像', gif: 'GIF 图像', svg: 'SVG 图像' }
+  const labels: Record<string, string> = { mp4: mt('main.label.mp4'), m4a: mt('main.label.m4a'), png: mt('main.label.png'), jpg: mt('main.label.jpg'), jpeg: mt('main.label.jpeg'), webp: mt('main.label.webp'), gif: mt('main.label.gif'), svg: mt('main.label.svg') }
   const suggested = (() => {
     try {
       const name = decodeURIComponent(new URL(params.srcURL).pathname.split('/').pop() || '')
@@ -565,9 +566,9 @@ async function saveMediaAs(runtime: WindowRuntime, tab: TabRuntime, params: { sr
     }
   })()
   const picked = await dialog.showSaveDialog(runtime.win, {
-    title: '另存为',
+    title: mt('main.dialog.saveAs'),
     defaultPath: suggested || undefined,
-    filters: [{ name: labels[kind] || kind.toUpperCase(), extensions: [kind] }, { name: '所有文件', extensions: ['*'] }]
+    filters: [{ name: labels[kind] || kind.toUpperCase(), extensions: [kind] }, { name: mt('main.dialog.allFiles'), extensions: ['*'] }]
   })
   if (picked.canceled || !picked.filePath) return
   const filePath = /\.[a-z0-9]{2,5}$/i.test(picked.filePath) ? picked.filePath : `${picked.filePath}.${kind}`
@@ -591,28 +592,28 @@ async function saveMediaAs(runtime: WindowRuntime, tab: TabRuntime, params: { sr
     }
     await saveMedia(tab, { point: { x: params.x, y: params.y } }, downloadTargetDir(), filePath)
   } catch (error) {
-    dialog.showErrorBox('保存失败', error instanceof Error ? error.message : String(error))
+    dialog.showErrorBox(mt('main.err.saveFailed'), error instanceof Error ? error.message : String(error))
   }
 }
 
 export function openMarket(runtime: WindowRuntime): TabRuntime {
-  return openBuiltin(runtime, 'market', '工作流', MARKET_PAGE)
+  return openBuiltin(runtime, 'market', mt('address.kind.market'), MARKET_PAGE)
 }
 
-export function openSettingsPage(runtime: WindowRuntime, _section = '环境'): TabRuntime {
-  return openBuiltin(runtime, 'settings', '设置', SETTINGS_PAGE)
+export function openSettingsPage(runtime: WindowRuntime, _section = ''): TabRuntime {
+  return openBuiltin(runtime, 'settings', mt('address.kind.settings'), SETTINGS_PAGE)
 }
 
 export function openDownloadsPage(runtime: WindowRuntime): TabRuntime {
-  return openBuiltin(runtime, 'downloads', '下载', DOWNLOADS_PAGE)
+  return openBuiltin(runtime, 'downloads', mt('address.kind.downloads'), DOWNLOADS_PAGE)
 }
 
 export function openHistoryPage(runtime: WindowRuntime): TabRuntime {
-  return openBuiltin(runtime, 'history', '历史记录', HISTORY_PAGE)
+  return openBuiltin(runtime, 'history', mt('address.kind.history'), HISTORY_PAGE)
 }
 
 export function openBookmarksPage(runtime: WindowRuntime): TabRuntime {
-  return openBuiltin(runtime, 'bookmarks', '书签', BOOKMARKS_PAGE)
+  return openBuiltin(runtime, 'bookmarks', mt('address.kind.bookmarks'), BOOKMARKS_PAGE)
 }
 
 function mountPopup(runtime: WindowRuntime, payload: LayerPayload): void {
@@ -659,12 +660,12 @@ export function openRunsPage(runtime: WindowRuntime, workflowId?: string): TabRu
     bridge.broadcast(runtime.envId)
     return existing
   }
-  return openBuiltin(runtime, 'runs', '运行记录', url)
+  return openBuiltin(runtime, 'runs', mt('address.kind.runs'), url)
 }
 
 export function openWorkflowPage(runtime: WindowRuntime, workflowId: string): TabRuntime {
   const app = storage.workflows.find((item) => item.id === workflowId)
-  if (!app) throw new Error(`没有这个工作流 ${workflowId}`)
+  if (!app) throw new Error(mt('main.err.noWorkflow', { id: workflowId }))
   const url = workflowPage(workflowId)
   const existing = runtime.tabs.find((tab) => tab.kind === 'workflow' && tab.url === url)
   if (existing) {
@@ -694,7 +695,7 @@ export function openWorkflowPage(runtime: WindowRuntime, workflowId: string): Ta
 
 export function activateTab(runtime: WindowRuntime, tabId: string, focus = true): void {
   const tab = runtime.tabs.find((item) => item.id === tabId)
-  if (!tab) throw new Error(`没有这个标签 ${tabId}`)
+  if (!tab) throw new Error(mt('main.err.noTab', { id: tabId }))
   runtime.activeTabId = tabId
   if (tab.kind === 'page' && tab.hibernated) {
     tab.hibernated = false
@@ -717,7 +718,7 @@ export function closeWorkflowPages(workflowId: string): void {
 
 export function closeTab(runtime: WindowRuntime, tabId: string): void {
   const index = runtime.tabs.findIndex((item) => item.id === tabId)
-  if (index < 0) throw new Error(`没有这个标签 ${tabId}`)
+  if (index < 0) throw new Error(mt('main.err.noTab', { id: tabId }))
   const tab = runtime.tabs[index]
   if (tab.kind === 'page' && tab.url && !tab.url.startsWith('data:')) {
     runtime.closedStack.unshift({ url: tab.url, title: tab.title, groupId: tab.groupId })
@@ -965,7 +966,7 @@ function watchDownloads(ses: Electron.Session, envId: string): void {
   watchedSessions.add(ses)
   ses.on('will-download', (_event, item) => {
     const dir = downloadTargetDir()
-    const name = item.getFilename() || '下载文件'
+    const name = item.getFilename() || mt('main.placeholder.unnamedFile')
     let target = join(dir, name)
     let n = 1
     while (existsSync(target)) {
@@ -1000,7 +1001,7 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
           width: 560,
           height: 720,
           autoHideMenuBar: true,
-          title: '弹窗'
+          title: mt('main.placeholder.unnamedFile')
         }
       }
     }
@@ -1010,7 +1011,7 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
   const sync = (): void => {
     tab.loading = wc.isLoading()
     if (tab.kind === 'market' || tab.kind === 'settings' || tab.kind === 'downloads' || tab.kind === 'runs') {
-      tab.title = tab.kind === 'market' ? '工作流' : tab.kind === 'settings' ? '设置' : tab.kind === 'downloads' ? '下载' : '运行记录'
+      tab.title = tab.kind === 'market' ? mt('address.kind.market') : tab.kind === 'settings' ? mt('address.kind.settings') : tab.kind === 'downloads' ? mt('address.kind.downloads') : mt('address.kind.runs')
       tab.url = tab.kind === 'market' ? MARKET_PAGE : tab.kind === 'settings' ? SETTINGS_PAGE : tab.kind === 'downloads' ? DOWNLOADS_PAGE : tab.url.startsWith(RUNS_PAGE) ? tab.url : RUNS_PAGE
     } else {
       tab.title = wc.getTitle() || tab.title
@@ -1291,8 +1292,8 @@ export function windowFromSender(sender: Electron.WebContents): WindowRuntime | 
 export function resolveTab(args: { tabId?: string; env?: string }, create = false): { win: WindowRuntime; tab: TabRuntime } {
   if (args.tabId) {
     const found = findTab(args.tabId)
-    if (!found) throw new Error(`没有这个标签 ${args.tabId}`)
-    if (found.tab.kind !== 'page') throw new Error('设置页不能这样操作')
+    if (!found) throw new Error(mt('main.err.noTab', { id: args.tabId }))
+    if (found.tab.kind !== 'page') throw new Error(mt('main.err.notPage'))
     return found
   }
   const envId = args.env || DEFAULT_ENV

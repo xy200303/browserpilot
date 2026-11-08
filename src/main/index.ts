@@ -6,6 +6,7 @@ import { wireIpc, broadcast } from './ipc'
 import { bootDefaultWindow } from './windows'
 import { startMcp } from './services/McpService'
 import { windows } from './runtime'
+import { applyMainLanguage } from './i18n'
 
 applyUserAgentFallback()
 app.setPath('userData', join(app.getPath('appData'), 'BrowserPilot'))
@@ -40,6 +41,7 @@ if (!gotLock) {
       })
     })
     storage.load()
+    applyMainLanguage(storage.settings.language)
     session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
       const contents = request.frame ? webContents.fromFrame(request.frame) : undefined
       const win = contents ? BrowserWindow.fromWebContents(contents) : null
