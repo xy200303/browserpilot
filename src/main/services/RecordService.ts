@@ -357,6 +357,36 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/**
+ * 量出落笔区域，并给一个“按下之后立刻核对”的回调：
+ * 广告位、图片、焦点都可能让页面在几十毫秒里上下挪一截，那一下按到的就不是原来的位置。
+ */
+async function strokeTarget(tab: TabRuntime, data: Data, pool: Pool): Promise<{ box: { x: number; y: number; width: number; height: number }; guard: () => Promise<void> }> {
+  const box = await strokeBox(tab, data, pool)
+  if (Array.isArray(data.rect)) return { box, guard: async () => undefined }
+  const locator = locatorFrom(data.locator ?? data.target, pool)
+  const guard = async (): Promise<void> => {
+    if (!locator) return
+    const found = await queryLocator(tab, locator).catch(() => undefined)
+    const now = found && found.total === 1 ? found.matches[0]?.rect : undefined
+    if (!now) return
+    const drift = Math.max(Math.abs(now.x - box.x), Math.abs(now.y - box.y))
+    if (drift > 2) throw new Error(`落笔时页面移动了 ${Math.round(drift)} 像素`)
+  }
+  return { box, guard }
+}
+
+/** 落笔前后目标位置差了多少像素：差得多说明页面在落笔时动了，这一笔不可信。 */
+async function strokeDrift(tab: TabRuntime, data: Data, pool: Pool, box: { x: number; y: number }): Promise<number> {
+  if (Array.isArray(data.rect)) return 0
+  const locator = locatorFrom(data.locator ?? data.target, pool)
+  if (!locator) return 0
+  const found = await queryLocator(tab, locator).catch(() => undefined)
+  const now = found && found.total === 1 ? found.matches[0]?.rect : undefined
+  if (!now) return 0
+  return Math.max(Math.abs(now.x - box.x), Math.abs(now.y - box.y))
+}
+
 async function strokeBox(tab: TabRuntime, data: Data, pool: Pool): Promise<{ x: number; y: number; width: number; height: number }> {
   const rect = data.rect
   if (Array.isArray(rect) && rect.length === 4) {
@@ -376,20 +406,26 @@ async function strokeBox(tab: TabRuntime, data: Data, pool: Pool): Promise<{ x: 
   if (!seen || seen.y < 0 || seen.x < 0 || seen.y + seen.h > viewHeight || seen.x + seen.w > viewWidth) {
     await scrollLocatorIntoView(tab, locator).catch(() => undefined)
   }
-  // 滚动可能是平滑的，等位置稳定下来再取，不然坐标会差滚动量
+  // 广告位、图片、字体会在几百毫秒里撑开或收起页面，量到的矩形会过期。
+  // 连续三次量到同一个位置才落笔，避免按旧坐标画到别处。
   let box: { x: number; y: number; w: number; h: number } | undefined
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  let stable = 0
+  for (let attempt = 0; attempt < 16; attempt += 1) {
     const found = await queryLocator(tab, locator)
     if (found.total !== 1) throw new Error(`落笔目标匹配到 ${found.total} 个，要恰好一个`)
     const next = found.matches[0]?.rect
     if (!next) throw new Error('落笔目标没有可见区域，先滚进视口')
-    if (box && Math.abs(box.x - next.x) < 0.5 && Math.abs(box.y - next.y) < 0.5) {
-      box = next
-      break
-    }
+    const same = box
+      && Math.abs(box.x - next.x) < 0.5
+      && Math.abs(box.y - next.y) < 0.5
+      && Math.abs(box.w - next.w) < 0.5
+      && Math.abs(box.h - next.h) < 0.5
+    stable = same ? stable + 1 : 0
     box = next
-    await sleep(70)
+    if (stable >= 2) break
+    await sleep(110)
   }
+  if (stable < 2) throw new Error('落笔目标一直在动（页面还在加载或广告在撑页面），等它稳定再跑')
   if (!box) throw new Error('落笔目标没有可见区域，先滚进视口')
   return { x: box.x, y: box.y, width: box.w, height: box.h }
 }
@@ -637,27 +673,25 @@ async function execNode(
   if (data.type === 'stroke') {
     const path = textOf(data, 'path', pool)
     if (!path.trim()) throw new Error('落笔节点要写 path（SVG 路径，支持 M/L/H/V/C/S/Q/T/A/Z）')
-    const box = await strokeBox(tab, data, pool)
     const viewBox = Array.isArray(data.viewBox) && data.viewBox.length === 2
       ? ([Number(data.viewBox[0]), Number(data.viewBox[1])] as [number, number])
       : undefined
-    const subpaths = svgPathToPoints(path, box, viewBox)
-    if (data.verify === false) {
-      await drawPaths(tab, gestureOf(data.via), subpaths)
-      return
-    }
-    // 冷启动的页面偶尔会吃掉第一笔（焦点还没落到画布上），没画上就再补一次
+    // 冷启动吃掉第一笔、落笔前页面又撑高了一截，这两种都会让这一笔不在预期位置，各补一次
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const baseline = await strokeBaseline(tab, subpaths.flat())
-      await drawPaths(tab, gestureOf(data.via), subpaths)
+      const { box, guard } = await strokeTarget(tab, data, pool)
+      const subpaths = svgPathToPoints(path, box, viewBox)
+      const baseline = data.verify === false ? undefined : await strokeBaseline(tab, subpaths.flat())
+      await drawPaths(tab, gestureOf(data.via), subpaths, guard)
+      if (!baseline) return
       const result = await checkStroke(tab, baseline.sample, baseline.before)
       if (result.wiped) {
         throw new Error('这一笔画完被站点重绘覆盖了：它没进站点的文档，只改了屏幕像素。换个画法（用站点自己的工具）或确认目标 canvas 是文档画布，确定要跳过校验就在节点里设 verify: false')
       }
-      if (!result.empty) return
+      const moved = await strokeDrift(tab, data, pool, box)
+      if (!result.empty && moved < 2) return
       if (attempt === 0) await sleep(200)
     }
-    throw new Error('这一笔连续两次都没有画出可见像素：确认画笔已选中、颜色不是背景色、坐标落在画布范围内。确定要跳过校验就在节点里设 verify: false')
+    throw new Error('这一笔连续两次都没落到位：可能是页面还在加载、广告把版面撑开，或者画笔没选中。确认画布位置稳定后重跑；确定要跳过校验就在节点里设 verify: false')
   }
   if (data.type === 'fill') {
     const locator = mustLocator(data.locator, pool)

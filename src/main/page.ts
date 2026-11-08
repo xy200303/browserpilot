@@ -1342,11 +1342,19 @@ function humanTrack(sx: number, sy: number, ex: number, ey: number): TrackPoint[
   return points
 }
 
-async function runTrack(tab: TabRuntime, via: GestureVia, sx: number, sy: number, track: TrackPoint[]): Promise<void> {
+async function runTrack(tab: TabRuntime, via: GestureVia, sx: number, sy: number, track: TrackPoint[], guard?: () => Promise<void>): Promise<void> {
   const wc = wcOf(tab)
   const last = track[track.length - 1]
   if (via === 'native') {
     wc.sendInputEvent({ type: 'mouseDown', x: Math.round(sx), y: Math.round(sy), button: 'left', clickCount: 1 })
+    if (guard) {
+      try {
+        await guard()
+      } catch (error) {
+        wc.sendInputEvent({ type: 'mouseUp', x: Math.round(sx), y: Math.round(sy), button: 'left', clickCount: 1 })
+        throw error
+      }
+    }
     let prevX = Math.round(sx)
     let prevY = Math.round(sy)
     for (const point of track) {
@@ -1402,6 +1410,14 @@ async function runTrack(tab: TabRuntime, via: GestureVia, sx: number, sy: number
       void dbg.sendCommand('Input.dispatchMouseEvent', params).catch(() => undefined)
     }
     fire({ type: 'mousePressed', x: sx, y: sy, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse', ...ink(track[0]) })
+    if (guard) {
+      try {
+        await guard()
+      } catch (error) {
+        await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: sx, y: sy, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' }).catch(() => undefined)
+        throw error
+      }
+    }
     for (const point of track) {
       fire({ type: 'mouseMoved', x: point.x, y: point.y, button: 'left', buttons: 1, pointerType: 'mouse', ...ink(point) })
       await sleep(point.delay)
@@ -2205,7 +2221,7 @@ export async function checkStroke(tab: TabRuntime, points: InkPoint[], before: C
   return { supported: true, painted, kept, wiped: painted > 0 && kept === 0, empty: painted === 0 }
 }
 
-export async function drawPath(tab: TabRuntime, via: GestureVia, points: InkPoint[], close = false, smooth = false): Promise<{ points: number }> {
+export async function drawPath(tab: TabRuntime, via: GestureVia, points: InkPoint[], close = false, smooth = false, guard?: () => Promise<void>): Promise<{ points: number }> {
   if (smooth && points.length >= 3) points = smoothPath(points, close)
   if (points.length < 2) throw new Error('路径至少要两个点')
   const [width, height] = viewport(tab)
@@ -2231,7 +2247,7 @@ export async function drawPath(tab: TabRuntime, via: GestureVia, points: InkPoin
     prev = p
   }
   if (close) track.push({ x: points[0].x, y: points[0].y, delay: 30 })
-  await runTrack(tab, via, points[0].x, points[0].y, track)
+  await runTrack(tab, via, points[0].x, points[0].y, track, guard)
   return { points: points.length }
 }
 
@@ -2376,11 +2392,11 @@ function arcPoints(p0: SvgPoint, rx: number, ry: number, rot: number, largeArc: 
   return out
 }
 
-export async function drawPaths(tab: TabRuntime, via: GestureVia, subpaths: SvgPoint[][]): Promise<{ paths: number; points: number }> {
+export async function drawPaths(tab: TabRuntime, via: GestureVia, subpaths: SvgPoint[][], guard?: () => Promise<void>): Promise<{ paths: number; points: number }> {
   let total = 0
   for (const points of subpaths) {
     if (points.length < 2) continue
-    await drawPath(tab, via, points)
+    await drawPath(tab, via, points, false, false, guard)
     total += points.length
     await sleep(80)
   }
