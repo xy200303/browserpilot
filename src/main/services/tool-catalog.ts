@@ -366,6 +366,10 @@ const TOOL_GROUPS: Array<[string, string]> = [
 
 // English aliases that search matches on top of the name, description and group:
 // the vocabulary a model uses when it does not remember the tool name.
+// Rule: an alias must add vocabulary the name, description and group do not already
+// have (synonyms, colloquial names). Repeating the description buys nothing, so a
+// fully redundant entry is a failure; `npm run tools:check` enforces that and warns
+// on stale keys.
 const TOOL_KEYWORDS: Record<string, string> = {
   search_tools: 'find tool catalog index help',
   env_list: 'profiles accounts workspaces list',
@@ -374,9 +378,8 @@ const TOOL_KEYWORDS: Record<string, string> = {
   env_front: 'focus foreground raise bring to front',
   env_update: 'rename note label profile',
   env_delete: 'remove profile wipe logins',
-  env_close: 'close window keep login',
+  env_close: 'quit exit keep login',
   env_headless: 'headless hidden background',
-  tab_list: 'tabs windows list',
   tab_open: 'new tab goto',
   tab_close: 'close tab discard',
   tab_activate: 'switch tab select',
@@ -385,9 +388,6 @@ const TOOL_KEYWORDS: Record<string, string> = {
   tab_close_others: 'close all but one',
   tab_mute: 'mute audio silence',
   group_create: 'tab group folder',
-  group_update: 'rename recolor group',
-  group_list: 'groups list',
-  tab_group: 'move tab into group',
   group_delete: 'remove group',
   permission_list: 'camera microphone notifications geolocation site permissions',
   password_list: 'credentials saved logins accounts',
@@ -410,16 +410,16 @@ const TOOL_KEYWORDS: Record<string, string> = {
   page_swipe: 'swipe slider pan touch',
   page_drag: 'drag drop move slider captcha',
   page_inspect: 'element info identify node',
-  page_save_media: 'download image video audio save',
+  page_save_media: 'grab extract',
   download: 'downloads files folder destination resume cancel retry',
   page_record_video: 'capture video recording webm',
   page_draw: 'canvas paint sketch svg path',
   page_upload: 'upload attach file input',
   page_lock: 'overlay block user control',
-  page_unlock: 'remove overlay unlock',
+  page_unlock: 'resume release',
   page_handoff: 'human takeover pause user',
   page_dialog: 'alert confirm prompt modal',
-  page_hover: 'mouseover tooltip menu pointer',
+  page_hover: 'mouseover pointermove',
   page_screenshot: 'screenshot capture viewport region element grid',
   page_overlay: 'ads mask popup close dismiss',
   page_console: 'logs errors console exceptions',
@@ -427,44 +427,44 @@ const TOOL_KEYWORDS: Record<string, string> = {
   page_wait_load: 'load complete ready idle',
   screen: 'record window video mp4',
   window_preview: 'whole window screenshot gui desktop',
-  page_source: 'html dom source',
-  page_script: 'javascript eval execute',
+  page_source: 'markup view-source',
+  page_script: 'javascript eval execute js',
   page_cdp_batch: 'devtools protocol raw commands',
   captcha_panel: 'captcha image crop coordinates',
-  captcha_detect: 'slider geetest distance detect',
+  captcha_detect: 'measure offset',
   captcha_read: 'ocr characters text',
-  captcha_solve: 'slider captcha solve drag',
+  captcha_solve: 'slider captcha drag bypass auto',
   workflow_record: 'record macro capture steps',
   workflow_write: 'author workflow nodes edges json',
   workflow_update: 'edit patch workflow',
-  workflow_list: 'workflows saved list',
+  workflow_list: 'catalog macros',
   workflow_run: 'play execute macro',
   workflow_batch: 'bulk rows csv batch',
-  workflow_export: 'export workflow json file',
+  workflow_export: 'share backup',
   workflow_delete: 'remove workflow',
-  workflow_import: 'import workflow json',
+  workflow_import: 'load restore',
   net_start: 'network capture http requests har',
   net_stop: 'stop capture network',
   net_list: 'requests list network',
   net_get: 'request body details',
-  net_export: 'har export network',
+  net_export: 'save traffic archive',
   net_mock: 'mock intercept fake response stub',
-  net_mock_off: 'stop mock intercept',
+  net_mock_off: 'disable unblock',
   page_watch: 'observe element change diff',
   connect_info: 'setup onboarding mcp cli install',
   env_export: 'export cookies login json',
   env_import: 'import cookies restore login',
   bookmark_list: 'bookmarks favorites',
   bookmark_add: 'bookmark favorite save url',
-  bookmark_remove: 'delete bookmark',
+  bookmark_remove: 'unfavorite unsave',
   history_list: 'history visits',
   history_remove: 'delete history clear',
   session_list: 'sessions saved tabs',
-  session_save: 'save session tabs',
-  session_restore: 'restore session tabs',
-  session_clear: 'clear session',
-  cookie_list: 'cookies session tokens',
-  cookie_set: 'set cookie',
+  session_save: 'persist store',
+  session_restore: 'reopen load',
+  session_clear: 'wipe reset',
+  cookie_list: 'auth jar',
+  cookie_set: 'inject auth',
   cookie_remove: 'delete cookie clear'
 }
 
@@ -485,7 +485,7 @@ function rankTool(name: string, tokens: string[]): number {
   return 3
 }
 
-tool('search_tools', 'Search tools by keyword across names, descriptions, groups and aliases (space separated, all words must match). Paginates with total/page/page_size and returns each schema. Pass name to get one tool in full; with no query it lists the catalog. Search first instead of guessing parameters.', z.object({
+tool('search_tools', 'Search tools by keyword across names, descriptions, groups and aliases (space separated). Tools matching every word come first and partial matches still return, so natural phrases work. Paginates with total/page/page_size and returns each schema. Pass name to get one tool in full; with no query it lists the catalog. Search first instead of guessing parameters.', z.object({
   query: z.string().optional(),
   name: z.string().optional(),
   page: z.number().optional(),
@@ -511,13 +511,38 @@ tool('search_tools', 'Search tools by keyword across names, descriptions, groups
   const query = String(args.query ?? '').trim()
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
   const pageSize = Math.max(1, Math.min(50, Number(args.page_size ?? 10)))
-  const matched = tools
-    .filter((item) => {
-      if (!tokens.length) return true
-      const hay = `${item.name} ${item.description} ${groupOf(item.name)} ${TOOL_KEYWORDS[item.name] ?? ''}`.toLowerCase()
-      return tokens.every((token) => hay.includes(token))
-    })
-    .sort((a, b) => rankTool(a.name, tokens) - rankTool(b.name, tokens) || a.name.localeCompare(b.name))
+  const scored = tools.map((item) => {
+    const fields = {
+      name: item.name.toLowerCase(),
+      keywords: (TOOL_KEYWORDS[item.name] ?? '').toLowerCase(),
+      description: item.description.toLowerCase(),
+      group: groupOf(item.name).toLowerCase()
+    }
+    // 两三个字母的词按整词比，"js" 不该命中 JSON
+    const hit = (text: string, token: string): boolean =>
+      token.length < 3 ? text.split(/[^a-z0-9]+/).includes(token) : text.includes(token)
+    // 命中的字段越具体分越高：工具名 > 别名 > 描述 > 分组
+    const weightOf = (token: string): number => {
+      if (hit(fields.name, token)) return 4
+      if (hit(fields.keywords, token)) return 3
+      if (hit(fields.description, token)) return 1.5
+      if (hit(fields.group, token)) return 1
+      return 0
+    }
+    const weights = tokens.map(weightOf)
+    return { item, hits: weights.filter(Boolean).length, score: weights.reduce((sum, weight) => sum + weight, 0) }
+  })
+  // 先按「所有词都命中」筛；一条都没有时才退到部分命中，避免 "take a screenshot"
+  // 这类多了个虚词的查询直接返回 0 条。
+  const full = scored.filter((entry) => entry.hits === tokens.length)
+  const matched = (full.length || !tokens.length ? full : scored.filter((entry) => entry.hits > 0))
+    .sort((a, b) =>
+      b.hits - a.hits
+      || b.score - a.score
+      || rankTool(a.item.name, tokens) - rankTool(b.item.name, tokens)
+      || a.item.name.localeCompare(b.item.name)
+    )
+    .map((entry) => entry.item)
   const pages = Math.max(1, Math.ceil(matched.length / pageSize))
   const page = Math.max(1, Math.min(pages, Number(args.page ?? 1)))
   const slice = matched.slice((page - 1) * pageSize, page * pageSize)

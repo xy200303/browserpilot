@@ -21,6 +21,8 @@ jobs:
       - run: npm run typecheck
       - name: i18n keys exist
         run: npm run i18n:check
+      - name: Tool search aliases
+        run: npm run tools:check
       - run: npm run cli:build
       - name: Build
         env:

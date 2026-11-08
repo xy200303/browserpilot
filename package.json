@@ -16,7 +16,8 @@
     "dist:mac": "npm run cli:build && electron-vite build && electron-builder --mac --publish never",
     "dist:linux": "npm run cli:build && electron-vite build && electron-builder --linux --publish never",
     "i18n:scan": "node scripts/i18n-scan.mjs",
-    "i18n:check": "node scripts/i18n-check.mjs"
+    "i18n:check": "node scripts/i18n-check.mjs",
+    "tools:check": "node scripts/tool-keywords-check.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",
