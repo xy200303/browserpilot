@@ -1615,7 +1615,7 @@ async function captureFull(
     const runtime = windows.get(tab.envId)
     if (!runtime || runtime.headless) return
     if (runtime.win.isMinimized()) runtime.win.restore()
-    runtime.win.show()
+    else if (!runtime.win.isVisible()) runtime.win.showInactive()
   }
   reveal()
   let image: Electron.NativeImage | undefined
@@ -2507,7 +2507,7 @@ export async function screenshotRegion(
       const runtime = windows.get(tab.envId)
       if (!runtime || runtime.headless) return
       if (runtime.win.isMinimized()) runtime.win.restore()
-      runtime.win.show()
+      else if (!runtime.win.isVisible()) runtime.win.showInactive()
     }
     reveal()
     let image = await wc.capturePage({ x, y, width, height }).catch(() => undefined)

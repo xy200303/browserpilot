@@ -31,6 +31,12 @@
 
 ---
 
+## ▶️ 看它跑一遍
+
+[![在问卷星的在线考试里自动答题，5 题全对拿到 100 分](website/public/demos/run-poster.jpg)](https://browser.xyun.dev/#demo)
+
+一个真实任务：打开问卷星的「生活常识在线考试」，Agent 逐题读题、选择答案、交卷，5 题全对拿到 100 分。13 秒实录，无声循环；[官网首页](https://browser.xyun.dev/#demo)可以直接播放，仓库里是 [run.mp4](website/public/demos/run.mp4)。
+
 ## ✨ 特性
 
 |     | 功能 | 说明 |

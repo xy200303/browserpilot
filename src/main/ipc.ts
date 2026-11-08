@@ -1,5 +1,5 @@
 import { clipboard, dialog, ipcMain } from 'electron'
-import { writeFileSync } from 'fs'
+import { copyFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { Settings, WorkflowEdge, WorkflowNode, WorkflowParam } from '@shared/types'
 import { searchEngines } from '@shared/types'
@@ -9,6 +9,7 @@ import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkfl
 import { installMarketFile, installMarketUrl, listMarket } from './services/MarketService'
 import { copyConnectInfo } from './services/ConnectService'
 import { downloadCopyLink, downloadOpen, downloadPause, downloadResume, downloadRetry, downloadShow, downloadCancel, downloadTargetDir, downloadsClear } from './services/DownloadService'
+import { runFfmpeg } from './services/ffmpeg'
 import { windows } from './runtime'
 import { bridge } from './runtime'
 import {
@@ -72,7 +73,7 @@ export function wireIpc(): void {
   bridge.activateTab = (tabId: string) => {
     for (const runtime of windows.values()) {
       if (runtime.tabs.some((item) => item.id === tabId)) {
-        activateTab(runtime, tabId)
+        activateTab(runtime, tabId, false)
         return
       }
     }
@@ -460,7 +461,7 @@ export function wireIpc(): void {
     broadcast(runtime.envId)
   })
 
-  ipcMain.handle('screen:save', (event, payload: { data: Uint8Array; mime: string }) => {
+  ipcMain.handle('screen:save', async (event, payload: { data: Uint8Array; mime: string }) => {
     const runtime = windowFromSender(event.sender)
     if (!runtime) return ''
     if (!payload.mime.includes('mp4') || !(payload.data?.byteLength || payload.data?.length)) {
@@ -472,7 +473,21 @@ export function wireIpc(): void {
       throw new Error('这次没能写成 mp4')
     }
     const path = join(downloadTargetDir(), `screen-${createId('clip')}.mp4`)
-    writeFileSync(path, Buffer.from(payload.data))
+    const temp = `${path}.part`
+    writeFileSync(temp, Buffer.from(payload.data))
+    try {
+      // MediaRecorder 直接写出的 mp4 常常没有总时长，播放器不显示结束时间也不能拖进度；
+      // 用 ffmpeg 重封装一次，补上 moov/mvhd 的时长信息。
+      await runFfmpeg(['-y', '-i', temp, '-c', 'copy', '-movflags', '+faststart', path], 120_000)
+    } catch {
+      // 没有 ffmpeg 时退回原始文件，至少能播
+      copyFileSync(temp, path)
+    }
+    try {
+      unlinkSync(temp)
+    } catch {
+      /* 临时文件删不掉不影响结果 */
+    }
     runtime.screenRecording = false
     runtime.screenStartedAt = undefined
     screenWaiters.get(runtime.envId)?.resolve(path)

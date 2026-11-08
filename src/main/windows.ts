@@ -109,7 +109,8 @@ function configurePermissions(ses: Electron.Session, envId: string): void {
 export function createBrowserWindow(envId: string, headless: boolean): WindowRuntime {
   const existing = windows.get(envId)
   if (existing) {
-    applyHeadless(existing, headless)
+    // 已经是目标状态就什么都不做，避免每次工具调用都把窗口 show + focus 一次
+    if (existing.headless !== headless) applyHeadless(existing, headless)
     return existing
   }
   const env = storage.envs.find((item) => item.id === envId)
@@ -135,7 +136,8 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      backgroundThrottling: false
     }
   })
   Menu.setApplicationMenu(null)
@@ -255,9 +257,12 @@ export function applyHeadless(runtime: WindowRuntime, headless: boolean): void {
   if (headless && headlessCount() >= storage.settings.headlessLimit && !runtime.headless) {
     throw new Error(`无头窗口已到上限 ${storage.settings.headlessLimit}`)
   }
+  const previous = runtime.headless
   runtime.headless = headless
-  if (headless) runtime.win.hide()
-  else {
+  if (headless) {
+    if (!previous) runtime.win.hide()
+  } else if (previous) {
+    // 只在从无头切回有头时显示并聚焦；已经是有头窗口时不要抢焦点
     runtime.win.show()
     runtime.win.focus()
   }
@@ -399,7 +404,7 @@ export function openEnvironment(envId: string, headless: boolean): WindowRuntime
   return runtime
 }
 
-export function addTab(runtime: WindowRuntime, url?: string, groupId: string | null = null, afterId?: string | null): TabRuntime {
+export function addTab(runtime: WindowRuntime, url?: string, groupId: string | null = null, afterId?: string | null, focus = true): TabRuntime {
   const tab: TabRuntime = {
     id: createId('tab'),
     envId: runtime.envId,
@@ -437,7 +442,7 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
   } else {
     runtime.tabs.push(tab)
   }
-  activateTab(runtime, tab.id)
+  activateTab(runtime, tab.id, focus)
   void view.webContents.loadURL(tab.url)
   return tab
 }
@@ -684,7 +689,7 @@ export function openWorkflowPage(runtime: WindowRuntime, workflowId: string): Ta
   return tab
 }
 
-export function activateTab(runtime: WindowRuntime, tabId: string): void {
+export function activateTab(runtime: WindowRuntime, tabId: string, focus = true): void {
   const tab = runtime.tabs.find((item) => item.id === tabId)
   if (!tab) throw new Error(`没有这个标签 ${tabId}`)
   runtime.activeTabId = tabId
@@ -695,7 +700,8 @@ export function activateTab(runtime: WindowRuntime, tabId: string): void {
   scheduleSessionSave(runtime)
   bridge.layout(runtime.envId)
   bridge.broadcast(runtime.envId)
-  if (!runtime.headless) runtime.win.focus()
+  // Agent 后台操作不要每次都把窗口拽到前台，只有用户主动切换标签时才聚焦
+  if (focus && !runtime.headless) runtime.win.focus()
 }
 
 export function closeWorkflowPages(workflowId: string): void {

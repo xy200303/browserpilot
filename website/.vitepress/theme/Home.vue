@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { withBase } from 'vitepress'
 import DotField from './components/DotField.vue'
+import DemoPlayer from './components/DemoPlayer.vue'
 import SignalStrip from './components/SignalStrip.vue'
 import { setupLanding } from './motion/setupLanding'
 
@@ -402,32 +403,23 @@ onUnmounted(() => {
           <div class="window">
             <div class="window-bar">
               <i /><i /><i />
-              <span>BrowserPilot · 真实运行 · 窗口 1440 × 900</span>
+              <span>BrowserPilot · 真实运行 · 窗口 1280 × 800</span>
             </div>
-            <video
-              :src="withBase('/demos/run.mp4')"
-              :poster="withBase('/demos/run-poster.jpg')"
-              autoplay
-              muted
-              loop
-              playsinline
-              preload="none"
-              aria-label="BrowserPilot 真实运行录屏：在 GitHub 话题页取前 5 个仓库并导出 CSV"
-            />
+            <DemoPlayer />
           </div>
           </div>
         </div>
         <div class="demo-caption">
           <p>
-            <strong>一个真实任务：</strong>在 GitHub 的 browser-automation 话题页取前 5 个仓库，导出 CSV。
-            录屏从工作流画布开始，中间是填写参数、遮罩、页面加载，最后停在运行记录。
+            <strong>一个真实任务：</strong>在问卷星的「生活常识在线考试」里自动答题，5 道题全部答对，拿到 100 分。
+            录屏从空白试卷开始，中间是逐题选择，最后停在成绩页。
           </p>
-          <span class="demo-time">35 秒 · 无声循环 · 实录</span>
+          <span class="demo-time">13 秒 · 无声循环 · 实录</span>
         </div>
         <div class="demo-notes">
-          <div><b>01 输入</b>在「GitHub 话题速览」里填 browser-automation，点执行。</div>
-          <div><b>02 窗口里的动作</b>工作流在窗口里打开话题页、等仓库卡片出现、取前 5 条；遮罩上可随时接管。</div>
-          <div><b>03 结果</b>运行记录写明 5 条与 CSV 路径，文件写到 exports 目录。</div>
+          <div><b>01 输入</b>打开一份真实的在线考试，Agent 自己读题、判断答案。</div>
+          <div><b>02 窗口里的动作</b>在页面里逐题点选答案；窗口、页面和录屏标记都是真的。</div>
+          <div><b>03 结果</b>点交卷，当场出分：答对 5 / 5 题，100 分。</div>
         </div>
       </div>
     </section>

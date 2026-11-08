@@ -403,6 +403,12 @@ tool('env_open', '打开已有环境的窗口。人打开时用有头。批量�
   const id = String(args.env)
   if (!storage.envs.some((item) => item.id === id)) throw new Error(`没有这套环境 ${id}`)
   const runtime = openEnvironment(id, Boolean(args.headless))
+  // env_open 是用户明确要打开窗口，这里才主动显示并聚焦
+  if (!runtime.headless) {
+    if (runtime.win.isMinimized()) runtime.win.restore()
+    runtime.win.show()
+    runtime.win.focus()
+  }
   return { env: id, headless: runtime.headless }
 })
 
@@ -458,7 +464,7 @@ tool('tab_open', '在环境的窗口里新开标签。不传 env 用默认环境
   env: env
 }), async (args) => {
   const runtime = openEnvironment(String(args.env || DEFAULT_ENV), windows.get(String(args.env || DEFAULT_ENV))?.headless ?? false)
-  const tabRef = addTab(runtime, String(args.url))
+  const tabRef = addTab(runtime, String(args.url), null, null, false)
   return { tabId: tabRef.id, env: runtime.envId }
 })
 
@@ -1304,6 +1310,10 @@ tool('screen_start', '开始把这扇有头窗口录成视频。maxSeconds 到�
   const runtime = openEnvironment(envId, false)
   if (runtime.headless) throw new Error('无头窗口没有画面，先有头打开再录')
   if (runtime.screenRecording) throw new Error('这扇窗口已经在录')
+  // 录屏必须让页面持续绘制，窗口被遮挡时子视图可能不刷新；这是少数需要主动前置的场景
+  if (runtime.win.isMinimized()) runtime.win.restore()
+  runtime.win.show()
+  runtime.win.focus()
   const seconds = Math.max(1, Math.min(3600, Number(args.maxSeconds ?? 300)))
   runtime.screenRecording = true
   bridge.broadcast(envId)
