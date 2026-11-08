@@ -189,9 +189,21 @@ function recordedNode(call: RecordedCall, index: number): { node?: WorkflowNode;
   }
   if (call.tool === 'page_click') {
     if (!locator) {
-      if (args.x === undefined || args.y === undefined) {
-        return { skip: '按文字/角色/坐标之外的定位点击录不进工作流' }
+      const text = typeof args.text === 'string' ? args.text : ''
+      const role = typeof args.role === 'string' ? args.role : ''
+      const name = typeof args.name === 'string' ? args.name : ''
+      if (text || role) {
+        return base('点击', {
+          locator: {
+            ...(text ? { text } : {}),
+            ...(role ? { role } : {}),
+            ...(name ? { name } : {}),
+            ...(args.textMatch === 'exact' ? { textMatch: 'exact' } : {}),
+            ...(args.nameMatch === 'exact' ? { nameMatch: 'exact' } : {})
+          }
+        })
       }
+      if (args.x === undefined || args.y === undefined) return { skip: '点击没给定位也没给坐标' }
       return { node: { id, data: { type: 'click', title: '点击', x: Number(args.x), y: Number(args.y) } } }
     }
     return base('点击', { locator })
@@ -217,7 +229,7 @@ function recordedNode(call: RecordedCall, index: number): { node?: WorkflowNode;
   }
   if (call.tool === 'page_wait') {
     if (typeof args.stable === 'number') return base('等待页面稳定', { stable: args.stable })
-    if (!locator) return { skip: '等待没有 selector' }
+    if (!locator) return { skip: '等待没有定位' }
     return base('等待', { locator, state: args.state === 'gone' ? 'gone' : 'appear', timeout: args.timeout ?? 10 })
   }
   return { skip: `${call.tool} 不在可录范围` }
@@ -1882,7 +1894,7 @@ const recordingCall = z.object({
   description: z.string().optional()
 })
 
-tool('workflow_record', '把接下来的一串工具调用录成工作流。action=start 开始录，action=stop 结束；stop 时给了 name 就直接保存成同名工作流（同名覆盖），不给 name 只返回图和录制结果。能录的：打开网页、点击（xpath/selector 或 x/y）、输入（xpath/selector）、按键、滚动、选择下拉、上传、画布落笔（selector + SVG path）、等待。按文字/角色/ref/坐标之外的定位录不进去，会在 skipped 里列出原因，不会悄悄少一步。', recordingCall, async (args) => {
+tool('workflow_record', '把接下来的一串工具调用录成工作流。action=start 开始录，action=stop 结束；stop 时给了 name 就直接保存成同名工作流（同名覆盖），不给 name 只返回图和录制结果。能录的：打开网页、点击（文字、role+name、xpath/selector 或 x/y）、输入（xpath/selector）、按键、滚动、选择下拉、上传、画布落笔（selector + SVG path）、等待。按 ref 定位、或输入用 label 找的调用录不进去，会在 skipped 里列出原因，不会悄悄少一步。', recordingCall, async (args) => {
   if (String(args.action) === 'start') {
     recording = { startedAt: Date.now(), calls: [] }
     return { recording: true, startedAt: recording.startedAt }

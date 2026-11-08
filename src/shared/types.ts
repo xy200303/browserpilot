@@ -241,7 +241,19 @@ export type LayerPayload =
   | { kind: 'suggest' }
   | { kind: 'env'; envId: string; x: number; y: number }
 
-export type Locator = { selector?: string; xpath?: string; pierce?: boolean }
+export type Locator = {
+  selector?: string
+  xpath?: string
+  pierce?: boolean
+  /** 按元素的可访问名称（通常是可见文字）定位，工作流里比选择器抗改版 */
+  text?: string
+  textMatch?: 'exact' | 'contains'
+  /** 可访问角色，如 button、link、menuitem */
+  role?: string
+  /** 角色之外的名称匹配，和 role 一起用等于 getByRole(role, { name }) */
+  name?: string
+  nameMatch?: 'exact' | 'contains'
+}
 
 export type ActVia = 'inject' | 'native' | 'cdp' | 'pointer'
 export type GestureVia = 'cdp' | 'native' | 'pointer'

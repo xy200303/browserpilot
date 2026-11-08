@@ -1139,7 +1139,13 @@ function locatorFrom(raw: unknown, pool: Pool): Locator | undefined {
     const value = item[key]
     if (typeof value === 'string' && value) loc[key] = render(value, pool)
   }
-  if (!loc.xpath && !loc.selector) return undefined
+  for (const key of ['text', 'role', 'name'] as const) {
+    const value = item[key]
+    if (typeof value === 'string' && value) loc[key] = render(value, pool)
+  }
+  if (item.textMatch === 'exact' || item.textMatch === 'contains') loc.textMatch = item.textMatch
+  if (item.nameMatch === 'exact' || item.nameMatch === 'contains') loc.nameMatch = item.nameMatch
+  if (!loc.xpath && !loc.selector && !loc.text && !loc.role) return undefined
   return loc
 }
 

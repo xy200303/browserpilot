@@ -694,20 +694,37 @@ function LocatorFields({ node, locator, patch }: { node: WorkflowNode; locator: 
   if (!locator) return null
   return (
     <div className="grid gap-2">
-      {(['xpath', 'selector'] as const).map((key) => (
+      {(['xpath', 'selector', 'text'] as const).map((key) => (
         <TextField
           key={key}
-          label={key === 'selector' ? 'CSS' : 'XPath'}
+          label={key === 'selector' ? 'CSS' : key === 'xpath' ? 'XPath' : '文字'}
           value={String(locator[key] || '')}
           onCommit={(value) => {
             const next = { ...locator, [key]: value }
-            delete next.role
-            delete next.name
+            if (key !== 'text') {
+              delete next.role
+              delete next.name
+            } else {
+              delete next.xpath
+              delete next.selector
+            }
             for (const name of Object.keys(next)) if (!String(next[name] || '').trim()) delete next[name]
             patch({ ...node.data, locator: next })
           }}
         />
       ))}
+      <TextField
+        label="角色名称（如 button 提交）"
+        value={String(locator.role || '')}
+        onCommit={(value) => {
+          const next: Record<string, unknown> = { ...locator, role: value }
+          delete next.xpath
+          delete next.selector
+          delete next.text
+          for (const name of Object.keys(next)) if (!String(next[name] || '').trim()) delete next[name]
+          patch({ ...node.data, locator: next })
+        }}
+      />
     </div>
   )
 }

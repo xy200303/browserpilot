@@ -109,11 +109,14 @@ async function centerOf(tab: TabRuntime, target: AxRef): Promise<{ x: number; y:
 export function locatorLabel(locator: Locator): string {
   if (locator.xpath) return locator.xpath
   if (locator.selector) return locator.selector
+  if (locator.role && locator.name) return `${locator.role}「${locator.name}」`
+  if (locator.role) return locator.role
+  if (locator.text) return `文字「${locator.text}」`
   return '未写定位'
 }
 
 export function isQueryLocator(locator: Locator): boolean {
-  return Boolean(locator.xpath || locator.selector)
+  return Boolean(locator.xpath || locator.selector || locator.text || locator.role)
 }
 
 const MATCH_CAP = 100
@@ -136,7 +139,58 @@ async function backendIdsOf(dbg: Electron.Debugger, nodeIds: number[]): Promise<
   }))
 }
 
+type FlatAxNode = {
+  nodeId: string
+  parentId?: string
+  role?: { value?: string }
+  name?: { value?: string }
+  ignored?: boolean
+  backendDOMNodeId?: number
+}
+
+const CLICKABLE_ROLES = new Set([
+  'button', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'tab', 'checkbox',
+  'radio', 'switch', 'option', 'treeitem', 'combobox', 'textbox', 'searchbox'
+])
+
+/**
+ * 按可访问名称 / 角色在无障碍树里找。按文字点的常常命中 StaticText，
+ * 这里往上找最近的可点击祖先，和人在页面上点文字的行为一致。
+ */
+async function collectAxMatches(dbg: Electron.Debugger, locator: Locator): Promise<{ total: number; backendNodeIds: number[] }> {
+  await dbg.sendCommand('DOM.getDocument', { depth: 0 })
+  const tree = (await dbg.sendCommand('Accessibility.getFullAXTree')) as { nodes?: FlatAxNode[] }
+  const nodes = tree.nodes ?? []
+  const byId = new Map(nodes.map((node) => [node.nodeId, node]))
+  const norm = (value: string): string => value.replace(/\s+/g, ' ').trim()
+  const hit = (value: string, want: string, mode: 'exact' | 'contains' | undefined): boolean =>
+    mode === 'exact' ? value === want : value.includes(want)
+  const roleWant = (locator.role || '').trim().toLowerCase()
+  const textWant = locator.text ? norm(locator.text) : ''
+  const nameWant = locator.name ? norm(locator.name) : ''
+  const picked: number[] = []
+  for (const node of nodes) {
+    if (node.ignored) continue
+    const role = (node.role?.value || '').toLowerCase()
+    const name = norm(node.name?.value || '')
+    if (roleWant && role !== roleWant) continue
+    if (textWant && !hit(name, textWant, locator.textMatch)) continue
+    if (nameWant && !hit(name, nameWant, locator.nameMatch)) continue
+    let target: FlatAxNode | undefined = node
+    if (!roleWant && textWant) {
+      for (let depth = 0; depth < 6 && target; depth += 1) {
+        if (CLICKABLE_ROLES.has((target.role?.value || '').toLowerCase())) break
+        target = target.parentId ? byId.get(target.parentId) : undefined
+      }
+    }
+    if (target?.backendDOMNodeId) picked.push(target.backendDOMNodeId)
+  }
+  const unique = [...new Set(picked)]
+  return { total: unique.length, backendNodeIds: unique.slice(0, MATCH_CAP) }
+}
+
 async function collectMatches(dbg: Electron.Debugger, locator: Locator): Promise<{ total: number; backendNodeIds: number[] }> {
+  if (locator.text || locator.role) return collectAxMatches(dbg, locator)
   if (locator.xpath) {
     const query = locator.xpath.trim()
     if (!query.startsWith('/') && !query.startsWith('(//')) throw new Error('XPath 要以 / 开头（或 (// 取全局第几个）')
@@ -166,7 +220,9 @@ async function collectMatches(dbg: Electron.Debugger, locator: Locator): Promise
 
 function axOf(locator: Locator, backendNodeId: number): AxRef {
   if (locator.xpath) return { role: 'xpath', name: locator.xpath, backendNodeId }
-  return { role: 'selector', name: locator.selector ?? '', backendNodeId }
+  if (locator.selector) return { role: 'selector', name: locator.selector, backendNodeId }
+  if (locator.role) return { role: locator.role, name: locator.name ?? '', backendNodeId }
+  return { role: 'text', name: locator.text ?? '', backendNodeId }
 }
 
 export async function resolveLocator(tab: TabRuntime, locator: Locator): Promise<AxRef> {
