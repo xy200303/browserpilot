@@ -62,7 +62,6 @@ import {
   evalInFrame,
   evalSource,
   findInPage,
-  hitPoint,
   hoverLocator,
   hoverLocatorInFrame,
   hoverHit,
@@ -90,7 +89,6 @@ import {
   screenshot,
   scrollPage,
   selectLocator,
-  sendCdp,
   sendCdpBatch,
   swipePage,
   typeAtPoint,
@@ -956,7 +954,7 @@ tool('page_wait', '等元素出现或消失。state 默认 appear（出现），
   return { tabId: tabRef.id, state: args.state }
 })
 
-tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 label 按关联标签/占位符找输入框（最省事），或用 page_snapshot 的 ref；也可以用 xpath 或 selector，pierce 为 true 穿透 Shadow DOM 和同源 iframe；跨域 iframe 里的输入框传 frame（src 包含的一段）+ xpath/selector；也可以用 x、y 坐标（先点击该点聚焦再输入；带 page_screenshot 的 shotId 时 x、y 用图片像素）。多行文本、整段文档用 page_paste，逐键输入会被部分页面改写。native 先真实点击再逐键输入。inject 直接写入。', z.object({
+tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 label 按关联标签/占位符找输入框（最省事），或用 page_snapshot 的 ref；也可以用 xpath 或 selector，pierce 为 true 穿透 Shadow DOM 和同源 iframe；跨域 iframe 里的输入框传 frame（src 包含的一段）+ xpath/selector；也可以用 x、y 坐标（先点击该点聚焦再输入；带 page_screenshot 的 shotId 时 x、y 用图片像素）。多行文本、整段文档传 entry: "paste"（整段插入，不逐键），逐键输入会被部分页面改写。native 先真实点击再逐键输入。inject 直接写入。', z.object({
   ...pageArgs, text: z.string(), ...locateFields,
   label: z.string().optional(),
   placeholder: z.string().optional(),
@@ -970,6 +968,7 @@ tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，�
   shotY: z.union([z.number(), z.string()]).optional(),
   shotScale: z.union([z.number(), z.string()]).optional(),
   shotId: z.string().optional(),
+  entry: z.enum(['type', 'paste']).optional(),
   via: z.enum(['inject', 'native', 'cdp']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
@@ -996,21 +995,15 @@ tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，�
   }
   const located = locatorFrom(args)
   if (!located) throw new Error(NEED_LOCATOR)
+  if (args.entry === 'paste') {
+    await pasteLocator(tabRef, located, String(args.text), viaOf(args.via))
+    return { tabId: tabRef.id }
+  }
   if (located.pierce) {
     await typeDeep(tabRef, located, String(args.text), viaOf(args.via))
     return { tabId: tabRef.id }
   }
   await typeLocator(tabRef, located, String(args.text), viaOf(args.via))
-  return { tabId: tabRef.id }
-})
-
-tool('page_paste', '写入一段文字。via 默认 cdp：聚焦后 Input.insertText，不经过剪贴板。用 xpath 或 selector 指定目标。native 写入剪贴板再发送粘贴快捷键。inject 直接写入目标。', z.object({
-  ...pageArgs, text: z.string(), ...locateFields, via: z.enum(['inject', 'native', 'cdp']).optional()
-}), async (args) => {
-  const tabRef = await pageTab(args)
-  const located = locatorFrom(args)
-  if (!located) throw new Error(NEED_LOCATOR)
-  await pasteLocator(tabRef, located, String(args.text), viaOf(args.via))
   return { tabId: tabRef.id }
 })
 
@@ -1115,7 +1108,7 @@ tool('page_drag', '按住一个点或元素，按 dx、dy 精确拖拽，轨迹�
   return { tabId: tabRef.id, from: moved.from, to: moved.to }
 })
 
-tool('page_inspect', '识别一个元素是什么类型：video、image、canvas、audio、link、input、text。返回类型、地址（src/href/poster）、位置和文字。目标用 xpath、selector，或坐标 x、y（支持 shot 换算，同 page_click）。保存图片视频前先用它确认类型。', z.object({
+tool('page_inspect', '识别一个元素是什么类型：video、image、canvas、audio、link、input、text。返回类型、地址（src/href/poster）、标签、id、class、位置和文字。目标用 xpath、selector，或坐标 x、y（支持 shot 换算，同 page_click）。按截图算出坐标后先用它确认点到了哪个元素，保存图片视频前也用它确认类型。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -1266,11 +1259,21 @@ tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径
   close: z.boolean().optional(),
   fill: z.boolean().optional(),
   spacing: z.number().optional(),
+  script: z.string().optional(),
+  heading: z.number().optional(),
   verify: z.boolean().optional(),
   via: z.enum(['cdp', 'native', 'pointer']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
   const verify = args.verify !== false
+  if (typeof args.script === 'string' && args.script.trim()) {
+    const turtle = await turtleRun(tabRef, gestureVia(args.via), String(args.script), {
+      x: args.x === undefined ? undefined : Number(args.x),
+      y: args.y === undefined ? undefined : Number(args.y),
+      heading: args.heading === undefined ? undefined : Number(args.heading)
+    })
+    return { tabId: tabRef.id, ...turtle }
+  }
   if (typeof args.path === 'string' && args.path) {
     if (args.x === undefined || args.y === undefined || !args.width || !args.height) throw new Error('path 要配 x、y、width、height 定目标区域')
     const box = { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height) }
@@ -1296,23 +1299,6 @@ tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径
   const filled = fills.length ? await drawPath(tabRef, gestureVia(args.via), fills) : undefined
   const check = before ? await checkStroke(tabRef, sample, before) : undefined
   return { tabId: tabRef.id, ...drawn, ...(filled ? { fillPoints: filled.points } : {}), ...(check ? { check } : {}) }
-})
-
-tool('page_canvas', '画布绘画（海龟命令）（和 Python turtle 一样）：script 每行一条命令，fd/bk N 前进后退、lt/rt 角度、setheading 角度、goto X Y、penup/pendown 抬笔落笔、circle 半径 [角度]、beginfill/endfill 圈一块区域上色（蛇形连笔涂满，spacing 行距）。起点默认视口中心朝右（heading 0），可用 x、y、heading 改。任何画布都能画，换颜色用 page_click 点画板色板后再继续。', z.object({
-  ...pageArgs,
-  script: z.string(),
-  x: z.number().optional(),
-  y: z.number().optional(),
-  heading: z.number().optional(),
-  via: z.enum(['cdp', 'native', 'pointer']).optional()
-}), async (args) => {
-  const tabRef = await pageTab(args)
-  const result = await turtleRun(tabRef, gestureVia(args.via), String(args.script), {
-    x: args.x === undefined ? undefined : Number(args.x),
-    y: args.y === undefined ? undefined : Number(args.y),
-    heading: args.heading === undefined ? undefined : Number(args.heading)
-  })
-  return { tabId: tabRef.id, ...result }
 })
 
 tool('page_upload', '把本机文件交给页面上的文件控件，不弹出系统选择框。用 xpath 或 selector 指定控件。不指定时用页面上的第一个文件控件。', z.object({
@@ -1707,15 +1693,7 @@ tool('page_script', '在当前网页里执行一段 JavaScript，把返回值交
   return { tabId: tabRef.id, value }
 })
 
-tool('page_cdp', '对当前网页调用一条 CDP，用完即断开，除非抓包还开着。要连着发一组命令（比如 press/move/release 的输入序列）用 page_cdp_batch。sessionId 可选：填 Target.attachToTarget 返回的会话编号时，命令发到那个子框架会话。', z.object({
-  ...pageArgs, method: z.string(), params: z.record(z.unknown()).optional(), sessionId: z.string().optional()
-}), async (args) => {
-  const tabRef = await pageTab(args)
-  const value = await sendCdp(tabRef, String(args.method), args.params as Record<string, unknown> | undefined, args.sessionId ? String(args.sessionId) : undefined)
-  return { tabId: tabRef.id, value }
-})
-
-tool('page_cdp_batch', '在同一个调试会话里按顺序跑一组 CDP 命令，中间不断开。commands 是数组，每项有 method、params（可选）和 delay（这条跑完后等多少秒，默认 0，上限 5）。返回每条命令的结果数组。', z.object({
+tool('page_cdp_batch', '在同一个调试会话里按顺序跑一组 CDP 命令，中间不断开。commands 是数组，每项有 method、params（可选）和 delay（这条跑完后等多少秒，默认 0，上限 5）。只发一条就传长度为 1 的数组。返回每条命令的结果数组。', z.object({
   ...pageArgs,
   commands: z.array(z.object({
     method: z.string(),
@@ -1975,23 +1953,6 @@ tool('net_mock', '拦截这个标签的请求并按规则返回假数据，用�
 tool('net_mock_off', '解除这个标签的请求拦截。', z.object({ tabId: z.string() }), async (args) => {
   await netMockOff(String(args.tabId))
   return { tabId: args.tabId }
-})
-
-tool('page_hit', '返回视口坐标 (x, y) 命中的元素：标签、class、id、文字、rect。带 shotWidth、shotHeight 时按截图坐标换算，再带 shotX、shotY、shotScale 时按裁剪图换算（同 page_click）。用来确认"看图说话"算出来的点对不对。', z.object({
-  ...pageArgs,
-  x: z.union([z.number(), z.string()]),
-  y: z.union([z.number(), z.string()]),
-  shotWidth: z.union([z.number(), z.string()]).optional(),
-  shotHeight: z.union([z.number(), z.string()]).optional(),
-  shotX: z.union([z.number(), z.string()]).optional(),
-  shotY: z.union([z.number(), z.string()]).optional(),
-  shotScale: z.union([z.number(), z.string()]).optional()
-}), async (args) => {
-  const tabRef = await pageTab(args, false)
-  const point = pointArgs(args)
-  if (!point) throw new Error('需要 x 和 y')
-  const hit = await hitPoint(tabRef, point.x, point.y, point.shot)
-  return { tabId: tabRef.id, ...hit }
 })
 
 tool('page_watch', '盯住一个元素，它的文字或位置变了就返回变化前后，超时返回变化前的快照。timeout 是秒，默认 30，最长 120；interval 是秒，默认 0.5。用来等价格变化、新消息、状态翻转。pierce 为 true 时穿透 Shadow DOM 和 iframe。', z.object({

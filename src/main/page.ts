@@ -356,24 +356,6 @@ export async function evalInFrame(tab: TabRuntime, source: string, frameMatch: s
   }
 }
 
-export async function hitPoint(tab: TabRuntime, x: number, y: number, shot?: ShotRef): Promise<Record<string, unknown>> {
-  const point = mapPoint(tab, x, y, shot)
-  const source = `(() => {
-    const el = document.elementFromPoint(${point.x}, ${point.y})
-    if (!el) return null
-    const r = el.getBoundingClientRect()
-    return {
-      tag: el.tagName,
-      cls: String(el.className).slice(0, 80),
-      id: el.id || '',
-      text: String(el.innerText || el.textContent || el.value || '').replace(/\\s+/g, ' ').trim().slice(0, 80),
-      rect: { x: r.left, y: r.top, w: r.width, h: r.height }
-    }
-  })()`
-  const hit = await evalSource(tab, source)
-  if (!hit) throw new Error(`(${point.x}, ${point.y}) 上没有元素`)
-  return { ...(hit as Record<string, unknown>), x: point.x, y: point.y }
-}
 
 export async function crossQuery(tab: TabRuntime, locator: Locator): Promise<{ total: number; matches: DeepMatch[]; errors?: string[] }> {
   const wc = wcOf(tab)
@@ -1864,7 +1846,7 @@ const CLASSIFY_JS = `function () {
   if (!(el instanceof Element)) return null
   const abs = (u) => { try { return new URL(u, location.href).href } catch (e) { return u || '' } }
   const r = el.getBoundingClientRect()
-  const base = { tag: el.tagName, rect: { x: r.left, y: r.top, w: r.width, h: r.height } }
+  const base = { tag: el.tagName, id: el.id || '', cls: String(el.className || '').slice(0, 80), rect: { x: r.left, y: r.top, w: r.width, h: r.height } }
   const video = el.closest('video')
   if (video) {
     const src = video.currentSrc || video.src || ((video.querySelector('source') || {}).src) || ''
@@ -1888,6 +1870,8 @@ const CLASSIFY_JS = `function () {
 export type ElementInfo = {
   kind: 'video' | 'image' | 'canvas' | 'audio' | 'link' | 'input' | 'text'
   tag: string
+  id?: string
+  cls?: string
   src?: string
   poster?: string
   href?: string
