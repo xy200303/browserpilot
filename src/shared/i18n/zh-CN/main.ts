@@ -388,6 +388,13 @@ export const zhMain = {
       skipWait: '等待没有定位',
       skipTool: '{{tool}} 不在可录范围'
     },
+    runs: {
+      title: '运行记录',
+      titleWith: '运行记录 · {{name}}',
+      empty: '还没有跑过工作流。每次运行的结果、输出和现场截图都会记在这里。',
+      node: '节点 {{name}}',
+      screenshot: '现场截图：{{path}}'
+    },
     lock: {
       working: 'Agent 正在操作浏览器',
       takeOver: '接管'

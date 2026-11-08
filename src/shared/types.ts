@@ -5,10 +5,10 @@ export type TabLayout = 'top' | 'left'
 export type SearchEngineId = 'bing' | 'baidu' | 'google' | 'sogou' | 'duckduckgo'
 
 export const searchEngines: { id: SearchEngineId; name: string; home: string; search: string }[] = [
-  { id: 'bing', name: '必应', home: 'https://www.bing.com/', search: 'https://www.bing.com/search?q=' },
-  { id: 'baidu', name: '百度', home: 'https://www.baidu.com/', search: 'https://www.baidu.com/s?wd=' },
+  { id: 'bing', name: '必应', home: 'https://www.bing.com/', search: 'https://www.bing.com/search?q=' }, // i18n-ignore 兜底名称，界面用 searchEngine.*
+  { id: 'baidu', name: '百度', home: 'https://www.baidu.com/', search: 'https://www.baidu.com/s?wd=' }, // i18n-ignore
   { id: 'google', name: 'Google', home: 'https://www.google.com/', search: 'https://www.google.com/search?q=' },
-  { id: 'sogou', name: '搜狗', home: 'https://www.sogou.com/', search: 'https://www.sogou.com/web?query=' },
+  { id: 'sogou', name: '搜狗', home: 'https://www.sogou.com/', search: 'https://www.sogou.com/web?query=' }, // i18n-ignore
   { id: 'duckduckgo', name: 'DuckDuckGo', home: 'https://duckduckgo.com/', search: 'https://duckduckgo.com/?q=' }
 ]
 
@@ -239,7 +239,7 @@ export type LayerPayload =
   | { kind: 'menu'; x: number; y: number }
   | { kind: 'context'; x: number; y: number; tab: TabInfo }
   | { kind: 'about' }
-  | { kind: 'settings'; section: '环境' | '抓包' | '通用' | '隐私' | '关于' }
+  | { kind: 'settings'; section?: string }
   | { kind: 'workflow'; id: string }
   | { kind: 'tabs' }
   | { kind: 'bookmarks'; x: number; y: number }

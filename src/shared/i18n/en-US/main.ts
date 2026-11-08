@@ -391,6 +391,13 @@ export const enMain: MessageShape<typeof zhMain> = {
       skipWait: 'Wait had no locator',
       skipTool: '{{tool}} cannot be recorded'
     },
+    runs: {
+      title: 'Runs',
+      titleWith: 'Runs · {{name}}',
+      empty: 'No workflow has run yet. Results, outputs and failure screenshots show up here.',
+      node: 'node {{name}}',
+      screenshot: 'Screenshot: {{path}}'
+    },
     lock: {
       working: 'The agent is operating the browser',
       takeOver: 'Take over'

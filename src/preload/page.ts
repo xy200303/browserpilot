@@ -79,7 +79,7 @@ document.addEventListener('click', (event) => {
   const button = target?.closest('button, input[type=submit], [role=button]') as HTMLElement | null
   if (!button) return
   const label = (button.textContent || (button as HTMLInputElement).value || button.getAttribute('aria-label') || '').trim()
-  if (!/登录|登入|登陆|提交|sign ?in|log ?in|submit/i.test(label)) return
+  if (!/登录|登入|登陆|提交|sign ?in|log ?in|submit/i.test(label)) return // i18n-ignore 页面文案特征
   capture(button.closest('form'))
 }, true)
 

@@ -159,10 +159,10 @@ export function MarketPage({ state: external }: { state?: UiState }) {
           <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={i18n.t('marketPage.searchPlaceholder')} className="search-field bg-background pl-8" />
         </div>
         <Button type="button" variant={installedOnly ? 'secondary' : 'outline'} className={installedOnly ? undefined : 'bg-white'} onClick={() => setInstalledOnly((value) => !value)}>
-          <SquareCheck />已安装 {saved.length}
+          <SquareCheck />{i18n.t('marketPage.installedCount', { count: saved.length })}
         </Button>
         <Button type="button" variant="outline" className="bg-white" onClick={() => { setImportError(''); setImportOpen(true) }}>
-          <Plus />导入
+          <Plus />{i18n.t('marketPage.import')}
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
@@ -502,7 +502,7 @@ function SavedActions({ workflow, extra, onDelete }: { workflow: SavedWorkflow; 
             })
           }}
         >
-          导出
+          {i18n.t('marketPage.export')}
         </Button>
         {onDelete && <Button type="button" variant="outline" onClick={onDelete}>{i18n.t('marketPage.delete')}</Button>}
       </div>

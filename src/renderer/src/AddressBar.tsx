@@ -112,7 +112,7 @@ export function AddressBar({
       list.push({
         key: 'search',
         kind: 'search',
-        title: i18n.t('address.searchTitle', { query, engine: engine.name }),
+        title: i18n.t('address.searchTitle', { query, engine: i18n.t(`searchEngine.${engine.id}`) }),
         url: engine.search + encodeURIComponent(query),
         titleIndices: [],
         urlIndices: [],

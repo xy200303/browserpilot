@@ -1,4 +1,11 @@
 export const zhShell = {
+  searchEngine: {
+    bing: '必应',
+    baidu: '百度',
+    sogou: '搜狗',
+    google: 'Google',
+    duckduckgo: 'DuckDuckGo'
+  },
   shell: {
     screen: {
       noMp4: '这次没能写成 mp4',

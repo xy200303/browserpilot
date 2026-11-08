@@ -2,6 +2,13 @@ import type { MessageShape } from '../shape'
 import type { zhShell } from '../zh-CN/shell'
 
 export const enShell: MessageShape<typeof zhShell> = {
+  searchEngine: {
+    bing: 'Bing',
+    baidu: 'Baidu',
+    sogou: 'Sogou',
+    google: 'Google',
+    duckduckgo: 'DuckDuckGo'
+  },
   shell: {
     screen: {
       noMp4: 'Could not write an mp4 this time',

@@ -27,7 +27,7 @@ const icons = {
 
 export function SettingsPage({ state: external }: { state?: UiState }) {
   const requested = new URLSearchParams(window.location.search).get('section')
-  const legacy: Record<string, Section> = { 环境: 'env', 抓包: 'net', 通用: 'general', 密码: 'passwords', 隐私: 'privacy', 关于: 'about' }
+  const legacy: Record<string, Section> = { 环境: 'env', 抓包: 'net', 通用: 'general', 密码: 'passwords', 隐私: 'privacy', 关于: 'about' } // i18n-ignore 兼容旧链接
   const initial = sections.find((item) => item === requested) ?? legacy[requested ?? ''] ?? 'env'
   const [local, setLocal] = useState<UiState | null>(null)
   useEffect(() => {
@@ -177,7 +177,7 @@ function EnvDetail({ env, onBack }: { env: Env; onBack: () => void }) {
           <Input className="solid-field" value={name} onChange={(event) => setName(event.target.value)} />
         </Label>
         <Label className="grid gap-1 text-xs text-muted-foreground">
-          备注
+          {i18n.t('settings.env.remark')}
           <Input className="solid-field" value={remark} onChange={(event) => setRemark(event.target.value)} placeholder={i18n.t('settings.env.remark')} />
         </Label>
         <div className="flex gap-2">
@@ -225,7 +225,7 @@ function CreateEnvDialog({ container, open, onOpenChange }: { container: HTMLEle
         <Dialog.Content className="absolute top-1/2 left-1/2 z-20 w-[min(24rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-white p-4 shadow-lg">
           <div className="flex items-center justify-between gap-3">
             <Dialog.Title className="text-base font-medium">{i18n.t('settings.env.newTitle')}</Dialog.Title>
-            <Dialog.Close className="grid size-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="关闭">
+            <Dialog.Close className="grid size-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label={i18n.t('shell.common.close')}>
               <X className="size-4" />
             </Dialog.Close>
           </div>
@@ -244,7 +244,7 @@ function CreateEnvDialog({ container, open, onOpenChange }: { container: HTMLEle
               <Input className="solid-field" value={name} onChange={(event) => setName(event.target.value)} />
             </Label>
             <Label className="grid gap-1 text-xs text-muted-foreground">
-              备注
+              {i18n.t('settings.env.remark')}
               <Input className="solid-field" value={remark} onChange={(event) => setRemark(event.target.value)} placeholder={i18n.t('settings.env.remark')} />
             </Label>
             <div className="flex justify-end gap-2">
@@ -496,7 +496,7 @@ function General({ state }: { state: UiState }) {
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="auto">{t('settings.general.language.auto')}</SelectItem>
-              <SelectItem value="zh-CN">简体中文</SelectItem>
+              <SelectItem value="zh-CN">简体中文</SelectItem>{/* i18n-ignore 语言名用自身语言显示 */}
               <SelectItem value="en-US">English</SelectItem>
             </SelectContent>
           </Select>
@@ -508,7 +508,7 @@ function General({ state }: { state: UiState }) {
               {searchEngines.map((engine) => (
                 <SelectItem key={engine.id} value={engine.id}>
                   <SearchEngineIcon id={engine.id} />
-                  {engine.name}
+                  {i18n.t(`searchEngine.${engine.id}`)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -665,7 +665,7 @@ function ConfirmDialog({
           <Dialog.Description className="mt-2 text-sm text-muted-foreground">{detail}</Dialog.Description>
           <div className="mt-4 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{i18n.t('shell.common.cancel')}</Button>
-            <Button type="button" variant="destructive" onClick={onConfirm}>删除</Button>
+            <Button type="button" variant="destructive" onClick={onConfirm}>{i18n.t('settings.env.delete')}</Button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

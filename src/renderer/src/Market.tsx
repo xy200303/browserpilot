@@ -169,8 +169,8 @@ function groupParams(params: WorkflowParam[]): Field[] {
 function isBound(param: WorkflowParam, kind: 'start' | 'end'): boolean {
   const name = param.name.trim()
   const label = param.description?.trim() || ''
-  if (kind === 'start') return /^(开始|start)/i.test(name) || label.startsWith('开始')
-  return /^(结束|end)/i.test(name) || label.startsWith('结束')
+  if (kind === 'start') return /^(开始|start)/i.test(name) || /^(开始|start)/i.test(label) // i18n-ignore 节点标题启发式
+  return /^(结束|end)/i.test(name) || /^(结束|end)/i.test(label) // i18n-ignore 节点标题启发式
 }
 
 function toPicker(value: string): string {
