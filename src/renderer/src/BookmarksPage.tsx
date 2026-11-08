@@ -3,6 +3,7 @@ import { Bookmark, Search, Star, Trash2 } from 'lucide-react'
 import type { UiState } from '../../shared/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import i18n from './i18n'
 
 function Favicon({ favicon }: { favicon?: string }) {
   const [broken, setBroken] = useState(false)
@@ -36,8 +37,8 @@ export function BookmarksPage({ state }: { state: UiState }) {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Bookmark size={18} className="text-neutral-500" />
-            <h1 className="text-lg font-semibold">书签</h1>
-            <span className="text-xs text-neutral-400">{state.bookmarks.length} 条</span>
+            <h1 className="text-lg font-semibold">{i18n.t('bookmarks.title')}</h1>
+            <span className="text-xs text-neutral-400">{i18n.t('bookmarks.count', { count: state.bookmarks.length })}</span>
           </div>
           <Button
             type="button"
@@ -46,25 +47,25 @@ export function BookmarksPage({ state }: { state: UiState }) {
             disabled={state.bookmarks.length === 0}
             onClick={clear}
           >
-            {confirmClear ? '确认清空这个环境' : '清空书签'}
+            {confirmClear ? i18n.t('bookmarks.confirmClear') : i18n.t('bookmarks.clear')}
           </Button>
         </div>
 
         <div className="relative">
           <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" />
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索书签" className="bg-white pl-8" />
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={i18n.t('bookmarks.placeholder')} className="bg-white pl-8" />
         </div>
 
         {state.bookmarks.length === 0 && (
           <div className="grid place-items-center gap-2 rounded-lg border border-dashed border-neutral-200 bg-white py-16 text-center">
             <Star size={22} className="text-neutral-300" />
-            <p className="text-sm text-neutral-500">还没有书签</p>
-            <p className="text-xs text-neutral-400">在网页上按 Ctrl+D，或点地址栏右侧的星标。</p>
+            <p className="text-sm text-neutral-500">{i18n.t('bookmarks.empty')}</p>
+            <p className="text-xs text-neutral-400">{i18n.t('bookmarks.emptyHint')}</p>
           </div>
         )}
 
         {state.bookmarks.length > 0 && items.length === 0 && (
-          <p className="py-10 text-center text-sm text-neutral-500">没有匹配的书签</p>
+          <p className="py-10 text-center text-sm text-neutral-500">{i18n.t('bookmarks.noMatch')}</p>
         )}
 
         {items.length > 0 && (
@@ -94,7 +95,7 @@ export function BookmarksPage({ state }: { state: UiState }) {
                   variant="ghost"
                   size="icon-sm"
                   className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                  title="删除书签"
+                  title={i18n.t('bookmarks.delete')}
                   onClick={(event) => {
                     event.stopPropagation()
                     void window.browser.deleteBookmark(item.id)
@@ -108,7 +109,7 @@ export function BookmarksPage({ state }: { state: UiState }) {
         )}
 
         {state.bookmarks.length > 0 && (
-          <p className="pb-4 text-center text-xs text-neutral-400">书签只保存在本机，按环境隔离。</p>
+          <p className="pb-4 text-center text-xs text-neutral-400">{i18n.t('bookmarks.footer')}</p>
         )}
       </div>
     </div>

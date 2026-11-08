@@ -3,6 +3,7 @@ import { Clock3, History, Search, Trash2 } from 'lucide-react'
 import type { HistoryEntry } from '../../shared/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import i18n from './i18n'
 
 function dayKey(timestamp: number): string {
   const date = new Date(timestamp)
@@ -12,10 +13,10 @@ function dayKey(timestamp: number): string {
 function dayLabel(key: string): string {
   const today = new Date()
   const yesterday = new Date(today.getTime() - 86_400_000)
-  if (key === dayKey(today.getTime())) return '今天'
-  if (key === dayKey(yesterday.getTime())) return '昨天'
+  if (key === dayKey(today.getTime())) return i18n.t('history.today')
+  if (key === dayKey(yesterday.getTime())) return i18n.t('history.yesterday')
   const [year, month, day] = key.split('-').map(Number)
-  return `${year} 年 ${month} 月 ${day} 日`
+  return i18n.t('history.date', { year, month, day })
 }
 
 function timeLabel(timestamp: number): string {
@@ -59,7 +60,7 @@ function Row({ entry, remove }: { entry: HistoryEntry; remove: (id: string) => v
         variant="ghost"
         size="icon-sm"
         className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-        title="删除这条记录"
+        title={i18n.t('history.deleteOne')}
         onClick={(event) => {
           event.stopPropagation()
           remove(entry.id)
@@ -143,11 +144,11 @@ export function HistoryPage() {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <History size={18} className="text-neutral-500" />
-            <h1 className="text-lg font-semibold">历史记录</h1>
-            <span className="text-xs text-neutral-400">{items.length} 条</span>
+            <h1 className="text-lg font-semibold">{i18n.t('history.title')}</h1>
+            <span className="text-xs text-neutral-400">{i18n.t('history.count', { count: items.length })}</span>
           </div>
           <div className="flex items-center gap-2">
-            <Button type="button" variant="ghost" size="sm" onClick={load}>刷新</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={load}>{i18n.t('history.refresh')}</Button>
             <Button
               type="button"
               variant={confirmClear ? 'destructive' : 'outline'}
@@ -155,7 +156,7 @@ export function HistoryPage() {
               disabled={items.length === 0}
               onClick={clear}
             >
-              {confirmClear ? '确认清空这个环境' : '清空历史'}
+              {confirmClear ? i18n.t('history.confirmClear') : i18n.t('history.clear')}
             </Button>
           </div>
         </div>
@@ -165,7 +166,7 @@ export function HistoryPage() {
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索标题或网址"
+            placeholder={i18n.t('history.placeholder')}
             className="bg-white pl-8"
           />
         </div>
@@ -173,8 +174,8 @@ export function HistoryPage() {
         {loaded && filtered.length === 0 && (
           <div className="grid place-items-center gap-2 rounded-lg border border-dashed border-neutral-200 bg-white py-16 text-center">
             <Clock3 size={22} className="text-neutral-300" />
-            <p className="text-sm text-neutral-500">{items.length === 0 ? '还没有历史记录' : '没有匹配的记录'}</p>
-            <p className="text-xs text-neutral-400">打开网页后，记录会出现在这里。</p>
+            <p className="text-sm text-neutral-500">{items.length === 0 ? i18n.t('history.empty') : i18n.t('history.noMatch')}</p>
+            <p className="text-xs text-neutral-400">{i18n.t('history.emptyHint')}</p>
           </div>
         )}
 
@@ -188,7 +189,7 @@ export function HistoryPage() {
         ))}
 
         {items.length > 0 && (
-          <p className="pb-4 text-center text-xs text-neutral-400">历史记录只保存在本机，按环境隔离；最多保留 3000 条。</p>
+          <p className="pb-4 text-center text-xs text-neutral-400">{i18n.t('history.footer')}</p>
         )}
       </div>
     </div>

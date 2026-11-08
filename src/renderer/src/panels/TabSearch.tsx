@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Moon, Search } from 'lucide-react'
 import type { UiState } from '../../../shared/types'
 import { Input } from '@/components/ui/input'
+import i18n from '../i18n'
 
 export function TabSearch({ state, close }: { state: UiState; close: () => void }) {
   const [query, setQuery] = useState('')
@@ -23,7 +24,7 @@ export function TabSearch({ state, close }: { state: UiState; close: () => void 
   }
   return (
     <div className="absolute inset-0 grid place-items-start justify-center bg-black/20 pt-[10vh]" onMouseDown={(event) => event.stopPropagation()}>
-      <button type="button" aria-label="关闭" className="absolute inset-0 cursor-default" onClick={close} />
+      <button type="button" aria-label={i18n.t('shell.common.close')} className="absolute inset-0 cursor-default" onClick={close} />
       <div className="relative z-10 w-[min(42rem,calc(100%-2rem))] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xl">
         <div className="flex items-center gap-2 border-b border-neutral-200 px-3 py-2">
           <Search size={16} className="shrink-0 text-neutral-400" />
@@ -31,7 +32,7 @@ export function TabSearch({ state, close }: { state: UiState; close: () => void 
             ref={ref}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索标签页"
+            placeholder={i18n.t('panels.tabSearchPlaceholder')}
             className="border-0 bg-transparent shadow-none focus-visible:ring-0"
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown') {
@@ -47,7 +48,7 @@ export function TabSearch({ state, close }: { state: UiState; close: () => void 
           />
         </div>
         <div className="max-h-[50vh] overflow-y-auto p-1">
-          {tabs.length === 0 && <p className="p-4 text-sm text-neutral-500">没有匹配的标签页</p>}
+          {tabs.length === 0 && <p className="p-4 text-sm text-neutral-500">{i18n.t('panels.tabSearchEmpty')}</p>}
           {tabs.map((tab, index) => (
             <button
               key={tab.id}
@@ -63,19 +64,19 @@ export function TabSearch({ state, close }: { state: UiState; close: () => void 
                   <img src={tab.favicon} alt="" className="h-4 w-4 rounded-sm object-cover" />
                 ) : (
                   <span className="grid h-4 w-4 place-items-center rounded-sm bg-neutral-200 text-[9px] text-neutral-500">
-                    {(tab.title || '新').slice(0, 1)}
+                    {(tab.title || i18n.t('shell.tabs.untitledShort')).slice(0, 1)}
                   </span>
                 )}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm text-neutral-900">{tab.title || '新标签页'}</span>
+                <span className="block truncate text-sm text-neutral-900">{tab.title || i18n.t('shell.tabs.untitled')}</span>
                 <span className="block truncate text-xs text-neutral-400">{tab.url}</span>
               </span>
-              {tab.active && <span className="shrink-0 text-[10px] text-neutral-400">当前</span>}
+              {tab.active && <span className="shrink-0 text-[10px] text-neutral-400">{i18n.t('panels.current')}</span>}
             </button>
           ))}
         </div>
-        <div className="border-t border-neutral-100 px-3 py-1.5 text-[11px] text-neutral-400">↑↓ 选择 · Enter 打开 · Esc 关闭</div>
+        <div className="border-t border-neutral-100 px-3 py-1.5 text-[11px] text-neutral-400">{i18n.t('panels.tabSearchHint')}</div>
       </div>
     </div>
   )

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Clock3, Moon, PanelTop, Search, Star } from 'lucide-react'
 import type { AddressSuggestion, SuggestPayload } from '../../../shared/types'
+import i18n from '../i18n'
 
 function suggestionHighlight(text: string, indices: number[], className: string): ReactNode {
   if (!indices.length) return text
@@ -17,17 +18,17 @@ function suggestionHighlight(text: string, indices: number[], className: string)
 }
 
 function suggestionKindLabel(kind: AddressSuggestion['kind']): string {
-  if (kind === 'search') return '搜索'
-  if (kind === 'bookmark') return '书签'
-  if (kind === 'history') return '历史'
-  return '标签'
+  if (kind === 'search') return i18n.t('suggestions.kind.search')
+  if (kind === 'bookmark') return i18n.t('suggestions.kind.bookmark')
+  if (kind === 'history') return i18n.t('suggestions.kind.history')
+  return i18n.t('suggestions.kind.tab')
 }
 
 export function SuggestionsPanel({ data }: { data: SuggestPayload }) {
   return (
     <div className="absolute top-0 overflow-hidden border-b border-neutral-200 bg-white shadow-lg" style={{ left: data.left, width: data.width }}>
       <div className="max-h-[70vh] overflow-y-auto">
-        {data.items.length === 0 && <p className="px-4 py-8 text-center text-sm text-neutral-500">没有匹配的记录</p>}
+        {data.items.length === 0 && <p className="px-4 py-8 text-center text-sm text-neutral-500">{i18n.t('suggestions.noMatch')}</p>}
         {data.items.map((item, index) => (
           <button
             key={item.key}
@@ -59,22 +60,22 @@ export function SuggestionsPanel({ data }: { data: SuggestPayload }) {
         ))}
       </div>
       <div className="flex items-center gap-1 border-t border-neutral-100 px-4 py-1.5 text-[11px] text-neutral-500">
-        <span className="pr-1">筛选搜索：</span>
+        <span className="pr-1">{i18n.t('suggestions.filter')}</span>
         <button
           type="button"
           className={'flex items-center gap-1 rounded px-1.5 py-0.5 ' + (data.filters.history ? 'bg-neutral-200 text-neutral-800' : 'text-neutral-400 hover:bg-neutral-100')}
           onClick={() => window.browser.toggleSuggestFilter('history')}
-        ><Clock3 size={12} />历史记录</button>
+        ><Clock3 size={12} />{i18n.t('history.title')}</button>
         <button
           type="button"
           className={'flex items-center gap-1 rounded px-1.5 py-0.5 ' + (data.filters.bookmarks ? 'bg-neutral-200 text-neutral-800' : 'text-neutral-400 hover:bg-neutral-100')}
           onClick={() => window.browser.toggleSuggestFilter('bookmarks')}
-        ><Star size={12} />收藏夹</button>
+        ><Star size={12} />{i18n.t('address.bookmark.menu')}</button>
         <button
           type="button"
           className={'flex items-center gap-1 rounded px-1.5 py-0.5 ' + (data.filters.tabs ? 'bg-neutral-200 text-neutral-800' : 'text-neutral-400 hover:bg-neutral-100')}
           onClick={() => window.browser.toggleSuggestFilter('tabs')}
-        ><PanelTop size={12} />标签页</button>
+        ><PanelTop size={12} />{i18n.t('suggestions.tabs')}</button>
       </div>
     </div>
   )

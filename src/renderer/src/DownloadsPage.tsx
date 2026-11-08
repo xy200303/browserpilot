@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, Copy, Download, FolderOpen, Loader2, Pause, Play, RotateCcw, XCircle } from 'lucide-react'
 import type { DownloadItem, UiState } from '../../shared/types'
 import { Button } from '@/components/ui/button'
+import i18n from './i18n'
 
 function sizeText(bytes: number): string {
   if (bytes <= 0) return ''
@@ -13,12 +14,12 @@ function sizeText(bytes: number): string {
 function stateText(item: DownloadItem): string {
   if (item.state === 'progressing') {
     const pct = item.totalBytes > 0 ? ` · ${Math.min(100, Math.round((item.receivedBytes / item.totalBytes) * 100))}%` : ''
-    return `下载中 ${sizeText(item.receivedBytes)}${item.totalBytes > 0 ? ` / ${sizeText(item.totalBytes)}` : ''}${pct}`
+    return i18n.t('downloads.progress', { done: sizeText(item.receivedBytes), total: item.totalBytes > 0 ? ` / ${sizeText(item.totalBytes)}` : '', pct })
   }
-  if (item.state === 'paused') return `已暂停 ${sizeText(item.receivedBytes)}`
-  if (item.state === 'completed') return `${sizeText(item.receivedBytes)} · 已完成`
-  if (item.state === 'cancelled') return '已取消'
-  return item.error ? `失败：${item.error}` : '失败'
+  if (item.state === 'paused') return i18n.t('downloads.paused', { done: sizeText(item.receivedBytes) })
+  if (item.state === 'completed') return i18n.t('downloads.completed', { done: sizeText(item.receivedBytes) })
+  if (item.state === 'cancelled') return i18n.t('downloads.cancelled')
+  return item.error ? i18n.t('downloads.failed', { error: item.error }) : i18n.t('downloads.failedPlain')
 }
 
 function Row({ item }: { item: DownloadItem }) {
@@ -34,25 +35,25 @@ function Row({ item }: { item: DownloadItem }) {
         <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
         <span className="flex shrink-0 gap-1">
           {item.state === 'progressing' && item.path === '' && (
-            <Button variant="ghost" size="icon-sm" title="暂停" onClick={() => void window.browser.pauseDownload(item.id)}><Pause /></Button>
+            <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.pause')} onClick={() => void window.browser.pauseDownload(item.id)}><Pause /></Button>
           )}
           {item.state === 'paused' && (
-            <Button variant="ghost" size="icon-sm" title="继续" onClick={() => void window.browser.resumeDownload(item.id)}><Play /></Button>
+            <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.resume')} onClick={() => void window.browser.resumeDownload(item.id)}><Play /></Button>
           )}
           {active && (
-            <Button variant="ghost" size="icon-sm" title="取消" onClick={() => void window.browser.cancelDownload(item.id)}><XCircle /></Button>
+            <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.cancel')} onClick={() => void window.browser.cancelDownload(item.id)}><XCircle /></Button>
           )}
           {(item.state === 'failed' || item.state === 'cancelled') && (
-            <Button variant="ghost" size="icon-sm" title="重试" onClick={() => void window.browser.retryDownload(item.id)}><RotateCcw /></Button>
+            <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.retry')} onClick={() => void window.browser.retryDownload(item.id)}><RotateCcw /></Button>
           )}
           {item.state === 'completed' && (
             <>
-              <Button variant="ghost" size="icon-sm" title="打开" onClick={() => void window.browser.openDownload(item.id)}><Download /></Button>
-              <Button variant="ghost" size="icon-sm" title="打开所在文件夹" onClick={() => void window.browser.showDownload(item.id)}><FolderOpen /></Button>
+              <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.open')} onClick={() => void window.browser.openDownload(item.id)}><Download /></Button>
+              <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.show')} onClick={() => void window.browser.showDownload(item.id)}><FolderOpen /></Button>
             </>
           )}
           {item.url && (
-            <Button variant="ghost" size="icon-sm" title="复制下载链接" onClick={() => void window.browser.copyDownloadLink(item.id)}><Copy /></Button>
+            <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.copyLink')} onClick={() => void window.browser.copyDownloadLink(item.id)}><Copy /></Button>
           )}
         </span>
       </div>
@@ -86,14 +87,14 @@ export function DownloadsPage({ state: external }: { state?: UiState }) {
     <div className="h-full overflow-auto bg-neutral-50 p-6">
       <div className="mx-auto grid max-w-2xl gap-3">
         <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold">下载</h1>
+          <h1 className="text-lg font-semibold">{i18n.t('downloads.title')}</h1>
           {downloads.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => void window.browser.clearDownloads()}>清除已完成</Button>
+            <Button variant="outline" size="sm" onClick={() => void window.browser.clearDownloads()}>{i18n.t('downloads.clear')}</Button>
           )}
         </div>
         {downloads.length === 0 && (
           <div className="rounded-lg border border-dashed border-neutral-300 bg-white py-16 text-center text-sm text-neutral-400">
-            还没有下载。网页里下载的文件、右键另存的媒体、Agent 保存的文件都会出现在这里。
+            {i18n.t('downloads.empty')}
           </div>
         )}
         {downloads.map((item) => <Row key={item.id} item={item} />)}
