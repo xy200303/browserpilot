@@ -48,6 +48,7 @@ const kindText: Record<string, string> = {
   press: '按键',
   scroll: '滚动',
   swipe: '滑动',
+  stroke: '落笔',
   upload: '上传',
   handoff: '交接',
   script: '页面脚本',
@@ -63,7 +64,7 @@ const kindText: Record<string, string> = {
   download: '下载'
 }
 
-const addable = ['goto', 'click', 'fill', 'select', 'press', 'scroll', 'swipe', 'upload', 'handoff', 'captcha', 'wait', 'download', 'script', 'code', 'http-request', 'extract', 'export', 'if-else', 'loop', 'end', 'cdp'] as const
+const addable = ['goto', 'click', 'fill', 'select', 'press', 'scroll', 'swipe', 'stroke', 'upload', 'handoff', 'captcha', 'wait', 'download', 'script', 'code', 'http-request', 'extract', 'export', 'if-else', 'loop', 'end', 'cdp'] as const
 
 const operators = [
   { id: 'contains', label: '包含' },
@@ -235,6 +236,7 @@ function defaultData(type: string): WorkflowNode['data'] {
   if (type === 'press') return { type, title, shortcut: 'Enter' }
   if (type === 'scroll') return { type, title, direction: 'down' }
   if (type === 'swipe') return { type, title, direction: 'down' }
+  if (type === 'stroke') return { type, title, locator: {}, path: 'M 100 100 C 160 60 220 60 280 100', viewBox: [640, 480] }
   if (type === 'handoff') return { type, title, message: '' }
   if (type === 'captcha') return { type, title, engine: 'auto', retries: '2' }
   if (type === 'wait') return { type, title, state: 'appear', timeout: '10', locator: {} }
@@ -669,6 +671,25 @@ function DirectionField({ node, patch }: { node: WorkflowNode; patch: (data: Wor
   )
 }
 
+function StrokeFields({ node, patch }: { node: WorkflowNode; patch: (data: WorkflowNode['data']) => void }) {
+  if (node.data.type !== 'stroke') return null
+  const viewBox = Array.isArray(node.data.viewBox) ? node.data.viewBox as unknown[] : [640, 480]
+  const setBox = (index: number, value: string): void => {
+    const next = [Number(viewBox[0] ?? 0), Number(viewBox[1] ?? 0)]
+    next[index] = Math.max(1, Number(value) || 1)
+    patch({ ...node.data, viewBox: next })
+  }
+  return (
+    <>
+      <TextField label="路径（SVG d）" multiline value={String(node.data.path || '')} onCommit={(path) => patch({ ...node.data, path })} />
+      <div className="grid grid-cols-2 gap-2">
+        <TextField label="画布宽" value={String(viewBox[0] ?? '')} onCommit={(value) => setBox(0, value)} />
+        <TextField label="画布高" value={String(viewBox[1] ?? '')} onCommit={(value) => setBox(1, value)} />
+      </div>
+    </>
+  )
+}
+
 function LocatorFields({ node, locator, patch }: { node: WorkflowNode; locator: Record<string, unknown> | null; patch: (data: WorkflowNode['data']) => void }) {
   if (!locator) return null
   return (
@@ -929,6 +950,7 @@ function NodePageFields({ node, patch }: { node: WorkflowNode; patch: NodePatch 
       {showFor(node, ['select'], <TextField label="选项" value={String(node.data.option || '')} onCommit={(option) => patch({ ...node.data, option })} />)}
       {showFor(node, ['press'], <TextField label="按键" value={String(node.data.shortcut || '')} onCommit={(shortcut) => patch({ ...node.data, shortcut })} />)}
       <DirectionField node={node} patch={patch} />
+      <StrokeFields node={node} patch={patch} />
       {showFor(node, ['captcha'], (
         <>
           <Label className="grid gap-1 text-xs text-muted-foreground">

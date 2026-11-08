@@ -12,6 +12,9 @@ import {
   navigate,
   pasteLocator,
   pressShortcut,
+  queryLocator,
+  svgPathToPoints,
+  drawPaths,
   locatorSeen,
   resolveLocator,
   screenshot,
@@ -338,6 +341,25 @@ function upsertEdge(graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, edg
   if (!placed) throw new Error(`连线两端不在同一层 ${edge.source} → ${edge.target}`)
 }
 
+async function strokeBox(tab: TabRuntime, data: Data, pool: Pool): Promise<{ x: number; y: number; width: number; height: number }> {
+  const rect = data.rect
+  if (Array.isArray(rect) && rect.length === 4) {
+    const [x, y, width, height] = rect.map((item) => Number(render(String(item), pool)))
+    if (![x, y, width, height].every((value) => Number.isFinite(value)) || width <= 0 || height <= 0) {
+      throw new Error('rect 要给 x、y、width、height 四个数字，宽高要大于 0')
+    }
+    return { x, y, width, height }
+  }
+  const raw = data.locator ?? data.target
+  const locator = locatorFrom(raw, pool)
+  if (!locator) throw new Error('落笔节点要写 locator（画布元素）或 rect（视口里的区域）')
+  const found = await queryLocator(tab, locator)
+  if (found.total !== 1) throw new Error(`落笔目标匹配到 ${found.total} 个，要恰好一个`)
+  const box = found.matches[0]?.rect
+  if (!box) throw new Error('落笔目标没有可见区域，先滚进视口')
+  return { x: box.x, y: box.y, width: box.w, height: box.h }
+}
+
 function assertGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]): void {
   if (!nodes.length) throw new Error('工作流至少要有一个节点')
   const starts = nodes.filter((node) => node.data.type === 'start')
@@ -576,6 +598,16 @@ async function execNode(
     await waitForLocator(tab, locator)
     await clickLocator(tab, locator, viaOf(data.via), locatorFrom(data.until, pool))
     await settleNavigation(tab)
+    return
+  }
+  if (data.type === 'stroke') {
+    const path = textOf(data, 'path', pool)
+    if (!path.trim()) throw new Error('落笔节点要写 path（SVG 路径，支持 M/L/H/V/C/S/Q/T/A/Z）')
+    const box = await strokeBox(tab, data, pool)
+    const viewBox = Array.isArray(data.viewBox) && data.viewBox.length === 2
+      ? ([Number(data.viewBox[0]), Number(data.viewBox[1])] as [number, number])
+      : undefined
+    await drawPaths(tab, gestureOf(data.via), svgPathToPoints(path, box, viewBox))
     return
   }
   if (data.type === 'fill') {
