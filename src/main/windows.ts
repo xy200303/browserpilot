@@ -479,7 +479,9 @@ function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings' | 'down
 
 function buildPageMenuItems(runtime: WindowRuntime, tab: TabRuntime, info: ElementInfo | null, x: number, y: number): Electron.MenuItemConstructorOptions[] {
   const items: Electron.MenuItemConstructorOptions[] = []
-  const wc = tab.view!.webContents
+  // 右键菜单是在视图可能已被回收之后才组装的，取不到活着的 webContents 就直接放弃
+  const wc = tab.view?.webContents
+  if (!wc || wc.isDestroyed()) return items
   if (info?.href) {
     items.push({ label: mt('main.menu.openInNewTab'), click: () => addTab(runtime, info.href!) })
     items.push({ label: mt('main.menu.copyLink'), click: () => clipboard.writeText(info.href!) })
@@ -541,6 +543,7 @@ export function emitContextMenu(runtime: WindowRuntime, tab: TabRuntime, x: numb
 async function showPageMenu(runtime: WindowRuntime, tab: TabRuntime, x: number, y: number): Promise<void> {
   const info = await inspectElement(tab, { point: { x, y } }).catch(() => null)
   const items = buildPageMenuItems(runtime, tab, info, Math.round(x), Math.round(y))
+  if (!items.length) return
   Menu.buildFromTemplate(items).popup({ window: runtime.win })
 }
 

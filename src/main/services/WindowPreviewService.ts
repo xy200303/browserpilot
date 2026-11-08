@@ -101,7 +101,8 @@ async function collectLayers(runtime: WindowRuntime): Promise<Layer[]> {
   const layers: Layer[] = []
   const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
 
-  if (active?.kind === 'page' && active.view && !active.error) {
+  // 视图可能还在、webContents 已经回收（休眠、渲染进程崩溃），这时截图会直接抛
+  if (active?.kind === 'page' && active.view && !active.view.webContents.isDestroyed() && !active.error) {
     layers.push({
       name: 'page',
       image: await captureWebContents(active.view.webContents, false),
