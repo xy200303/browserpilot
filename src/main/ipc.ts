@@ -351,8 +351,8 @@ export function wireIpc(): void {
   ipcMain.handle('menu:screen', async (event) => {
     const runtime = windowFromSender(event.sender)
     if (!runtime) return
-    if (runtime.screenRecording) return callTool('screen_stop', { env: runtime.envId })
-    return callTool('screen_start', { env: runtime.envId })
+    if (runtime.screenRecording) return callTool('screen', { env: runtime.envId, action: 'stop' })
+    return callTool('screen', { env: runtime.envId, action: 'start' })
   })
 
   ipcMain.handle('menu:settings', (event) => {

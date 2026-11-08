@@ -144,7 +144,7 @@ v0.13.12 起，`webContents.isDestroyed()` 时会自动重建视图并恢复页�
 %USERPROFILE%\Downloads
 ```
 
-Windows 的「下载」目录（macOS / Linux 是 `~/Downloads`）。网页触发的下载、`page_save_media`、`page_record_video`、窗口录屏都默认落在这里；可以在设置里改，或用 `download_dir` 改到别的目录。下载管理器支持暂停、继续、取消、重试、复制链接。
+Windows 的「下载」目录（macOS / Linux 是 `~/Downloads`）。网页触发的下载、`page_save_media`、`page_record_video`、窗口录屏都默认落在这里；可以在设置里改，或用 `download` 的 `action: dir` 改到别的目录。下载管理器支持暂停、继续、取消、重试、复制链接。
 
 ### 视频保存失败
 

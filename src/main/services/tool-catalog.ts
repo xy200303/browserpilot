@@ -302,11 +302,8 @@ const TOOL_KEYWORDS: Record<string, string> = {
   page_upload: '上传文件 文件选择',
   page_script: '执行脚本 js eval',
   page_source: '源码 html 源码文本',
-  page_hit: '命中元素 坐标反查',
   page_watch: '盯元素 等变化 监听元素',
-  download_list: '下载记录 下载列表 文件在哪 落盘路径',
-  download_dir: '下载目录 保存位置 改下载路径',
-  download_action: '暂停下载 继续下载 取消下载 重试下载 打开文件',
+  download: '下载记录 下载列表 文件在哪 落盘路径 下载目录 保存位置 暂停下载 继续下载 取消下载 重试下载 打开文件',
   bookmark_add: '加书签 收藏 保存网址',
   bookmark_list: '书签 收藏夹',
   bookmark_remove: '删书签',
@@ -333,7 +330,7 @@ const TOOL_KEYWORDS: Record<string, string> = {
   net_mock: '拦截请求 假数据 mock',
   workflow_run: '工作流 执行工作流',
   workflow_write: '写工作流 编辑流程',
-  screen_start: '录屏 录制窗口',
+  screen: '录屏 录制窗口 停止录屏 录屏状态',
   window_preview: '整窗预览 整窗截图',
   search_tools: '找工具 搜工具 工具列表'
 }
@@ -1127,7 +1124,7 @@ tool('page_inspect', '识别一个元素是什么类型：video、image、canvas
   return { tabId: tabRef.id, ...info }
 })
 
-tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站(__playinfo__)、抖音(media-video/media-audio)、YouTube(ytInitialPlayerResponse)这类流媒体自动抓 DASH 音视频轨合并 mp4；m3u8/mpd 清单（央视、AcFun、优酷等）用 ffmpeg 拉流转 mp4；搜狐这类分段 mp4 按已加载的分段顺序合并（长视频只下到自己播到的部分，要完整就配合 page_record_video）；播放器在 Web Worker 里拉流（腾讯等）时用 CDP 网络嗅探兜底，必要时自动重载页面从头抓清单。目标用 xpath、selector，或坐标 x、y。savePath 传文件路径就存成那个文件，传已存在的目录就存进目录（文件名自动取），不给就存进下载目录（默认系统下载目录，可用 download_dir 改）。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
+tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站(__playinfo__)、抖音(media-video/media-audio)、YouTube(ytInitialPlayerResponse)这类流媒体自动抓 DASH 音视频轨合并 mp4；m3u8/mpd 清单（央视、AcFun、优酷等）用 ffmpeg 拉流转 mp4；搜狐这类分段 mp4 按已加载的分段顺序合并（长视频只下到自己播到的部分，要完整就配合 page_record_video）；播放器在 Web Worker 里拉流（腾讯等）时用 CDP 网络嗅探兜底，必要时自动重载页面从头抓清单。目标用 xpath、selector，或坐标 x、y。savePath 传文件路径就存成那个文件，传已存在的目录就存进目录（文件名自动取），不给就存进下载目录（默认系统下载目录，可用 download 的 action=dir 改）。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -1149,10 +1146,15 @@ tool('page_save_media', '把元素上的图片、视频、音频或画布保存�
   return { tabId: tabRef.id, ...saved }
 })
 
-tool('download_list', '列出本次运行期间的本机下载记录（重启后清空，文件本身还在），每条给 name、path（存到哪）、state、bytes、url、env：网页里点下载按钮触发的下载、page_save_media 和 page_record_video 存的文件、右键另存的媒体都在里面。带 wait（秒，最长 120）就先等正在进行的下载结束再返回，用来确认「点了下载按钮之后到底存到哪」。失败的条目带 error。', z.object({
+tool('download', '本机下载记录和下载目录，action 四选一。list：列出本次运行期间的下载（重启后清空，文件还在），每条给 name、path、state、bytes、url、env，网页按钮触发的、page_save_media 存的、右键另存的都在里面；带 wait（秒，最长 120）会先等进行中的下载结束，用来确认「点了下载之后存到哪」。dir：不带 path 返回当前下载目录，带 path 改成那个目录（绝对路径，不存在自动建），传空或 "default" 恢复系统默认。open / show / copy / pause / resume / cancel / retry / remove / clear：对某条记录操作，id 从 list 取；只支持 http/https 的失败任务能 retry；clear 清掉所有已结束记录，不删文件。', z.object({
+  action: z.enum(['list', 'dir', 'open', 'show', 'copy', 'pause', 'resume', 'cancel', 'retry', 'remove', 'clear']),
   env: env,
-  wait: z.number().optional()
+  wait: z.number().optional(),
+  path: z.string().optional(),
+  id: z.string().optional()
 }), async (args) => {
+  if (String(args.action) === 'list') {
+
   const envId = typeof args.env === 'string' && args.env ? args.env : undefined
   const pick = () => listDownloads().filter((item) => !envId || item.envId === envId)
   const waitMs = Math.max(0, Math.min(120, Number(args.wait ?? 0))) * 1000
@@ -1179,12 +1181,10 @@ tool('download_list', '列出本次运行期间的本机下载记录（重启后
     pending: items.filter((item) => item.state === 'progressing' || item.state === 'paused').length,
     dir: downloadTargetDir()
   }
-})
+  }
+  if (String(args.action) === 'dir') {
 
-tool('download_dir', '查看或修改浏览器下载目录。不带 dir 返回当前目录；带 dir（本机绝对路径）就改掉，之后网页里点下载按钮触发的下载都存到那里，目录不存在会自动建。传 dir 为空或 "default" 恢复系统默认下载目录（Windows 的「下载」、macOS / Linux 的 Downloads）。page_save_media、page_record_video 的 savePath 仍然逐个文件覆盖这里。', z.object({
-  dir: z.string().optional()
-}), async (args) => {
-  const input = typeof args.dir === 'string' ? args.dir.trim() : ''
+  const input = typeof args.path === 'string' ? args.path.trim() : ''
   if (input && input !== 'default') {
     if (!isAbsolute(input)) throw new Error(`需要绝对路径，比如 D:\\下载：${input}`)
     try {
@@ -1201,19 +1201,15 @@ tool('download_dir', '查看或修改浏览器下载目录。不带 dir 返回�
     bridge.broadcast()
   }
   return { dir: downloadTargetDir(), custom: Boolean(storage.settings.downloadDir) }
-})
+  }
 
-tool('download_action', '管理下载记录：open 打开文件、show 在文件夹里显示、copy 复制下载链接、pause / resume 暂停继续、cancel 取消、retry 重新下载失败的任务（只支持 http/https）、remove 从列表移除（不删文件）、clear 清掉所有已结束的记录。除 clear 外都要 id，从 download_list 取。', z.object({
-  id: z.string().optional(),
-  action: z.enum(['open', 'show', 'copy', 'pause', 'resume', 'cancel', 'retry', 'remove', 'clear'])
-}), async (args) => {
   const action = String(args.action)
   if (action === 'clear') {
     downloadsClear()
     return { action, remaining: listDownloads().length }
   }
   const id = typeof args.id === 'string' ? args.id : ''
-  if (!id) throw new Error('需要下载编号 id，从 download_list 取')
+  if (!id) throw new Error('需要下载编号 id，从 download 的 action=list 取')
   const item = listDownloads().find((entry) => entry.id === id)
   if (!item) throw new Error(`没有这条下载记录：${id}`)
   if (action === 'open') downloadOpen(id)
@@ -1543,8 +1539,25 @@ tool('page_wait_load', '等页面加载完成（did-stop-loading）。timeout �
   return { tabId: tabRef.id, url: wc.getURL(), elapsed: Date.now() - started }
 })
 
-tool('screen_start', '开始把这扇有头窗口录成视频。录屏需要画面，会把窗口带到前台并聚焦（这是少数会前置窗口的工具）。maxSeconds 到时自动停，默认 300，最长 3600；一扇窗口同时只录一段。', z.object({ env: env, maxSeconds: z.number().optional() }), async (args) => {
+tool('screen', '窗口录屏，action 三选一。start：把这扇有头窗口录成视频，需要画面，会把窗口带到前台并聚焦（少数会前置窗口的工具），maxSeconds 到时自动停，默认 300、最长 3600，一扇窗口同时只录一段。stop：停止并写成 mp4 存到下载目录，返回路径、时长和字节数。status：返回是否在录、开始时间和已录秒数。', z.object({
+  env: env,
+  action: z.enum(['start', 'stop', 'status']),
+  maxSeconds: z.number().optional()
+}), async (args) => {
+  const action = String(args.action)
   const envId = String(args.env || DEFAULT_ENV)
+  if (action === 'stop') return stopScreen(envId)
+  if (action === 'status') {
+    const runtime = windows.get(envId)
+    const started = runtime?.screenStartedAt
+    return {
+      env: envId,
+      recording: Boolean(runtime?.screenRecording),
+      startedAt: started ?? null,
+      seconds: started ? Math.max(0, Math.round((Date.now() - started) / 1000)) : 0
+    }
+  }
+
   const runtime = openEnvironment(envId, false)
   if (runtime.headless) throw new Error('无头窗口没有画面，先有头打开再录')
   if (runtime.screenRecording) throw new Error('这扇窗口已经在录')
@@ -1658,22 +1671,6 @@ async function stopScreen(envId: string): Promise<{ env: string; path: string; s
     bytes: statSync(path).size
   }
 }
-
-tool('screen_stop', '停止录屏并写成 mp4 存到下载目录（默认系统下载目录），返回路径、时长和字节数。', z.object({ env: env }), async (args) => {
-  return stopScreen(String(args.env || DEFAULT_ENV))
-})
-
-tool('screen_status', '查看这扇窗口是否正在录屏，返回开始时间、已录秒数和是否在录。', z.object({ env: env }), async (args) => {
-  const envId = String(args.env || DEFAULT_ENV)
-  const runtime = windows.get(envId)
-  const started = runtime?.screenStartedAt
-  return {
-    env: envId,
-    recording: Boolean(runtime?.screenRecording),
-    startedAt: started ?? null,
-    seconds: started ? Math.max(0, Math.round((Date.now() - started) / 1000)) : 0
-  }
-})
 
 tool('page_source', '读取网页源码。dom 是当前文档，response 是这次导航的原始 HTML。', z.object({
   ...pageArgs, kind: z.enum(['dom', 'response']).optional()
@@ -2309,11 +2306,11 @@ export function listToolMeta(): { name: string; description: string; inputSchema
 
 const longToolTimeouts: Array<[string, number]> = [
   ['page_record_video', 3700000],
-  ['screen_stop', 3700000],
+  ['screen', 3700000],
   ['page_save_media', 900000],
   ['page_watch', 150000],
   ['page_wait', 90000],
-  ['download_list', 180000],
+  ['download', 180000],
   ['captcha_solve', 240000],
   ['workflow_run', 1800000],
   ['workflow_batch', 1800000]
