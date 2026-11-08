@@ -3330,7 +3330,7 @@ export async function dismissOverlays(tab: TabRuntime): Promise<{ hidden: number
       hidden += 1
     }
     for (const el of document.querySelectorAll('#aswift_0, #aswift_1, #aswift_2, #aswift_3, ins.adsbygoogle, [id^="aswift_"], [id^="google_ads"]')) hide(el)
-    for (const el of document.querySelectorAll('.layui-layer-close, .modal .close, [aria-label="Close"], [aria-label="关闭"]')) {
+    for (const el of document.querySelectorAll('.layui-layer-close, .modal .close, [aria-label="Close"], [aria-label="关闭"]')) { /* i18n-ignore 站点的关闭按钮文案 */
       try {
         el.click()
         clicked += 1

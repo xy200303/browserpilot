@@ -107,6 +107,7 @@ import {
 import { captchaPanelShot, captchaRead, detectCaptcha, solveCaptcha } from '../captcha'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate, workflowWrite } from './RecordService'
 import { netExport, netGet, netList, netMock, netMockOff, netStart, netStop } from './NetService'
+import { mt } from '../i18n'
 import { writeFileSync, readFileSync, statSync } from 'fs'
 
 const tab = z.string().optional()
@@ -185,8 +186,8 @@ function recordedNode(call: RecordedCall, index: number): { node?: WorkflowNode;
 
   if (call.tool === 'page_navigate') {
     const url = typeof args.url === 'string' ? args.url : ''
-    if (!url) return { skip: '打开网页缺 url' }
-    return { node: { id, data: { type: 'goto', title: '打开', url } } }
+    if (!url) return { skip: mt('main.tc.skipUrl') }
+    return { node: { id, data: { type: 'goto', title: mt('workflow.node.goto'), url } } }
   }
   if (call.tool === 'page_click') {
     if (!locator) {
@@ -194,7 +195,7 @@ function recordedNode(call: RecordedCall, index: number): { node?: WorkflowNode;
       const role = typeof args.role === 'string' ? args.role : ''
       const name = typeof args.name === 'string' ? args.name : ''
       if (text || role) {
-        return base('点击', {
+        return base(mt('workflow.node.click'), {
           locator: {
             ...(text ? { text } : {}),
             ...(role ? { role } : {}),
@@ -204,36 +205,36 @@ function recordedNode(call: RecordedCall, index: number): { node?: WorkflowNode;
           }
         })
       }
-      if (args.x === undefined || args.y === undefined) return { skip: '点击没给定位也没给坐标' }
-      return { node: { id, data: { type: 'click', title: '点击', x: Number(args.x), y: Number(args.y) } } }
+      if (args.x === undefined || args.y === undefined) return { skip: mt('main.tc.skipClick') }
+      return { node: { id, data: { type: 'click', title: mt('workflow.node.click'), x: Number(args.x), y: Number(args.y) } } }
     }
-    return base('点击', { locator })
+    return base(mt('workflow.node.click'), { locator })
   }
   if (call.tool === 'page_type') {
-    if (!locator) return { skip: '输入用了 label/ref/坐标定位，工作流节点只认 xpath / selector' }
-    return base('填写', { locator, text: String(args.text ?? ''), entry: args.entry === 'paste' ? 'paste' : 'type' })
+    if (!locator) return { skip: mt('main.tc.skipType') }
+    return base(mt('workflow.node.fill'), { locator, text: String(args.text ?? ''), entry: args.entry === 'paste' ? 'paste' : 'type' })
   }
-  if (call.tool === 'page_key') return base('按键', { shortcut: String(args.shortcut ?? '') })
-  if (call.tool === 'page_scroll') return base('滚动', { direction: args.direction === 'up' ? 'up' : 'down' })
+  if (call.tool === 'page_key') return base(mt('workflow.node.press'), { shortcut: String(args.shortcut ?? '') })
+  if (call.tool === 'page_scroll') return base(mt('workflow.node.scroll'), { direction: args.direction === 'up' ? 'up' : 'down' })
   if (call.tool === 'page_select') {
-    if (!locator) return { skip: '选择下拉用了坐标定位' }
-    return base('选择', { locator, option: String(args.option ?? '') })
+    if (!locator) return { skip: mt('main.tc.skipSelect') }
+    return base(mt('workflow.node.select'), { locator, option: String(args.option ?? '') })
   }
   if (call.tool === 'page_upload') {
-    if (!locator) return { skip: '上传没有 selector' }
-    return base('上传', { locator, paths: Array.isArray(args.paths) ? args.paths : [] })
+    if (!locator) return { skip: mt('main.tc.skipUpload') }
+    return base(mt('workflow.node.upload'), { locator, paths: Array.isArray(args.paths) ? args.paths : [] })
   }
   if (call.tool === 'page_draw') {
-    if (!selector) return { skip: '落笔没给 selector（工作流节点需要画布元素）' }
-    if (typeof args.path !== 'string' || !args.path) return { skip: '只有 SVG 路径能录成落笔节点' }
-    return base('落笔', { locator: { selector }, path: args.path, viewBox: Array.isArray(args.viewBox) ? args.viewBox : undefined })
+    if (!selector) return { skip: mt('main.tc.skipStrokeSelector') }
+    if (typeof args.path !== 'string' || !args.path) return { skip: mt('main.tc.skipStrokePath') }
+    return base(mt('workflow.node.stroke'), { locator: { selector }, path: args.path, viewBox: Array.isArray(args.viewBox) ? args.viewBox : undefined })
   }
   if (call.tool === 'page_wait') {
-    if (typeof args.stable === 'number') return base('等待页面稳定', { stable: args.stable })
-    if (!locator) return { skip: '等待没有定位' }
-    return base('等待', { locator, state: args.state === 'gone' ? 'gone' : 'appear', timeout: args.timeout ?? 10 })
+    if (typeof args.stable === 'number') return base(mt('workflow.field.settle'), { stable: args.stable })
+    if (!locator) return { skip: mt('main.tc.skipWait') }
+    return base(mt('workflow.node.wait'), { locator, state: args.state === 'gone' ? 'gone' : 'appear', timeout: args.timeout ?? 10 })
   }
-  return { skip: `${call.tool} 不在可录范围` }
+  return { skip: mt('main.tc.skipTool', { tool: call.tool }) }
 }
 
 const tools: Tool[] = []
@@ -268,29 +269,29 @@ function pointArgs(args: { x?: unknown; y?: unknown; shotId?: unknown; shotWidth
   if (!hasX && !hasY) return undefined
   const x = numArg(args.x)
   const y = numArg(args.y)
-  if (x === undefined || y === undefined) throw new Error('画布坐标要同时写 x 和 y')
+  if (x === undefined || y === undefined) throw new Error(mt('main.tc.needXY'))
   const shotId = typeof args.shotId === 'string' && args.shotId ? args.shotId : ''
   if (shotId) {
     const stored = shotRefs.get(shotId)
-    if (!stored) throw new Error(`截图编号已失效：${shotId}，重新截一张再点`)
+    if (!stored) throw new Error(mt('main.tc.shotStale', { id: shotId }))
     return { x, y, shot: stored.shot }
   }
   const hasW = args.shotWidth != null && args.shotWidth !== ''
   const hasH = args.shotHeight != null && args.shotHeight !== ''
-  if (hasW !== hasH) throw new Error('截图宽高要一起写')
+  if (hasW !== hasH) throw new Error(mt('main.tc.shotWH'))
   if (!hasW) return { x, y }
   const width = numArg(args.shotWidth)
   const height = numArg(args.shotHeight)
-  if (width === undefined || height === undefined) throw new Error('截图宽高要是数字')
+  if (width === undefined || height === undefined) throw new Error(mt('main.tc.shotWHNum'))
   const hasOX = args.shotX != null && args.shotX !== ''
   const hasOY = args.shotY != null && args.shotY !== ''
   const hasScale = args.shotScale != null && args.shotScale !== ''
   if (hasOX || hasOY || hasScale) {
-    if (!(hasOX && hasOY && hasScale)) throw new Error('shotX、shotY、shotScale 要一起写')
+    if (!(hasOX && hasOY && hasScale)) throw new Error(mt('main.tc.shotOXY'))
     const originX = numArg(args.shotX)
     const originY = numArg(args.shotY)
     const scale = numArg(args.shotScale)
-    if (originX === undefined || originY === undefined || scale === undefined) throw new Error('shotX、shotY、shotScale 要是数字')
+    if (originX === undefined || originY === undefined || scale === undefined) throw new Error(mt('main.tc.shotOXYNum'))
     return { x, y, shot: { width, height, originX, originY, scale } }
   }
   return { x, y, shot: { width, height } }
@@ -315,7 +316,7 @@ const locateFields = {
   pierce: z.boolean().optional()
 }
 
-const NEED_LOCATOR = '需要 xpath 或 selector'
+const NEED_LOCATOR = mt('main.tc.needLocator')
 
 const DEFAULT_TOOL_TIMEOUT = 90_000
 const toolTimeouts = new Map<string, number>()
@@ -357,12 +358,13 @@ const TOOL_GROUPS: Array<[string, string]> = [
   ['download', 'Downloads'],
   ['download_', 'Downloads'],
   ['clipboard_', 'Clipboard'],
-  ['settings_', '设置'],
-  ['permission_', '权限'],
-  ['password_', '密码'],
-  ['search_', '工具检索']
+  ['settings_', 'Settings'],
+  ['permission_', 'Permissions'],
+  ['password_', 'Passwords'],
+  ['search_', 'Tool search']
 ]
 
+// i18n-ignore-start 中文检索关键词，故意保留，供中文用户搜工具
 const TOOL_KEYWORDS: Record<string, string> = {
   env_close: '关窗 关闭窗口 关掉窗口 保留登录',
   env_headless: '无头 有头 后台 隐藏窗口 显示窗口',
@@ -423,6 +425,7 @@ const TOOL_KEYWORDS: Record<string, string> = {
   window_preview: '整窗预览 整窗截图',
   search_tools: '找工具 搜工具 工具列表'
 }
+// i18n-ignore-end
 
 function groupOf(name: string): string {
   return TOOL_GROUPS.find(([prefix]) => name.startsWith(prefix))?.[1] ?? 'Other'
@@ -459,7 +462,7 @@ tool('search_tools', 'Search tools by keyword across names, descriptions and gro
   if (typeof args.name === 'string' && args.name) {
     const wanted = args.name.trim().toLowerCase()
     const exact = tools.find((item) => item.name.toLowerCase() === wanted)
-    if (!exact) throw new Error(`没有这个工具：${args.name}。用 search_tools 传 query 先搜`)
+    if (!exact) throw new Error(mt('main.tc.noTool', { name: args.name }))
     return {
       tool: { name: exact.name, group: groupOf(exact.name), description: exact.description, inputSchema: schemaOf(exact.name) }
     }
@@ -527,7 +530,7 @@ tool('env_open', 'Open the window of an existing environment. Headed when a huma
   headless: z.boolean().optional()
 }), async (args) => {
   const id = String(args.env)
-  if (!storage.envs.some((item) => item.id === id)) throw new Error(`没有这套环境 ${id}`)
+  if (!storage.envs.some((item) => item.id === id)) throw new Error(mt('main.tc.noEnv', { id }))
   const runtime = openEnvironment(id, Boolean(args.headless))
   return { env: id, headless: runtime.headless }
 })
@@ -538,11 +541,11 @@ tool('env_front', 'Raise and focus an environment window, optionally activating 
 }), async (args) => {
   const envId = String(args.env || DEFAULT_ENV)
   const runtime = openEnvironment(envId, false)
-  if (runtime.headless) throw new Error('无头窗口没有画面，先有头打开再前置')
+  if (runtime.headless) throw new Error(mt('main.tc.headlessNoFront'))
   let tabId = runtime.activeTabId
   if (args.tabId) {
     const tab = runtime.tabs.find((item) => item.id === String(args.tabId))
-    if (!tab) throw new Error(`没有这个标签 ${args.tabId}`)
+    if (!tab) throw new Error(mt('main.err.noTab', { id: args.tabId }))
     activateTab(runtime, tab.id, false)
     tabId = tab.id
   }
@@ -567,7 +570,7 @@ tool('env_update', 'Rename an environment or change its note. The id stays the s
   remark: z.string().optional()
 }), async (args) => {
   const item = storage.envs.find((envItem) => envItem.id === args.env)
-  if (!item) throw new Error(`没有这套环境 ${String(args.env)}`)
+  if (!item) throw new Error(mt('main.tc.noEnv', { id: String(args.env) }))
   if (typeof args.name === 'string') item.name = args.name
   if (typeof args.remark === 'string') item.remark = args.remark
   storage.saveEnvs()
@@ -578,7 +581,7 @@ tool('env_update', 'Rename an environment or change its note. The id stays the s
 
 tool('env_delete', 'Close the window and clear its logins. The default environment cannot be deleted.', z.object({ env: z.string() }), async (args) => {
   const id = String(args.env)
-  if (id === DEFAULT_ENV) throw new Error('默认环境不能删除')
+  if (id === DEFAULT_ENV) throw new Error(mt('main.tc.defaultEnv'))
   const runtime = windows.get(id)
   runtime?.win.close()
   const ses = session.fromPartition(`persist:${id}`)
@@ -648,7 +651,7 @@ tool('group_update', 'Rename or recolor a group. The id stays the same.', z.obje
   color: z.string().optional()
 }), async (args) => {
   const group = storage.groups.find((item) => item.id === args.groupId)
-  if (!group) throw new Error(`没有这个分组 ${String(args.groupId)}`)
+  if (!group) throw new Error(mt('main.tc.noGroup', { id: String(args.groupId) }))
   if (typeof args.name === 'string') group.name = args.name
   if (typeof args.color === 'string') group.color = args.color
   storage.saveGroups()
@@ -672,7 +675,7 @@ tool('tab_group', 'Put a tab into a group. An empty groupId removes it from the 
   const groupId = args.groupId ? String(args.groupId) : null
   if (groupId) {
     const group = storage.groups.find((item) => item.id === groupId)
-    if (!group || group.envId !== tabRef.envId) throw new Error('分组不在这个窗口里')
+    if (!group || group.envId !== tabRef.envId) throw new Error(mt('main.tc.groupNotInWindow'))
   }
   tabRef.groupId = groupId
   return { tabId: tabRef.id, groupId }
@@ -708,7 +711,7 @@ tool('env_headless', 'Switch an open environment between headed and headless. He
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
   const runtime = windows.get(envId)
-  if (!runtime) throw new Error(`这套环境的窗口没开：${envId}`)
+  if (!runtime) throw new Error(mt('main.tc.windowClosed', { id: envId }))
   const headless = Boolean(args.headless)
   applyHeadless(runtime, headless)
   bridge.broadcast(envId)
@@ -720,7 +723,7 @@ tool('tab_restore', 'Reopen the most recently closed tab. Returns restored false
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
   const runtime = windows.get(envId)
-  if (!runtime) throw new Error(`这套环境的窗口没开：${envId}`)
+  if (!runtime) throw new Error(mt('main.tc.windowClosed', { id: envId }))
   const restored = restoreTab(runtime)
   return { env: envId, restored: Boolean(restored), tabId: restored?.id, url: restored?.url }
 })
@@ -730,7 +733,7 @@ tool('tab_duplicate', 'Duplicate a tab: open the same address again right after 
 }), async (args) => {
   const { win, tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
   const copy = duplicateTab(win, tabRef.id)
-  if (!copy) throw new Error(`这个标签复制不了：${tabRef.id}`)
+  if (!copy) throw new Error(mt('main.tc.cannotDuplicate', { id: tabRef.id }))
   return { tabId: copy.id, from: tabRef.id, url: copy.url }
 })
 
@@ -755,7 +758,7 @@ tool('group_delete', 'Delete a group. Its tabs are kept, just ungrouped.', z.obj
 }), async (args) => {
   const id = String(args.groupId)
   const group = storage.groups.find((item) => item.id === id)
-  if (!group) throw new Error(`没有这个分组 ${id}`)
+  if (!group) throw new Error(mt('main.tc.noGroup', { id }))
   storage.groups = storage.groups.filter((item) => item.id !== id)
   storage.saveGroups()
   const runtime = windows.get(group.envId)
@@ -823,9 +826,9 @@ tool('settings_set', 'Change browser settings: language (auto, zh-CN or en-US, U
   for (const key of SETTING_KEYS) {
     if (args[key] !== undefined) patch[key] = args[key]
   }
-  if (!Object.keys(patch).length) throw new Error(`没有要改的字段，可选：${SETTING_KEYS.join('、')}`)
+  if (!Object.keys(patch).length) throw new Error(mt('main.tc.noSettingFields', { list: SETTING_KEYS.join(', ') }))
   if (typeof patch.searchEngine === 'string' && !searchEngines.some((item) => item.id === patch.searchEngine)) {
-    throw new Error(`不认识这个搜索引擎：${patch.searchEngine}，可选：${searchEngines.map((item) => item.id).join('、')}`)
+    throw new Error(mt('main.tc.unknownSearchEngine', { engine: patch.searchEngine, list: searchEngines.map((item) => item.id).join(', ') }))
   }
   if (patch.batchConcurrency !== undefined) patch.batchConcurrency = Math.max(1, Math.min(3, Number(patch.batchConcurrency) || 1))
   if (patch.headlessLimit !== undefined) patch.headlessLimit = Math.max(1, Number(patch.headlessLimit) || 1)
@@ -945,9 +948,9 @@ tool('page_click', 'Click an element. Prefer text (visible label, textMatch exac
   const button = args.button === 'right' ? 'right' as const : 'left' as const
   const count = Math.max(1, Math.min(3, Number(args.count ?? 1))) 
   if (args.canvasX !== undefined || args.canvasY !== undefined) {
-    if (args.canvasX === undefined || args.canvasY === undefined) throw new Error('canvasX 和 canvasY 要一起写')
+    if (args.canvasX === undefined || args.canvasY === undefined) throw new Error(mt('main.tc.canvasXY'))
     const located = locatorFrom(args)
-    if (!located) throw new Error('canvasX/canvasY 需要配 selector 或 xpath（画布元素）')
+    if (!located) throw new Error(mt('main.tc.canvasNeedsSelector'))
     const box = await elementBox(tabRef, located)
     const x = box.x + Number(args.canvasX)
     const y = box.y + Number(args.canvasY)
@@ -969,7 +972,7 @@ tool('page_click', 'Click an element. Prefer text (visible label, textMatch exac
   const offsetY = args.offsetY === undefined ? 0 : Number(args.offsetY)
   const needsHit = Boolean(args.role || args.name || args.within || args.index !== undefined || offsetX !== 0 || offsetY !== 0)
   if (needsHit) {
-    if (!args.selector && !args.xpath && !text && !args.role && !args.name && !args.testId && !args.alt) throw new Error('偏移要配 selector、xpath、text、role/name 或 testId 一起用')
+    if (!args.selector && !args.xpath && !text && !args.role && !args.name && !args.testId && !args.alt) throw new Error(mt('main.tc.offsetNeedsTarget'))
     const hit = await resolveHit(tabRef, {
       selector: typeof args.selector === 'string' ? String(args.selector) : undefined,
       xpath: typeof args.xpath === 'string' ? String(args.xpath) : undefined,
@@ -983,7 +986,7 @@ tool('page_click', 'Click an element. Prefer text (visible label, textMatch exac
       within: args.within ? String(args.within) : undefined,
       index: args.index === undefined ? undefined : Number(args.index)
     }, frame || undefined)
-    if (!hit) throw new Error('没有匹配到目标元素')
+    if (!hit) throw new Error(mt('main.tc.noTarget'))
     await clickHit(tabRef, hit, viaOf(args.via), offsetX, offsetY)
     return { tabId: tabRef.id, text: hit.label, x: Math.round(hit.x + hit.w / 2 + offsetX), y: Math.round(hit.y + hit.h / 2 + offsetY), index: typeof args.index === 'number' ? args.index : undefined }
   }
@@ -993,7 +996,7 @@ tool('page_click', 'Click an element. Prefer text (visible label, textMatch exac
       return { tabId: tabRef.id, text: hit.label, x: Math.round(hit.x), y: Math.round(hit.y) }
     }
     const located = locatorFrom(args)
-    if (!located) throw new Error('frame 里点击需要 xpath 或 selector，或 text')
+    if (!located) throw new Error(mt('main.tc.frameClick'))
     const hit = await clickLocatorInFrame(tabRef, frame, located, viaOf(args.via))
     return { tabId: tabRef.id, x: Math.round(hit.x), y: Math.round(hit.y) }
   }
@@ -1007,7 +1010,7 @@ tool('page_click', 'Click an element. Prefer text (visible label, textMatch exac
     return { tabId: tabRef.id }
   }
   const located = locatorFrom(args)
-  if (!located) throw new Error('需要 xpath 或 selector、text，或画布坐标 x 和 y')
+  if (!located) throw new Error(mt('main.tc.needTargetText'))
   if (located.pierce) {
     await clickDeep(tabRef, located, viaOf(args.via), button)
     return { tabId: tabRef.id }
@@ -1027,7 +1030,7 @@ tool('page_wait', 'Wait for an element (state appear or gone with xpath or selec
   const tabRef = await pageTab(args)
   const stableSeconds = typeof args.stable === 'number' ? Math.max(0.1, Math.min(10, args.stable)) : 0
   if (!located) {
-    if (!stableSeconds) throw new Error('需要 xpath 或 selector，或者给 stable（等页面稳定几秒）')
+    if (!stableSeconds) throw new Error(mt('main.tc.needWait'))
     const settle = await waitForStable(tabRef, stableSeconds * 1000, Math.max(1, Math.min(60, Number(args.timeout ?? 10))) * 1000)
     return { tabId: tabRef.id, stable: stableSeconds, waited: settle.waited }
   }
@@ -1040,7 +1043,7 @@ tool('page_wait', 'Wait for an element (state appear or gone with xpath or selec
       if ((args.state === 'gone' && !present) || (args.state !== 'gone' && present)) {
         return { tabId: tabRef.id, state: args.state }
       }
-      if (Date.now() - started >= timeout) throw new Error(`超时还没${args.state === 'gone' ? '消失' : '出现'} ${locatorLabel(located)}（穿透）`)
+      if (Date.now() - started >= timeout) throw new Error(args.state === 'gone' ? mt('main.tc.pierceGoneTimeout', { label: locatorLabel(located) }) : mt('main.tc.pierceAppearTimeout', { label: locatorLabel(located) }))
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
   }
@@ -1080,7 +1083,7 @@ tool('page_type', 'Type text. Focus first, then type; non-Latin input uses Input
   }
   if (frame) {
     const located = locatorFrom(args)
-    if (!located) throw new Error('frame 里输入需要 xpath 或 selector')
+    if (!located) throw new Error(mt('main.tc.frameType'))
     await typeLocatorInFrame(tabRef, frame, located, String(args.text))
     return { tabId: tabRef.id }
   }
@@ -1171,9 +1174,9 @@ tool('page_drag', 'Drag from a point or element by dx and dy with a human-like t
   const tabRef = await pageTab(args)
   let start: { x: number; y: number } | undefined
   if (args.canvasX !== undefined || args.canvasY !== undefined) {
-    if (args.canvasX === undefined || args.canvasY === undefined) throw new Error('canvasX 和 canvasY 要一起写')
+    if (args.canvasX === undefined || args.canvasY === undefined) throw new Error(mt('main.tc.canvasXY'))
     const located = locatorFrom(args)
-    if (!located) throw new Error('canvasX/canvasY 需要配 selector 或 xpath（画布元素）')
+    if (!located) throw new Error(mt('main.tc.canvasNeedsSelector'))
     const box = await elementBox(tabRef, located)
     start = { x: box.x + Number(args.canvasX), y: box.y + Number(args.canvasY) }
   }
@@ -1184,7 +1187,7 @@ tool('page_drag', 'Drag from a point or element by dx and dy with a human-like t
     start = mapPoint(tabRef, point.x, point.y, point.shot)
   } else {
     const located = locatorFrom(args)
-    if (!located) throw new Error('需要 xpath 或 selector，或起点坐标 x 和 y')
+    if (!located) throw new Error(mt('main.tc.dragStart'))
     start = await locatorGesturePoint(tabRef, located)
   }
   let dx = Number(args.dx ?? 0)
@@ -1194,11 +1197,11 @@ tool('page_drag', 'Drag from a point or element by dx and dy with a human-like t
       selector: args.toSelector ? String(args.toSelector) : undefined,
       text: args.toText ? String(args.toText) : undefined
     })
-    if (!hit) throw new Error('没有找到拖拽终点')
+    if (!hit) throw new Error(mt('main.tc.dragEnd'))
     dx = hit.x + hit.w / 2 - start.x
     dy = hit.y + hit.h / 2 - start.y
   } else if (args.dx === undefined) {
-    throw new Error('需要 dx（或 toSelector / toText 指定终点）')
+    throw new Error(mt('main.tc.dragNeedDelta'))
   }
   const moved = await dragPage(tabRef, gestureVia(args.via), start, dx, dy)
   return { tabId: tabRef.id, from: moved.from, to: moved.to }
@@ -1218,7 +1221,7 @@ tool('page_inspect', 'Identify what an element is: video, image, canvas, audio, 
   const tabRef = await pageTab(args, false)
   const point = pointArgs(args)
   const located = locatorFrom(args)
-  if (!point && !located) throw new Error('需要 xpath 或 selector，或坐标 x 和 y')
+  if (!point && !located) throw new Error(mt('main.tc.needTargetPoint'))
   const info = await inspectElement(tabRef, point ? { point: mapPoint(tabRef, point.x, point.y, point.shot) } : { locator: located })
   return { tabId: tabRef.id, ...info }
 })
@@ -1234,12 +1237,12 @@ tool('page_save_media', 'Save an image, video, audio or canvas element to a loca
   shotY: z.union([z.number(), z.string()]).optional(),
   shotScale: z.union([z.number(), z.string()]).optional(),
   shotId: z.string().optional(),
-  savePath: z.string().optional().describe('文件路径就存成那个文件；已存在的目录就存进目录（文件名自动取）；不给就存进下载目录（默认系统下载目录，可用 download 的 action=dir 改）')
+  savePath: z.string().optional().describe('A file path saves exactly there; an existing directory saves into it (name derived); omit to use the download folder (system default, changeable with download action=dir)')
 }), async (args) => {
   const tabRef = await pageTab(args)
   const point = pointArgs(args)
   const located = locatorFrom(args)
-  if (!point && !located) throw new Error('需要 xpath 或 selector，或坐标 x 和 y')
+  if (!point && !located) throw new Error(mt('main.tc.needTargetPoint'))
   const savePath = typeof args.savePath === 'string' && args.savePath ? String(args.savePath) : undefined
   const saved = await saveMedia(tabRef, point ? { point: mapPoint(tabRef, point.x, point.y, point.shot) } : { locator: located }, downloadTargetDir(), savePath)
   return { tabId: tabRef.id, ...saved }
@@ -1285,11 +1288,11 @@ tool('download', 'Local download records and the download directory. action list
 
   const input = typeof args.path === 'string' ? args.path.trim() : ''
   if (input && input !== 'default') {
-    if (!isAbsolute(input)) throw new Error(`需要绝对路径，比如 D:\\下载：${input}`)
+    if (!isAbsolute(input)) throw new Error(mt('main.tc.absPath', { path: input }))
     try {
       mkdirSync(input, { recursive: true })
     } catch {
-      throw new Error(`建不了这个目录：${input}`)
+      throw new Error(mt('main.tc.mkdirFail', { path: input }))
     }
     storage.settings.downloadDir = input
     storage.saveSettings()
@@ -1308,9 +1311,9 @@ tool('download', 'Local download records and the download directory. action list
     return { action, remaining: listDownloads().length }
   }
   const id = typeof args.id === 'string' ? args.id : ''
-  if (!id) throw new Error('需要下载编号 id，从 download 的 action=list 取')
+  if (!id) throw new Error(mt('main.tc.downloadId'))
   const item = listDownloads().find((entry) => entry.id === id)
-  if (!item) throw new Error(`没有这条下载记录：${id}`)
+  if (!item) throw new Error(mt('main.tc.noDownload', { id }))
   if (action === 'open') downloadOpen(id)
   else if (action === 'show') downloadShow(id)
   else if (action === 'copy') downloadCopyLink(id)
@@ -1318,10 +1321,10 @@ tool('download', 'Local download records and the download directory. action list
   else if (action === 'resume') downloadResume(id)
   else if (action === 'cancel') downloadCancel(id)
   else if (action === 'remove') {
-    if (!downloadForget(id)) throw new Error('下载还没结束，先 cancel 再移除')
+    if (!downloadForget(id)) throw new Error(mt('main.tc.downloadBusy'))
   } else if (action === 'retry') {
-    if (item.state !== 'failed') throw new Error(`只有失败的下载能重试，这条是 ${item.state}`)
-    if (!item.envId || !/^https?:/i.test(item.url)) throw new Error('这条记录没有可重试的地址')
+    if (item.state !== 'failed') throw new Error(mt('main.tc.retryState', { state: item.state }))
+    if (!item.envId || !/^https?:/i.test(item.url)) throw new Error(mt('main.tc.retryUrl'))
     await session.fromPartition(`persist:${item.envId}`).downloadURL(item.url)
   }
   const after = listDownloads().find((entry) => entry.id === id)
@@ -1343,13 +1346,13 @@ tool('page_record_video', 'Record a playing video via captureStream and MediaRec
 async function canvasBox(tabRef: TabRuntime, args: { selector?: string; x?: number; y?: number; width?: number; height?: number }): Promise<{ x: number; y: number; width: number; height: number }> {
   if (typeof args.selector === 'string' && args.selector) {
     const found = await queryLocator(tabRef, { selector: String(args.selector) })
-    if (found.total !== 1) throw new Error(`画布 selector 匹配到 ${found.total} 个，要恰好一个`)
+    if (found.total !== 1) throw new Error(mt('main.tc.canvasAmbiguous', { count: found.total }))
     const rect = found.matches[0]?.rect
-    if (!rect) throw new Error('这个画布元素没有可见区域')
+    if (!rect) throw new Error(mt('main.tc.canvasInvisible'))
     return { x: rect.x, y: rect.y, width: rect.w, height: rect.h }
   }
   if (args.x === undefined || args.y === undefined || !args.width || !args.height) {
-    throw new Error('给 selector 指定画布元素，或给 x、y、width、height 指定视口里的区域')
+    throw new Error(mt('main.tc.canvasTarget'))
   }
   return { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height) }
 }
@@ -1395,7 +1398,7 @@ tool('page_draw', 'Draw on a canvas. Give points, or path (SVG d, supports M/L/H
   }
   let points = args.points as Array<{ x: number; y: number }> | undefined
   if (!points) {
-    if (!args.shape) throw new Error('给 points 路径点、path SVG 路径加 viewBox，或 shape')
+    if (!args.shape) throw new Error(mt('main.tc.drawArgs'))
     const box = await canvasBox(tabRef, args)
     points = drawShapePoints(String(args.shape), box.x, box.y, box.width, box.height)
     args.close = true
@@ -1517,7 +1520,7 @@ tool('page_hover', 'Move the pointer over an element or point to trigger hover m
       within: args.within ? String(args.within) : undefined,
       index: args.index === undefined ? undefined : Number(args.index)
     }, frame || undefined)
-    if (!hit) throw new Error('没有匹配到目标元素')
+    if (!hit) throw new Error(mt('main.tc.noTarget'))
     await hoverHit(tabRef, hit, viaOf(args.via))
     return { tabId: tabRef.id, text: hit.label }
   }
@@ -1527,7 +1530,7 @@ tool('page_hover', 'Move the pointer over an element or point to trigger hover m
       return { tabId: tabRef.id, text: hit.label }
     }
     const located = locatorFrom(args)
-    if (!located) throw new Error('frame 里悬停需要 xpath 或 selector，或 text')
+    if (!located) throw new Error(mt('main.tc.frameClick'))
     const hit = await hoverLocatorInFrame(tabRef, frame, located, viaOf(args.via))
     return { tabId: tabRef.id, text: hit.label }
   }
@@ -1541,7 +1544,7 @@ tool('page_hover', 'Move the pointer over an element or point to trigger hover m
     return { tabId: tabRef.id }
   }
   const located = locatorFrom(args)
-  if (!located) throw new Error('需要 xpath 或 selector、text，或坐标 x 和 y')
+  if (!located) throw new Error(mt('main.tc.needTargetText'))
   await hoverLocator(tabRef, located, viaOf(args.via))
   return { tabId: tabRef.id }
 })
@@ -1549,12 +1552,12 @@ tool('page_hover', 'Move the pointer over an element or point to trigger hover m
 tool('page_screenshot', 'Look at the page: viewport, one element, or a region, with a coordinate grid by default so you can click by the printed ticks. Does not change who controls the browser.', z.object({
   ...pageArgs,
   ...locateFields,
-  x: z.union([z.number(), z.string()]).optional().describe('区域左上角横坐标（视口 CSS 像素）'),
-  y: z.union([z.number(), z.string()]).optional().describe('区域左上角纵坐标（视口 CSS 像素）'),
-  width: z.union([z.number(), z.string()]).optional().describe('区域宽（视口 CSS 像素）'),
-  height: z.union([z.number(), z.string()]).optional().describe('区域高（视口 CSS 像素）'),
-  grid: z.union([z.boolean(), z.number()]).optional().describe('坐标网格间距，默认 100；false 或 0 关闭。刻度是视口绝对坐标，元素截图的左上角角标写着裁剪起点（如 (424, 261)），看到刻度直接当 page_click 的 x/y 用，不要自己加偏移。线条颜色按每 32px 小块的背景自动选（亮底深线、暗底浅线）'),
-  edgeOnly: z.boolean().optional().describe('只画四边刻度，不铺满整张图，内容密集时用')
+  x: z.union([z.number(), z.string()]).optional().describe('Left edge of the region in viewport CSS pixels'),
+  y: z.union([z.number(), z.string()]).optional().describe('Top edge of the region in viewport CSS pixels'),
+  width: z.union([z.number(), z.string()]).optional().describe('Region width in viewport CSS pixels'),
+  height: z.union([z.number(), z.string()]).optional().describe('Region height in viewport CSS pixels'),
+  grid: z.union([z.boolean(), z.number()]).optional().describe('Grid spacing, default 100; false or 0 turns it off. Ticks are absolute viewport coordinates; a cropped element screenshot prints its origin in the corner (for example (424, 261)), so use the ticks directly as page_click x and y without adding offsets. Line color follows the background of each 32px block'),
+  edgeOnly: z.boolean().optional().describe('Draw ticks on the edges only; useful when content is dense')
 }), async (args) => {
   const tabRef = await pageTab(args, false)
   const step = args.grid === false || args.grid === 0 ? 0 : args.grid === undefined || args.grid === true ? 100 : Math.max(10, Math.min(500, Math.round(Number(args.grid) || 0)))
@@ -1615,7 +1618,7 @@ tool('page_console', 'Read console output and JS errors for this tab (last 300, 
 }), async (args) => {
   const { tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
   const wc = tabRef.view?.webContents
-  if (!wc) throw new Error('这个标签没有网页')
+  if (!wc) throw new Error(mt('main.page.noPage'))
   if (args.action === 'clear') {
     clearConsole(wc)
     return { tabId: tabRef.id, cleared: true }
@@ -1637,7 +1640,7 @@ tool('page_find', 'Find text in the page like Ctrl+F. Pass text to start, findNe
     return { tabId: tabRef.id, stopped: true }
   }
   const text = String(args.text ?? '')
-  if (!text) throw new Error('需要 text')
+  if (!text) throw new Error(mt('main.tc.needText'))
   const result = await findInPage(tabRef, text, { forward: args.forward !== false, findNext: Boolean(args.findNext) })
   return { tabId: tabRef.id, ...result }
 })
@@ -1648,7 +1651,7 @@ tool('page_wait_load', 'Wait until the page finishes loading (did-stop-loading).
 }), async (args) => {
   const { tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
   const wc = tabRef.view?.webContents
-  if (!wc) throw new Error('这个标签没有网页')
+  if (!wc) throw new Error(mt('main.page.noPage'))
   const seconds = Math.max(1, Math.min(60, Number(args.timeout ?? 15)))
   const started = Date.now()
   await waitForLoad(wc, seconds * 1000)
@@ -1675,8 +1678,8 @@ tool('screen', 'Window recording. action start records this headed window (it co
   }
 
   const runtime = openEnvironment(envId, false)
-  if (runtime.headless) throw new Error('无头窗口没有画面，先有头打开再录')
-  if (runtime.screenRecording) throw new Error('这扇窗口已经在录')
+  if (runtime.headless) throw new Error(mt('main.tc.recordHeadless'))
+  if (runtime.screenRecording) throw new Error(mt('main.tc.recordBusy'))
   // 录屏必须让页面持续绘制，窗口被遮挡时子视图可能不刷新；这是少数需要主动前置的场景
   if (runtime.win.isMinimized()) runtime.win.restore()
   runtime.win.setAlwaysOnTop(true, 'screen-saver')
@@ -1689,7 +1692,7 @@ tool('screen', 'Window recording. action start records this headed window (it co
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         screenStartWaiters.delete(envId)
-        reject(new Error('录屏没有开始'))
+        reject(new Error(mt('main.screen.notStarted')))
       }, 8_000)
       screenStartWaiters.set(envId, {
         resolve: () => {
@@ -1720,12 +1723,12 @@ tool('screen', 'Window recording. action start records this headed window (it co
 
 tool('window_preview', 'Composite screenshot of the app shell, page, overlays and popups for GUI automation. Full window by default; x, y, width and height crop the app content area. For clicking inside web pages keep using page_screenshot viewport coordinates.', z.object({
   env: env,
-  grid: z.union([z.boolean(), z.number()]).optional().describe('坐标网格间距，默认 100，false 或 0 关闭。原点是应用内容区左上角，不含系统标题栏；局部截图的刻度仍是内容区里的绝对坐标'),
-  x: z.union([z.number(), z.string()]).optional().describe('局部截图起点 x（应用内容区 CSS 像素）'),
-  y: z.union([z.number(), z.string()]).optional().describe('局部截图起点 y（应用内容区 CSS 像素）'),
+  grid: z.union([z.boolean(), z.number()]).optional().describe('Grid spacing, default 100; false or 0 turns it off. The origin is the app content area top-left, excluding the system title bar; cropped previews still use absolute content-area coordinates'),
+  x: z.union([z.number(), z.string()]).optional().describe('Crop origin x in app content CSS pixels'),
+  y: z.union([z.number(), z.string()]).optional().describe('Crop origin y in app content CSS pixels'),
   width: z.union([z.number(), z.string()]).optional(),
   height: z.union([z.number(), z.string()]).optional(),
-  edgeOnly: z.boolean().optional().describe('只画四边刻度，不铺满整张图')
+  edgeOnly: z.boolean().optional().describe('Draw ticks on the edges only; useful when content is dense')
 }), async (args) => {
   const envId = String(args.env || DEFAULT_ENV)
   const step = args.grid === false || args.grid === 0 ? 0 : args.grid === undefined || args.grid === true ? 100 : Math.max(10, Math.min(500, Math.round(Number(args.grid) || 0)))
@@ -1754,12 +1757,12 @@ const screenTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 async function stopScreen(envId: string): Promise<{ env: string; path: string; seconds: number; bytes: number }> {
   const runtime = windows.get(envId)
-  if (!runtime?.screenRecording) throw new Error('这扇窗口没有在录')
+  if (!runtime?.screenRecording) throw new Error(mt('main.tc.recordIdle'))
   const started = runtime.screenStartedAt ?? Date.now()
   const path = await new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
       screenWaiters.delete(envId)
-      reject(new Error('录屏没有完成'))
+      reject(new Error(mt('main.tc.recordNotDone')))
     }, 20_000)
     screenWaiters.set(envId, {
       resolve: (value) => {
@@ -1811,7 +1814,7 @@ tool('page_script', 'Run JavaScript in the page and return its value. Use it to 
     const wc = tabRef.view?.webContents
     const recent = wc ? consoleFor(wc).filter((item) => item.level === 'error').slice(0, 2) : []
     const extra = recent.length
-      ? `。页面最近的报错：${recent.map((item) => String(item.message).split('\n')[0].slice(0, 160)).join(' | ')}`
+      ? mt('main.tc.recentErrors', { list: recent.map((item) => String(item.message).split('\n')[0].slice(0, 160)).join(' | ') })
       : ''
     throw new Error(message + extra)
   }
@@ -1905,23 +1908,23 @@ tool('workflow_record', 'Record the next tool calls into a workflow. action star
     recording = { startedAt: Date.now(), calls: [] }
     return { recording: true, startedAt: recording.startedAt }
   }
-  if (!recording) throw new Error('现在没有在录，先 action=start')
+  if (!recording) throw new Error(mt('main.tc.notRecording'))
   const calls = recording.calls
   recording = null
-  const nodes: WorkflowNode[] = [{ id: 'start', data: { type: 'start', title: '开始', variables: [] } }]
+  const nodes: WorkflowNode[] = [{ id: 'start', data: { type: 'start', title: mt('workflow.node.start'), variables: [] } }]
   const skipped: Array<{ tool: string; reason: string }> = []
   for (const call of calls) {
     const mapped = recordedNode(call, nodes.length - 1)
     if (mapped.node) nodes.push(mapped.node)
-    else skipped.push({ tool: call.tool, reason: mapped.skip || '无法转换' })
+    else skipped.push({ tool: call.tool, reason: mapped.skip || mt('main.tc.untranslatable') })
   }
-  nodes.push({ id: 'end', data: { type: 'end', title: '结束', outputs: [] } })
+  nodes.push({ id: 'end', data: { type: 'end', title: mt('workflow.node.end'), outputs: [] } })
   const edges = nodes.slice(0, -1).map((node, index) => ({ id: `edge-${index + 1}`, source: node.id, target: nodes[index + 1].id }))
   const name = typeof args.name === 'string' ? args.name.trim() : ''
   let saved: { workflow: string; name: string } | undefined
   if (name) {
     const app = workflowWrite({
-      app: { name, description: args.description ? String(args.description) : `录制的操作：${nodes.length - 2} 步`, icon: '' },
+      app: { name, description: args.description ? String(args.description) : mt('main.tc.recordDesc', { count: nodes.length - 2 }), icon: '' },
       workflow: { environment_variables: [], conversation_variables: [], graph: { nodes, edges } }
     })
     saved = { workflow: app.id, name: app.app.name }
@@ -1979,7 +1982,7 @@ tool('workflow_update', 'Patch part of an existing workflow. nodes replace by id
   environment_variables: z.array(z.object({ name: z.string(), value: z.string() })).optional()
 }), async (args) => {
   const key = String(args.name || args.workflow || '')
-  if (!key) throw new Error('需要工作流名称或编号')
+  if (!key) throw new Error(mt('main.tc.workflowKey'))
   const saved = workflowUpdate(key, {
     description: typeof args.description === 'string' ? args.description : undefined,
     rename: typeof args.rename === 'string' ? args.rename : undefined,
@@ -2011,7 +2014,7 @@ tool('workflow_run', 'Run the whole workflow by name with inputs in one call.', 
   env: env
 }), async (args) => {
   const key = String(args.name || args.workflow || '')
-  if (!key) throw new Error('需要工作流名称或编号')
+  if (!key) throw new Error(mt('main.tc.workflowKey'))
   const app = findWorkflow(key)
   const resolved = resolveTab({ tabId: args.tabId ? String(args.tabId) : undefined, env: args.env ? String(args.env) : undefined }, true)
   return runWorkflow(resolved.tab, app, (args.inputs as Record<string, string>) ?? {})
@@ -2048,7 +2051,7 @@ tool('workflow_export', 'Export a workflow to a JSON file and return its local p
   workflow: z.string().optional()
 }), async (args) => {
   const key = String(args.name || args.workflow || '')
-  if (!key) throw new Error('需要工作流名称或编号')
+  if (!key) throw new Error(mt('main.tc.workflowKey'))
   return { path: exportWorkflow(key) }
 })
 
@@ -2057,7 +2060,7 @@ tool('workflow_delete', 'Delete a saved workflow from this machine. Copies in th
   workflow: z.string().optional()
 }), async (args) => {
   const key = String(args.name || args.workflow || '')
-  if (!key) throw new Error('需要工作流名称或编号')
+  if (!key) throw new Error(mt('main.tc.workflowKey'))
   const removed = deleteWorkflow(key)
   closeWorkflowPages(removed.id)
   bridge.broadcast()
@@ -2088,7 +2091,7 @@ tool('net_list', 'List request summaries without bodies.', z.object({ tabId: z.s
 
 tool('net_get', 'Return one request including its body when still kept. Local only.', z.object({ reqId: z.string() }), async (args) => {
   const item = netGet(String(args.reqId))
-  if (!item) throw new Error(`没有这条请求 ${String(args.reqId)}`)
+  if (!item) throw new Error(mt('main.tc.noRequest', { id: String(args.reqId) }))
   return { request: item }
 })
 
@@ -2161,7 +2164,7 @@ tool('connect_info', 'Return the BrowserPilot onboarding prompt: MCP address and
 tool('env_export', 'Export cookies for this environment to a JSON file and return the path. localStorage is not included. The file holds live cookies; keep it local.', z.object({ env: z.string() }), async (args) => {
   const id = String(args.env)
   const item = storage.envs.find((envItem) => envItem.id === id)
-  if (!item) throw new Error(`没有这套环境 ${id}`)
+  if (!item) throw new Error(mt('main.tc.noEnv', { id }))
   const ses = session.fromPartition(`persist:${id}`)
   const cookies = await ses.cookies.get({})
   const path = join(storage.dir('exports'), `env-${id}-${Date.now()}.json`)
@@ -2178,7 +2181,7 @@ tool('env_import', 'Restore logins from a file written by env_export. Without en
   let id = args.env ? String(args.env) : ''
   if (!id) {
     id = createId('env')
-    storage.envs.push({ id, name: String(args.name || raw.name || '导入的环境'), remark: '', sites: [] })
+    storage.envs.push({ id, name: String(args.name || raw.name || mt('main.tc.importedEnv')), remark: '', sites: [] })
     storage.saveEnvs()
   }
   const ses = session.fromPartition(`persist:${id}`)
@@ -2229,7 +2232,7 @@ tool('bookmark_add', 'Add a bookmark to an environment. An existing address gets
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
   const url = normalizeUrl(String(args.url))
-  if (!/^https?:/i.test(url)) throw new Error(`书签只存 http/https：${url}`)
+  if (!/^https?:/i.test(url)) throw new Error(mt('main.tc.bookmarkScheme', { url }))
   const item = storage.addBookmark({ envId, url, title: typeof args.title === 'string' ? args.title : '' })
   bridge.broadcast(envId)
   return { env: envId, id: item.id, url: item.url, title: item.title }
@@ -2242,7 +2245,7 @@ tool('bookmark_remove', 'Delete bookmarks: by id or url, or everything when all 
   all: z.boolean().optional()
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
-  if (!args.id && !args.url && !args.all) throw new Error('需要 id、url 或 all: true')
+  if (!args.id && !args.url && !args.all) throw new Error(mt('main.tc.needIdUrlAll'))
   const removed = storage.removeBookmarkWhere(envId, {
     id: typeof args.id === 'string' ? args.id : undefined,
     url: typeof args.url === 'string' ? args.url : undefined,
@@ -2276,7 +2279,7 @@ tool('history_remove', 'Delete history: by id or url, or everything when all is 
   all: z.boolean().optional()
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
-  if (!args.id && !args.url && !args.all) throw new Error('需要 id、url 或 all: true')
+  if (!args.id && !args.url && !args.all) throw new Error(mt('main.tc.needIdUrlAll'))
   const removed = storage.removeHistoryWhere(envId, {
     id: typeof args.id === 'string' ? args.id : undefined,
     url: typeof args.url === 'string' ? args.url : undefined,
@@ -2308,7 +2311,7 @@ tool('session_save', 'Snapshot the tabs currently open in an environment. Errors
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
   const runtime = windows.get(envId)
-  if (!runtime) throw new Error(`这套环境的窗口没开：${envId}`)
+  if (!runtime) throw new Error(mt('main.tc.windowClosed', { id: envId }))
   saveSessionNow(runtime)
   const saved = storage.sessionFor(envId)
   return { env: envId, tabs: saved?.tabs.length ?? 0, savedAt: saved?.savedAt }
@@ -2319,7 +2322,7 @@ tool('session_restore', 'Reopen a saved session as tabs: opens the window if nee
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
   const saved = storage.sessionFor(envId)
-  if (!saved?.tabs.length) throw new Error('这套环境没有保存的会话')
+  if (!saved?.tabs.length) throw new Error(mt('main.tc.noSession'))
   const runtime = openEnvironment(envId, false)
   let opened = 0
   for (const item of saved.tabs.slice(0, 20)) {
@@ -2391,7 +2394,7 @@ tool('cookie_set', 'Write one cookie into this environment. Without url an addre
     : args.domain
       ? `${secure ? 'https' : 'http'}://${String(args.domain).replace(/^\./, '')}${path}`
       : ''
-  if (!url) throw new Error('需要 url 或 domain')
+  if (!url) throw new Error(mt('main.tc.needUrlDomain'))
   const details: Electron.CookiesSetDetails = { url, name, value, path, secure, httpOnly: Boolean(args.httpOnly) }
   if (typeof args.domain === 'string' && args.domain) details.domain = args.domain
   if (typeof args.expirationDate === 'number') details.expirationDate = args.expirationDate
@@ -2431,7 +2434,7 @@ tool('cookie_remove', 'Delete cookies: url plus name for one, domain for all of 
     bridge.broadcast(envId)
     return { env: envId, removed: 1 }
   }
-  throw new Error('需要 url + name，或 domain，或 all: true')
+  throw new Error(mt('main.tc.needUrlNameAll'))
 })
 
 export const screenWaiters = new Map<string, { resolve: (path: string) => void; reject: (error: Error) => void }>()
@@ -2481,15 +2484,15 @@ for (const [name, ms] of longToolTimeouts) toolTimeouts.set(name, ms)
 
 export async function callTool(name: string, raw: unknown): Promise<ToolResult> {
   const item = tools.find((toolItem) => toolItem.name === name)
-  if (!item) return { ok: false, control: 'shared', error: `没有这个工具 ${name}` }
+  if (!item) return { ok: false, control: 'shared', error: mt('main.tc.noToolName', { name }) }
   if (raw && typeof raw === 'object' && !Array.isArray(raw) && item.schema instanceof z.ZodObject) {
     const def = (item.schema as z.ZodObject<z.ZodRawShape>)._def
     if (def.unknownKeys !== 'passthrough') {
       const known = Object.keys((item.schema as z.ZodObject<z.ZodRawShape>).shape)
       const extra = Object.keys(raw as Record<string, unknown>).filter((key) => !known.includes(key))
       if (extra.length) {
-        const hint = extra.includes('tab') && known.includes('tabId') ? '。标签参数叫 tabId，不是 tab' : ''
-        return { ok: false, control: 'shared', error: `不认识参数 ${extra.join('、')}${hint}。这个工具的参数是：${known.join('、') || '（无）'}` }
+        const hint = extra.includes('tab') && known.includes('tabId') ? mt('main.tc.tabParamHint') : ''
+        return { ok: false, control: 'shared', error: mt('main.tc.unknownParams', { extra: extra.join(', '), hint, known: known.join(', ') || mt('main.tc.none') }) }
       }
     }
   }
@@ -2498,8 +2501,8 @@ export async function callTool(name: string, raw: unknown): Promise<ToolResult> 
     args = item.schema.parse(raw ?? {}) as Record<string, unknown>
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const issues = error.issues.map((issue) => `${issue.path.join('.') || '(根)'}: ${issue.message}`).join('；')
-      return { ok: false, control: 'shared', error: `参数不对：${issues}` }
+      const issues = error.issues.map((issue) => `${issue.path.join('.') || mt('main.tc.rootPath')}: ${issue.message}`).join('；')
+      return { ok: false, control: 'shared', error: mt('main.tc.schemaIssues', { issues }) }
     }
     throw error
   }
@@ -2510,13 +2513,13 @@ export async function callTool(name: string, raw: unknown): Promise<ToolResult> 
       return {
         ok: false,
         control: controlOf(pendingTab),
-        error: `页面有未处理的弹窗（${dialog.type}）：「${dialog.message.slice(0, 120)}」。先调 page_dialog 选 accept 或 dismiss，或者 page_navigate 离开`
+        error: mt('main.tc.dialogPending', { type: dialog.type, message: dialog.message.slice(0, 120) })
       }
     }
   }
   try {
     const timeoutMs = toolTimeouts.get(name) ?? DEFAULT_TOOL_TIMEOUT
-    const data = await withTimeout(item.run(args), timeoutMs, `工具 ${name} 超时（${Math.round(timeoutMs / 1000)} 秒没返回）。页面可能被弹窗挡住或脚本卡住，先看 page_dialog，必要时 page_navigate`)
+    const data = await withTimeout(item.run(args), timeoutMs, mt('main.tc.toolTimeout', { name, seconds: Math.round(timeoutMs / 1000) }))
     if (recording && name !== 'workflow_record' && RECORDABLE.has(name)) recording.calls.push({ tool: name, args })
     const tabId = typeof data.tabId === 'string' ? data.tabId : typeof args.tabId === 'string' ? args.tabId : undefined
     const envId = typeof args.env === 'string' ? args.env : undefined
@@ -2527,7 +2530,7 @@ export async function callTool(name: string, raw: unknown): Promise<ToolResult> 
     if (tabId) {
       try {
         const found = resolveTab({ tabId }, true)
-        const shot = await withTimeout(screenshot(found.tab, storage.dir('screenshots')), 8_000, '现场截图超时')
+        const shot = await withTimeout(screenshot(found.tab, storage.dir('screenshots')), 8_000, mt('main.tc.shotTimeout'))
         errorShot = shot.path
       } catch {
         /* 现场截图失败就算了 */

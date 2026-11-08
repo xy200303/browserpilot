@@ -40,6 +40,26 @@ function walk(dir, files = []) {
   return files
 }
 
+// 主进程代码里不允许硬编码中文（注释和 i18n-ignore 区段除外）。
+function hardcodedChinese() {
+  const hits = []
+  for (const file of walk(join(root, 'src/main'))) {
+    let ignoring = false
+    readFileSync(file, 'utf8').split(/\r?\n/).forEach((line, index) => {
+      if (line.includes('i18n-ignore-start') || line.includes('i18n-ignore-end')) {
+        ignoring = !ignoring
+        return
+      }
+      if (ignoring || line.includes('i18n-ignore')) return
+      const trimmed = line.trim()
+      if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) return
+      const code = line.replace(/\/\*.*?\*\//g, '').replace(/\/\/.*$/, '')
+      if (/[一-鿿]/.test(code)) hits.push(`${relative(root, file)}:${index + 1}`)
+    })
+  }
+  return hits
+}
+
 const keys = collectKeys()
 const used = new Set()
 for (const dir of ['src/renderer/src', 'src/main']) {
@@ -61,4 +81,11 @@ if (process.argv.includes('--unused')) {
   console.log(`\n资源里有但代码没引用（${unused.length}）：`)
   for (const key of unused) console.log('  ' + key)
 }
-if (missing.length) process.exit(1)
+const chinese = hardcodedChinese()
+if (chinese.length) {
+  console.log(`
+主进程里还有硬编码中文（${chinese.length} 行）：`)
+  for (const line of chinese) console.log('  ' + line)
+}
+
+if (missing.length || chinese.length) process.exit(1)

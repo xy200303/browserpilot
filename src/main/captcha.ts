@@ -129,7 +129,7 @@ const SLIDE_PROBE = `(() => {
 
 const SLIDE_RESULT = `(() => ({
   success: !!document.querySelector('[class*=geetest_success]')
-    || /beat|成功|success/i.test((document.querySelector('[class*=geetest_result_tips]') || {}).textContent || ''),
+    || /beat|成功|success/i.test((document.querySelector('[class*=geetest_result_tips]') || {}).textContent || ''), // i18n-ignore 页面文案特征
   panel: !!document.querySelector('[class*=geetest_bg]')
 }))()`
 

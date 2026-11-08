@@ -34,7 +34,7 @@ export const enWorkflow: MessageShape<typeof zhWorkflow> = {
       canvasWidth: 'Canvas width', canvasHeight: 'Canvas height', text: 'Text', roleName: 'Role and name (button Submit)',
       compare: 'Compare with', writeMode: 'Input mode', typeChar: 'Type keys', paste: 'Paste',
       until: 'Until', engine: 'Engine', auto: 'Auto', cv: 'Built-in vision', onnx: 'ONNX model',
-      retries: 'Retries', waitFor: 'Wait for', appear: 'Appear', gone: 'Disappear', timeout: 'Timeout (s)',
+      retries: 'Retries', waitFor: 'Wait for', appear: 'Appear', gone: 'Disappear', timeout: 'Timeout (s)', settle: 'Wait for the page to settle',
       hint: 'Message', method: 'Method', address: 'Address', body: 'Request body', pageScript: 'Page script',
       code: 'Code', regex: 'Regex', filename: 'File name', canvasX: 'Canvas X', canvasY: 'Canvas Y',
       option: 'Option', key: 'Shortcut', url: 'Address', message: 'Message',

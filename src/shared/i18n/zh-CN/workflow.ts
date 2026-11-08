@@ -31,7 +31,7 @@ export const zhWorkflow = {
       canvasWidth: '画布宽', canvasHeight: '画布高', text: '文字', roleName: '角色名称（如 button 提交）',
       compare: '比较值', writeMode: '写入方式', typeChar: '逐字输入', paste: '粘贴',
       until: '直到', engine: '识别引擎', auto: '自动', cv: '内置视觉', onnx: 'ONNX 模型',
-      retries: '重试次数', waitFor: '等到', appear: '出现', gone: '消失', timeout: '超时（秒）',
+      retries: '重试次数', waitFor: '等到', appear: '出现', gone: '消失', timeout: '超时（秒）', settle: '等待页面稳定',
       hint: '提示', method: '方法', address: '地址', body: '请求正文', pageScript: '页面脚本',
       code: '代码', regex: '正则', filename: '文件名', canvasX: '画布 X', canvasY: '画布 Y',
       option: '选项', key: '按键', url: '地址', message: '提示',
