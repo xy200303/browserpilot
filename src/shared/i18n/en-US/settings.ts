@@ -41,14 +41,15 @@ export const enSettings: MessageShape<typeof zhSettings> = {
       cacheWeekly: 'Weekly',
       storage: {
         title: 'Disk usage',
-        detail: 'Screenshots keep the newest 300 and at most 200MB; runs and media keep 30 days. Cleanup touches only these three, never logins, exports or downloads.',
+        detail: 'Screenshots keep the newest 120 and at most 80MB for 14 days; old runs and media keep 30 days. Cleanup only touches caches and regenerable files, never logins, exports or downloads.',
         clean: 'Clean up',
         freed: 'Deleted {{files}} files, about {{mb}} MB freed',
         nothing: 'Nothing to clean',
         screenshots: 'Screenshots',
         runs: 'Runs',
         media: 'Media',
-        partitions: 'Site caches'
+        partitions: 'Site caches',
+        cache: 'App cache'
       },
       connect: 'Connect an agent',
       connectDetail: 'Copy a prompt for another agent: MCP address and token, skill and CLI installation.',

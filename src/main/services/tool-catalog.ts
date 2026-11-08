@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import { clipboard, session } from 'electron'
+import { clipboard, nativeImage, session } from 'electron'
 import { mkdirSync } from 'fs'
 import { rm } from 'fs/promises'
 import { isAbsolute, join } from 'path'
@@ -149,6 +149,15 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 function imageOf(path: string): { mimeType: string; data: string; bytes: number } | undefined {
   const data = readFileSync(path)
   if (!data.length || data.length > MAX_IMAGE_BYTES) return undefined
+  // 2x 屏的 PNG 动辄两三 MB，base64 后还要再涨三分之一；大图转 JPEG 保持尺寸不变，
+  // Agent 读图用的坐标仍然和 shot 元数据一致。
+  if (data.length > 800 * 1024) {
+    const image = nativeImage.createFromBuffer(data)
+    if (!image.isEmpty()) {
+      const jpeg = image.toJPEG(88)
+      if (jpeg.length) return { mimeType: 'image/jpeg', data: jpeg.toString('base64'), bytes: jpeg.length }
+    }
+  }
   return { mimeType: 'image/png', data: data.toString('base64'), bytes: data.length }
 }
 

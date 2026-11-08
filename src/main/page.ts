@@ -1,11 +1,11 @@
 import { clipboard, nativeImage, net, type WebContents } from 'electron'
-import { appendFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { execFile } from 'child_process'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { searchEngineOf, type ActVia, type GestureVia, type Locator } from '@shared/types'
 import { storage } from './services/store'
 import { downloadBegin, downloadDone, downloadFail, downloadProgress } from './services/DownloadService'
-import { acquireDebugger, releaseDebugger, withDebugger } from './services/debugger'
+import { withDebugger } from './services/debugger'
 export { saveMedia, saveMediaInfo } from './media'
 import type { AxRef, TabRuntime } from './runtime'
 import { bridge, windows } from './runtime'
@@ -1760,6 +1760,14 @@ export async function navigate(tab: TabRuntime, url: string): Promise<void> {
   await pending
 }
 
+/** 截图按设备像素返回；统一压回 CSS 尺寸，避免 2x 屏上多占 4 倍内存和磁盘。 */
+export function atCssSize(image: Electron.NativeImage, width: number, height: number): Electron.NativeImage {
+  const size = image.getSize()
+  if (width <= 0 || height <= 0) return image
+  if (size.width <= width && size.height <= height) return image
+  return image.resize({ width, height, quality: 'good' })
+}
+
 export async function screenshot(
   tab: TabRuntime,
   dir: string,
@@ -1812,6 +1820,8 @@ async function captureFull(
     }
   }
   if (!image) throw new Error(lastError instanceof Error ? lastError.message : mt('main.page.noScreenshot'))
+  const viewBounds = tab.view?.getBounds()
+  if (viewBounds) image = atCssSize(image, viewBounds.width, viewBounds.height)
   let output = image
   if (grid > 0) {
     const runtime = windows.get(tab.envId)
@@ -1835,8 +1845,22 @@ async function captureFull(
 
 export async function pageSource(tab: TabRuntime, kind: 'dom' | 'response'): Promise<string> {
   if (kind === 'response') {
-    if (!tab.documentHtml) throw new Error(mt('main.page.noHtml'))
-    return tab.documentHtml
+    // 需要原始响应时才去渲染器的资源缓存取，不再为每个标签常驻一份 HTML
+    const wc = wcOf(tab)
+    return withDebugger(wc, async (dbg) => {
+      await dbg.sendCommand('Page.enable').catch(() => undefined)
+      const tree = (await dbg.sendCommand('Page.getResourceTree')) as {
+        frameTree?: { frame?: { id?: string; url?: string } }
+      }
+      const frame = tree.frameTree?.frame
+      if (!frame?.id || !frame.url) throw new Error(mt('main.page.noHtml'))
+      const resource = (await dbg.sendCommand('Page.getResourceContent', { frameId: frame.id, url: frame.url })) as {
+        content: string
+        base64Encoded: boolean
+      }
+      const html = resource.base64Encoded ? Buffer.from(resource.content, 'base64').toString('utf8') : resource.content
+      return html.length > 2 * 1024 * 1024 ? html.slice(0, 2 * 1024 * 1024) : html
+    })
   }
   const wc = wcOf(tab)
   return withDebugger(wc, async (dbg) => {
@@ -1844,53 +1868,6 @@ export async function pageSource(tab: TabRuntime, kind: 'dom' | 'response'): Pro
     const html = (await dbg.sendCommand('DOM.getOuterHTML', { nodeId: doc.root.nodeId })) as { outerHTML: string }
     return html.outerHTML
   })
-}
-
-const documentRequests = new Map<number, string>()
-
-export function watchDocument(wc: WebContents, onHtml: (html: string) => void): void {
-  wc.on('did-start-navigation', (event, _url, isInPlace, isMainFrame) => {
-    if (!isMainFrame || isInPlace) return
-    void captureDocumentStart(wc)
-  })
-  wc.on('did-finish-load', () => {
-    void captureDocumentFinish(wc, onHtml)
-  })
-}
-
-async function captureDocumentStart(wc: WebContents): Promise<void> {
-  try {
-    const dbg = await acquireDebugger(wc)
-    await dbg.sendCommand('Network.enable')
-    const onMessage = (_event: unknown, method: string, params: { type?: string; requestId?: string }): void => {
-      if (method === 'Network.responseReceived' && params.type === 'Document' && params.requestId) {
-        documentRequests.set(wc.id, params.requestId)
-      }
-    }
-    wc.debugger.on('message', onMessage)
-    wc.once('did-finish-load', () => {
-      wc.debugger.removeListener('message', onMessage)
-    })
-  } catch {
-    /* snapshot can attach later */
-  }
-}
-
-async function captureDocumentFinish(wc: WebContents, onHtml: (html: string) => void): Promise<void> {
-  const requestId = documentRequests.get(wc.id)
-  documentRequests.delete(wc.id)
-  try {
-    if (requestId && wc.debugger.isAttached()) {
-      const body = (await wc.debugger.sendCommand('Network.getResponseBody', { requestId })) as { body: string; base64Encoded: boolean }
-      const html = body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body
-      // page_source 只需要能读，存整份大文档会把主进程堆撑起来；超过 2MB 截断
-      onHtml(html.length > 2 * 1024 * 1024 ? html.slice(0, 2 * 1024 * 1024) : html)
-    }
-  } catch {
-    /* body already gone */
-  } finally {
-    releaseDebugger(wc)
-  }
 }
 
 export async function evalSource(tab: TabRuntime, source: string): Promise<unknown> {
@@ -2030,40 +2007,63 @@ export async function inspectElement(tab: TabRuntime, target: { locator?: Locato
   throw new Error(mt('main.page.needTarget'))
 }
 
-export async function downloadUrl(wc: WebContents, url: string, referer?: string, onProgress?: (received: number, total: number) => void): Promise<{ buf: Buffer; contentType: string }> {
-  const ses = wc.session
+export async function downloadToFile(
+  wc: WebContents,
+  url: string,
+  path: string,
+  referer?: string,
+  onProgress?: (received: number, total: number) => void
+): Promise<{ contentType: string; bytes: number }> {
+  mkdirSync(dirname(path), { recursive: true })
   return new Promise((resolve, reject) => {
-    const req = net.request({ url, session: ses })
+    const req = net.request({ url, session: wc.session })
     const ref = referer || wc.getURL()
     if (ref) req.setHeader('Referer', ref)
     const ua = wc.getUserAgent()
     if (ua) req.setHeader('User-Agent', ua)
-    const chunks: Buffer[] = []
     let contentType = ''
+    let settled = false
+    const fail = (error: unknown): void => {
+      if (settled) return
+      settled = true
+      try {
+        unlinkSync(path)
+      } catch {
+        /* 还没开始写 */
+      }
+      reject(error)
+    }
     req.on('response', (res) => {
       contentType = String(res.headers['content-type'] || '')
       if ((res.statusCode ?? 500) >= 400) {
-        reject(new Error(mt('main.page.downloadFailed', { status: res.statusCode })))
+        fail(new Error(mt('main.page.downloadFailed', { status: res.statusCode })))
         return
       }
       const total = Number(res.headers['content-length'] || 0)
       let received = 0
+      const out = createWriteStream(path)
       res.on('data', (chunk) => {
-        chunks.push(chunk)
         received += chunk.length
         if (onProgress) onProgress(received, total)
+        out.write(chunk)
       })
-      res.on('end', () => resolve({ buf: Buffer.concat(chunks), contentType }))
+      res.on('end', () => out.end())
+      res.on('error', fail)
+      out.on('error', fail)
+      out.on('finish', () => {
+        if (settled) return
+        settled = true
+        resolve({ contentType, bytes: received })
+      })
     })
-    req.on('error', reject)
+    req.on('error', fail)
     req.end()
   })
 }
 
 export async function downloadMedia(tab: TabRuntime, url: string, path: string, referer?: string, onProgress?: (received: number, total?: number) => void): Promise<void> {
   try {
-    const got = await downloadUrl(wcOf(tab), url, referer, onProgress)
-    writeFileSync(path, got.buf)
+    await downloadToFile(wcOf(tab), url, path, referer, onProgress)
   } catch {
     await fetchToFile(tab, url, path, onProgress)
   }
@@ -2763,6 +2763,7 @@ export async function screenshotRegion(
       image = await wc.capturePage({ x, y, width, height }).catch(() => undefined)
     }
     if (!image || image.isEmpty()) throw new Error(mt('main.page.regionCapture'))
+    image = atCssSize(image, width, height)
     let output = image
     if (grid > 0) {
       const runtime = windows.get(tab.envId)

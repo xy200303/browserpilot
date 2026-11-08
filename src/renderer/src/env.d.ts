@@ -1,3 +1,4 @@
+import type { GridRenderRequest } from '../../shared/grid'
 import type { HistoryEntry, LayerPayload, PasswordEntry, Settings, SuggestPayload, UiState, WorkflowEdge, WorkflowNode } from '../../shared/types'
 
 type RunLog = { id: string; workflowId: string; at: number; ok: boolean; node?: string; title?: string; error?: string; screenshot?: string; outputs?: Record<string, unknown>; files?: string[] }
@@ -107,6 +108,8 @@ export type BrowserApi = {
   screenReady: () => Promise<void>
   screenFailed: (message: string) => Promise<void>
   saveScreen: (data: Uint8Array, mime: string) => Promise<string>
+  appendScreen: (data: Uint8Array) => Promise<number>
+  finishScreen: (mime: string) => Promise<string>
   minimize: () => Promise<void>
   toggleMaximize: () => Promise<void>
   closeWindow: () => Promise<void>
@@ -116,6 +119,8 @@ export type BrowserApi = {
   toggleRailPin: () => Promise<void>
   currentLayer: () => Promise<LayerPayload | null>
   onLayer: (callback: (payload: LayerPayload) => void) => () => void
+  onGridRender: (callback: (request: GridRenderRequest) => void) => () => void
+  sendGridResult: (id: string, png: Uint8Array) => void
 }
 
 declare global {

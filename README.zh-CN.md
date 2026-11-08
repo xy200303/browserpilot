@@ -141,7 +141,7 @@ npm run dist:win     # 打包当前平台（dist:mac / dist:linux 同理）
 npm run deploy:win   # 免安装器：覆盖安装目录并重启
 ```
 
-推送到 `main` 会跑类型检查和构建；打上与 `package.json` 版本一致的 tag（如 `v0.18.0`）后，CI 在 Windows / macOS / Linux 三端打包并发布 Release。
+推送到 `main` 会跑类型检查和构建；打上与 `package.json` 版本一致的 tag（如 `v0.19.0`）后，CI 在 Windows / macOS / Linux 三端打包并发布 Release。
 
 官网在 `website/`，本地预览：
 

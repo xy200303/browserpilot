@@ -11,6 +11,7 @@ import {
   bridge,
   findTab,
   markUserTookOver,
+  runDepth,
   windows,
   type Bounds,
   type TabRuntime,
@@ -18,9 +19,10 @@ import {
 } from './runtime'
 import { downloadBegin, downloadDone, downloadFail, downloadProgress, downloadTargetDir, registerSessionDownload } from './services/DownloadService'
 import { scheduleClearEnvCache } from './services/CacheService'
+import { clearCaptures } from './services/NetService'
 import { watchDialogs } from './dialogs'
 import { watchConsole } from './console-log'
-import { inspectElement, isSendingToPage, saveMedia, saveMediaInfo, sendCdp, startUrl, watchDocument, type ElementInfo } from './page'
+import { inspectElement, isSendingToPage, saveMedia, saveMediaInfo, sendCdp, startUrl, type ElementInfo } from './page'
 import { mt } from './i18n'
 
 const lockHtml = (): string => `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:rgba(32,33,36,.45);font-family:Segoe UI,sans-serif;color:#fff"><div style="text-align:center"><div style="font-size:18px">${mt('main.lock.working')}</div><button id="take" style="margin-top:16px;padding:8px 18px;border:0;border-radius:8px;background:#fff;color:#202124;font-size:14px">${mt('main.lock.takeOver')}</button></div></body></html>`
@@ -364,7 +366,6 @@ function addHibernatedTab(runtime: WindowRuntime, item: { url: string; title: st
     handoffMessage: '',
     userTookOver: false,
     refs: new Map(),
-    documentHtml: '',
     lastActiveAt: Date.now(),
     hibernated: true
   }
@@ -410,7 +411,7 @@ export function openBookmark(runtime: WindowRuntime, url: string): void {
   addTab(runtime, url)
 }
 
-export function hibernateTab(runtime: WindowRuntime, tabId: string): boolean {
+export function hibernateTab(runtime: WindowRuntime, tabId: string, quiet = false): boolean {
   const tab = runtime.tabs.find((item) => item.id === tabId)
   if (!tab || tab.kind !== 'page' || tab.hibernated || tab.id === runtime.activeTabId) return false
   const view = tab.view
@@ -418,7 +419,7 @@ export function hibernateTab(runtime: WindowRuntime, tabId: string): boolean {
   tab.hibernated = true
   tab.loading = false
   tab.progress = 0
-  tab.documentHtml = ''
+  clearCaptures(tab.id)
   if (view) {
     try {
       view.webContents.close()
@@ -431,18 +432,74 @@ export function hibernateTab(runtime: WindowRuntime, tabId: string): boolean {
       /* 已经不在树上 */
     }
   }
-  scheduleSessionSave(runtime)
-  bridge.layout(runtime.envId)
-  bridge.broadcast(runtime.envId)
+  if (!quiet) {
+    scheduleSessionSave(runtime)
+    bridge.layout(runtime.envId)
+    bridge.broadcast(runtime.envId)
+  }
   return true
 }
 
 export function hibernateOtherTabs(runtime: WindowRuntime): number {
   let count = 0
   for (const tab of runtime.tabs) {
-    if (tab.id !== runtime.activeTabId && hibernateTab(runtime, tab.id)) count += 1
+    if (tab.id !== runtime.activeTabId && hibernateTab(runtime, tab.id, true)) count += 1
+  }
+  if (count) {
+    scheduleSessionSave(runtime)
+    bridge.layout(runtime.envId)
+    bridge.broadcast(runtime.envId)
   }
   return count
+}
+
+/** 每个窗口最多保留这么多活着页面，其余按最久未用休眠，兜住“开一上午标签”的内存。 */
+const MAX_LIVE_TABS = 8
+
+function enforceLiveTabLimit(runtime: WindowRuntime): void {
+  const live = runtime.tabs.filter(
+    (tab) => tab.kind === 'page' && tab.view && !tab.hibernated && tab.id !== runtime.activeTabId
+  )
+  const excess = live.length + 1 - MAX_LIVE_TABS
+  if (excess <= 0) return
+  const candidates = live
+    .filter((tab) => tab.control !== 'agent' && !tab.audible)
+    .sort((a, b) => (a.lastActiveAt ?? 0) - (b.lastActiveAt ?? 0))
+  let count = 0
+  for (const tab of candidates) {
+    if (count >= excess) break
+    if (hibernateTab(runtime, tab.id, true)) count += 1
+  }
+  if (count) console.log('[tabs] hibernate', count, 'over live limit')
+}
+
+function ownMemoryMB(): number {
+  return app.getAppMetrics().reduce((sum, metric) => sum + (metric.memory?.workingSetSize ?? 0), 0) / 1024
+}
+
+/** 系统内存吃紧时，主动把后台标签收掉；运行中的 Agent/有声/录屏标签不动。 */
+function reapMemoryPressure(): void {
+  if (runDepth > 0) return
+  const mem = process.getSystemMemoryInfo()
+  if (!mem.total) return
+  const freeRatio = mem.free / mem.total
+  const pressure = freeRatio < 0.1 || (ownMemoryMB() > 1536 && freeRatio < 0.25)
+  if (!pressure) return
+  for (const runtime of windows.values()) {
+    if (runtime.screenRecording || runtime.win.isDestroyed()) continue
+    const candidates = runtime.tabs
+      .filter((tab) => tab.kind === 'page' && tab.view && !tab.hibernated && tab.id !== runtime.activeTabId)
+      .filter((tab) => tab.control !== 'agent' && !tab.audible)
+      .sort((a, b) => (a.lastActiveAt ?? 0) - (b.lastActiveAt ?? 0))
+    let count = 0
+    for (const tab of candidates) if (hibernateTab(runtime, tab.id, true)) count += 1
+    if (count) {
+      console.log('[memory] hibernate', count, 'tabs in', runtime.envId)
+      scheduleSessionSave(runtime)
+      bridge.layout(runtime.envId)
+      bridge.broadcast(runtime.envId)
+    }
+  }
 }
 
 /**
@@ -455,12 +512,21 @@ export function reapIdle(): void {
   const now = Date.now()
   for (const runtime of windows.values()) {
     if (runtime.screenRecording || runtime.win.isDestroyed()) continue
+    let slept = 0
     if (tabHibernateMinutes > 0) {
       for (const tab of runtime.tabs) {
         if (tab.kind !== 'page' || tab.hibernated || tab.id === runtime.activeTabId) continue
         if (tab.control === 'agent' || tab.audible) continue
         if (now - (tab.lastActiveAt ?? now) < tabHibernateMinutes * 60_000) continue
-        if (hibernateTab(runtime, tab.id)) console.log('[idle] hibernate', tab.url)
+        if (hibernateTab(runtime, tab.id, true)) {
+          slept += 1
+          console.log('[idle] hibernate', tab.url)
+        }
+      }
+      if (slept) {
+        scheduleSessionSave(runtime)
+        bridge.layout(runtime.envId)
+        bridge.broadcast(runtime.envId)
       }
     }
     // 无头窗口本来就靠 Agent 驱动，关掉会打断后台任务
@@ -473,6 +539,7 @@ export function reapIdle(): void {
       }
     }
   }
+  reapMemoryPressure()
 }
 
 export function openEnvironment(envId: string, headless: boolean): WindowRuntime {
@@ -503,7 +570,6 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
     handoffMessage: '',
     userTookOver: false,
     refs: new Map(),
-    documentHtml: '',
     lastActiveAt: Date.now()
   }
   const ses = session.fromPartition(`persist:${runtime.envId}`)
@@ -551,8 +617,7 @@ function openBuiltin(runtime: WindowRuntime, kind: 'market' | 'settings' | 'down
     control: 'free',
     handoffMessage: '',
     userTookOver: false,
-    refs: new Map(),
-    documentHtml: ''
+    refs: new Map()
   }
   runtime.tabs.push(tab)
   activateTab(runtime, tab.id)
@@ -702,10 +767,10 @@ export function openBookmarksPage(runtime: WindowRuntime): TabRuntime {
 }
 
 function mountPopup(runtime: WindowRuntime, payload: LayerPayload): void {
-  runtime.popupPayload = payload
-  runtime.popupOpen = true
   const view = ensurePopupView(runtime)
   if (!view) return
+  runtime.popupPayload = payload
+  runtime.popupOpen = true
   layoutWindow(runtime.envId)
   view.webContents.send('layer:show', payload)
 }
@@ -772,8 +837,7 @@ export function openWorkflowPage(runtime: WindowRuntime, workflowId: string): Ta
     control: 'free',
     handoffMessage: '',
     userTookOver: false,
-    refs: new Map(),
-    documentHtml: ''
+    refs: new Map()
   }
   runtime.tabs.push(tab)
   activateTab(runtime, tab.id)
@@ -791,6 +855,7 @@ export function activateTab(runtime: WindowRuntime, tabId: string, focus = true)
     tab.hibernated = false
     restoreTabView(tab)
   }
+  enforceLiveTabLimit(runtime)
   scheduleSessionSave(runtime)
   bridge.layout(runtime.envId)
   bridge.broadcast(runtime.envId)
@@ -816,6 +881,7 @@ export function closeTab(runtime: WindowRuntime, tabId: string): void {
   }
   tab.view?.webContents.close()
   if (tab.view) runtime.win.contentView.removeChildView(tab.view)
+  clearCaptures(tab.id)
   runtime.tabs.splice(index, 1)
   if (runtime.activeTabId === tabId) {
     const next = runtime.tabs[index] ?? runtime.tabs[index - 1]
@@ -1076,9 +1142,6 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
   watchConsole(wc)
   wc.on('will-prevent-unload', (event) => event.preventDefault())
   bindShortcuts(wc, runtime.envId)
-  watchDocument(wc, (html) => {
-    tab.documentHtml = html
-  })
   wc.on('context-menu', (_event, params) => {
     emitContextMenu(runtime, tab, params.x, params.y)
   })

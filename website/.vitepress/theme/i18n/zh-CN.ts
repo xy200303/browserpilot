@@ -1,11 +1,11 @@
 export const zhCN = {
   hero: {
-    notice: { tag: 'v0.18.0', text: '界面中英双语；99 个工具描述全部英文化' },
-    kicker: 'MCP · 99 TOOLS · 0.18.0',
+    notice: { tag: 'v0.19.0', text: '性能版：10 标签内存降约 30%，用户目录减半，安装包更小' },
+    kicker: 'MCP · 99 TOOLS · 0.19.0',
     title: ['你已经登录的浏览器，', 'Agent 接着用。'],
     titleMobile: ['你已经登录，', 'Agent 接着点。'],
     sub: '一套环境一套登录。Agent 在同一扇窗口里点击、填表、等待、提取结果；你随时能接管。 Windows / macOS / Linux，都在本机。',
-    cta: { download: '下载 v0.18.0', watch: '看它跑一遍' },
+    cta: { download: '下载 v0.19.0', watch: '看它跑一遍' },
     meta: ['本机 MCP · 127.0.0.1', '22 种工作流节点', '极验 v4 滑块', '安装包未签名']
   },
   demo: {
@@ -279,8 +279,8 @@ export const zhCN = {
     lead: '版本、驱动、定位方式、并发、凭据和数据落盘位置。数字来自仓库和当前安装包。'
   },
   specs: [
-    { k: '版本', v: '0.18.0' },
-    { k: '运行时', v: 'Electron 45 · React 19 · TypeScript 5；Windows 安装包约 118 MiB，解压后约 460 MB' },
+    { k: '版本', v: '0.19.0' },
+    { k: '运行时', v: 'Electron 45 · React 19 · TypeScript 5；Windows 安装包约 118 MiB，解压后约 320 MB' },
     { k: '驱动方式', v: 'Electron WebContentsView + Chrome DevTools Protocol（Input / DOM / Accessibility / Network）' },
     { k: '定位', v: 'XPath 或 CSS；必须恰好匹配一个；可穿透 Shadow DOM、同源 iframe，顶层找不到时查跨域 iframe' },
     { k: '运行模式', v: '有头优先；无头 = 窗口隐藏（同一 Chromium），默认上限 3 扇，可在设置里调' },
@@ -316,7 +316,7 @@ export const zhCN = {
       '主进程、React 界面、Go CLI 同仓；没有服务端。',
       'Windows 安装包未做代码签名。'
     ],
-    note: '截至 v0.18.0，仓库没有 LICENSE 文件。源码公开可读，但在作者给出书面许可前，不要把它当作 MIT / Apache 等开源许可再分发。许可证以仓库实际文件为准。'
+    note: '截至 v0.19.0，仓库没有 LICENSE 文件。源码公开可读，但在作者给出书面许可前，不要把它当作 MIT / Apache 等开源许可再分发。许可证以仓库实际文件为准。'
   },
   changelogSection: {
     eyebrow: '更新日志',
@@ -325,6 +325,16 @@ export const zhCN = {
     more: '完整历史见'
   },
   changelog: [
+    {
+      v: 'v0.19.0',
+      when: '2026-11-09',
+      items: [
+        '10 标签内存约降 30%，标签超过 8 个或系统内存紧张时自动休眠后台页。',
+        '用户目录清理后 501 MB → 254 MB；截图改为 120 张 / 80 MB / 14 天保留。',
+        '截图与窗口预览去掉 base64 往返，截图耗时约降 25%；录屏和媒体下载改流式落盘。',
+        '安装包 app.asar 从 14.2 MB 降到 4.5 MB。'
+      ]
+    },
     {
       v: 'v0.18.0',
       when: '2026-11-08',
@@ -341,15 +351,6 @@ export const zhCN = {
         '工具描述全部改为英文并精简，提示词占用大约减半。',
         '新增 workflow_record：把一串工具调用录成工作流图。',
         '落笔后读画布像素校验；被重绘覆盖或没画上会直接报错。'
-      ]
-    },
-    {
-      v: 'v0.17.0',
-      when: '2026-11-08',
-      items: [
-        '新增 stroke 节点：沿 SVG 路径发真实指针事件，画进站点文档。',
-        '指针事件改为流水线发送，后台窗口下一次落笔从 81 秒降到约 1 秒。',
-        '工作流定位支持可见文字和 role + name，不再只认选择器。'
       ]
     }
   ],

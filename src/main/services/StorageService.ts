@@ -317,7 +317,7 @@ export class StorageService {
   }
 
   /** 各目录占用（字节）：设置页的「存储」区块和诊断用。 */
-  diskUsage(): Record<'screenshots' | 'runs' | 'media' | 'exports' | 'partitions', number> {
+  diskUsage(): Record<'screenshots' | 'runs' | 'media' | 'exports' | 'partitions' | 'cache', number> {
     const measure = (dir: string): number => {
       let total = 0
       const walk = (path: string): void => {
@@ -346,15 +346,16 @@ export class StorageService {
       runs: measure(this.dir('runs')),
       media: measure(this.dir('media')),
       exports: measure(this.dir('exports')),
-      partitions: measure(this.dir('Partitions'))
+      partitions: measure(this.dir('Partitions')),
+      cache: measure(this.dir('Cache')) + measure(this.dir('Code Cache')) + measure(this.dir('GrShaderCache')) + measure(this.dir('GPUCache'))
     }
   }
 
   /**
-   * 保留策略：截图最多 300 张且不超过 200MB，runs/media 只留 30 天。
-   * 只动这三个目录，不碰登录数据、导出和下载。
+   * 保留策略：截图最多 120 张、不超过 80MB 且只留 14 天；runs/media 只留 30 天。
+   * 只动这些可再生成的目录，不碰登录数据、导出和下载。
    */
-  pruneStorage(scope: 'auto' | 'all' = 'all'): { files: number; bytes: number } {
+  pruneStorage(_scope: 'auto' | 'all' = 'all'): { files: number; bytes: number } {
     let files = 0
     let bytes = 0
     const remove = (path: string, size: number): void => {
@@ -385,12 +386,18 @@ export class StorageService {
       }
     }
     const shots: Array<{ path: string; size: number; mtime: number }> = []
+    const shotCutoff = Date.now() - 14 * 86_400_000
     try {
       for (const name of readdirSync(this.dir('screenshots'))) {
         const full = join(this.dir('screenshots'), name)
         try {
           const stat = statSync(full)
-          if (stat.isFile()) shots.push({ path: full, size: stat.size, mtime: stat.mtimeMs })
+          if (!stat.isFile()) continue
+          if (stat.mtimeMs < shotCutoff) {
+            remove(full, stat.size)
+            continue
+          }
+          shots.push({ path: full, size: stat.size, mtime: stat.mtimeMs })
         } catch {
           /* 刚被删 */
         }
@@ -402,16 +409,15 @@ export class StorageService {
     let total = shots.reduce((sum, shot) => sum + shot.size, 0)
     let count = shots.length
     for (const shot of shots) {
-      if (count <= 300 && total <= 200 * 1024 * 1024) break
+      if (count <= 120 && total <= 80 * 1024 * 1024) break
       remove(shot.path, shot.size)
       total -= shot.size
       count -= 1
     }
-    // 自动只清 Agent 自己产生的截图；运行记录和媒体可能是有用素材，留给手动清理
-    if (scope === 'all') {
-      olderThan(this.dir('runs'), 30)
-      olderThan(this.dir('media'), 30)
-    }
+    // 运行记录、旧版遗留的 media/videos 也能再生成；导出和下载属于用户素材，不动
+    olderThan(this.dir('runs'), 30)
+    olderThan(this.dir('media'), 30)
+    olderThan(this.dir('videos'), 30)
     return { files, bytes }
   }
 

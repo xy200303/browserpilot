@@ -59,7 +59,7 @@ const listeners = new Map<number, Array<(method: string, params: unknown) => voi
 export function onDebuggerMessage(
   wc: WebContents,
   listener: (method: string, params: unknown) => void
-): void {
+): () => void {
   let list = listeners.get(wc.id)
   if (!list) {
     list = []
@@ -70,4 +70,11 @@ export function onDebuggerMessage(
     wc.once('destroyed', () => listeners.delete(wc.id))
   }
   list.push(listener)
+  return () => {
+    const current = listeners.get(wc.id)
+    if (!current) return
+    const at = current.indexOf(listener)
+    if (at >= 0) current.splice(at, 1)
+    if (!current.length) listeners.delete(wc.id)
+  }
 }

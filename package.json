@@ -1,6 +1,6 @@
 {
   "name": "browserpilot",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "private": true,
   "description": "Browser for agents. Isolated login environments, human-in-the-loop, local MCP and workflows.",
   "main": "./out/main/index.js",
@@ -13,6 +13,7 @@
     "dist": "npm run cli:build && electron-vite build && electron-builder --publish never",
     "dist:win": "npm run cli:build && electron-vite build && electron-builder --win --publish never",
     "deploy:win": "powershell -ExecutionPolicy Bypass -File scripts/deploy-local.ps1",
+    "release:clean": "node scripts/clean-release.mjs",
     "dist:mac": "npm run cli:build && electron-vite build && electron-builder --mac --publish never",
     "dist:linux": "npm run cli:build && electron-vite build && electron-builder --linux --publish never",
     "i18n:scan": "node scripts/i18n-scan.mjs",
@@ -64,7 +65,12 @@
     },
     "files": [
       "out/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/**",
+      "node_modules/ajv/**",
+      "node_modules/ajv-formats/**",
+      "node_modules/fast-uri/**",
+      "node_modules/json-schema-traverse/**"
     ],
     "extraResources": [
       {

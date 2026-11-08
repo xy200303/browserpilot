@@ -22,6 +22,14 @@ export async function clearEnvCache(envId: string): Promise<void> {
   await ses.clearStorageData({ storages: [...CACHE_STORAGES] }).catch(() => undefined)
 }
 
+/** 应用外壳和默认会话的缓存，和登录数据无关，可以放心清。 */
+export async function clearDefaultCache(): Promise<void> {
+  const ses = session.defaultSession
+  await ses.clearCache().catch(() => undefined)
+  await ses.clearCodeCaches({}).catch(() => undefined)
+  await ses.clearStorageData({ storages: [...CACHE_STORAGES] }).catch(() => undefined)
+}
+
 /** 关窗时清理：排队执行，应用退出前会等它一下，避免清到一半就没了。 */
 export function scheduleClearEnvCache(envId: string): void {
   pending = pending.then(() => clearEnvCache(envId)).catch(() => undefined)
@@ -68,6 +76,7 @@ export async function cleanupEnvs(envIds: string[]): Promise<number> {
 /** 启动时调用：清所有没开着的环境，并标记本周已清。开着的那扇留给启动后再清。 */
 export async function cleanupIfDue(openEnvIds: Set<string>): Promise<number> {
   if (!cacheCleanupDue()) return 0
+  await clearDefaultCache()
   const closed = storage.envs.map((env) => env.id).filter((id) => !openEnvIds.has(id))
   const count = await cleanupEnvs(closed)
   markCleanup()

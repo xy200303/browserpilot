@@ -3,12 +3,12 @@ import type { zhCN } from './zh-CN'
 
 export const enUS: MessageShape<typeof zhCN> = {
   hero: {
-    notice: { tag: 'v0.18.0', text: 'Bilingual interface; all 99 tool descriptions now English' },
-    kicker: 'MCP · 99 TOOLS · 0.18.0',
+    notice: { tag: 'v0.19.0', text: 'Performance release: ~30% less memory with 10 tabs, half the user data, smaller package' },
+    kicker: 'MCP · 99 TOOLS · 0.19.0',
     title: ['The browser you are already', 'signed in to. Your agent drives.'],
     titleMobile: ['Already signed in,', 'your agent drives.'],
     sub: 'One login per environment. The agent clicks, fills, waits and extracts in that same window; you can take over whenever you want. Windows, macOS and Linux, all local.',
-    cta: { download: 'Download v0.18.0', watch: 'Watch it run' },
+    cta: { download: 'Download v0.19.0', watch: 'Watch it run' },
     meta: ['Local MCP · 127.0.0.1', '22 workflow nodes', 'Geetest v4 sliders', 'Unsigned installers']
   },
   demo: {
@@ -282,8 +282,8 @@ export const enUS: MessageShape<typeof zhCN> = {
     lead: 'Version, driving, locating, concurrency, credentials and where data lands. Numbers come from the repository and the current installer.'
   },
   specs: [
-    { k: 'Version', v: '0.18.0' },
-    { k: 'Runtime', v: 'Electron 45 · React 19 · TypeScript 5; Windows installer about 118 MiB, roughly 460 MB installed' },
+    { k: 'Version', v: '0.19.0' },
+    { k: 'Runtime', v: 'Electron 45 · React 19 · TypeScript 5; Windows installer about 118 MiB, roughly 320 MB installed' },
     { k: 'Driving', v: 'Electron WebContentsView plus Chrome DevTools Protocol (Input, DOM, Accessibility, Network)' },
     { k: 'Locating', v: 'XPath or CSS; exactly one match; pierces shadow DOM and same-origin iframes, falling back to cross-origin frames' },
     { k: 'Modes', v: 'Headed first; headless hides the window (same Chromium), 3 by default, adjustable in settings' },
@@ -319,7 +319,7 @@ export const enUS: MessageShape<typeof zhCN> = {
       'Main process, React UI and Go CLI in one repository; there is no server.',
       'Windows installers are not code-signed.'
     ],
-    note: 'As of v0.18.0 the repository has no LICENSE file. The source is public, but until the author grants written permission, do not redistribute it as MIT or Apache. The actual repository file is authoritative.'
+    note: 'As of v0.19.0 the repository has no LICENSE file. The source is public, but until the author grants written permission, do not redistribute it as MIT or Apache. The actual repository file is authoritative.'
   },
   changelogSection: {
     eyebrow: 'Changelog',
@@ -328,6 +328,16 @@ export const enUS: MessageShape<typeof zhCN> = {
     more: 'Full history in'
   },
   changelog: [
+    {
+      v: 'v0.19.0',
+      when: '2026-11-09',
+      items: [
+        'Memory for 10 tabs is about 30% lower; background tabs sleep beyond 8 live tabs or under system memory pressure.',
+        'User data shrank from 501 MB to 254 MB after cleanup; screenshots keep 120 files, 80 MB and 14 days.',
+        'Screenshots and window preview no longer round-trip base64; capture is about 25% faster. Recording and media downloads stream to disk.',
+        'app.asar dropped from 14.2 MB to 4.5 MB.'
+      ]
+    },
     {
       v: 'v0.18.0',
       when: '2026-11-08',
@@ -344,15 +354,6 @@ export const enUS: MessageShape<typeof zhCN> = {
         'Tool descriptions are English-only and shorter, cutting the prompt footprint roughly in half.',
         'Workflow recording: record a sequence of tool calls into a workflow graph.',
         'Drawing strokes are verified by reading canvas pixels; wiped or empty strokes fail loudly.'
-      ]
-    },
-    {
-      v: 'v0.17.0',
-      when: '2026-11-08',
-      items: [
-        'New stroke node draws along an SVG path with real pointer events, so strokes land in the site document.',
-        'Pointer dispatch is pipelined: a stroke that took 81 seconds in a background window now takes about 1 second.',
-        'Workflow locators accept visible text and role plus accessible name, not only selectors.'
       ]
     }
   ],

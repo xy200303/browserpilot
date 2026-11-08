@@ -1,6 +1,6 @@
-import { nativeImage, type NativeImage, type WebContents } from 'electron'
+import { ipcMain, nativeImage, type NativeImage, type WebContents } from 'electron'
+import type { GridRenderRequest } from '@shared/grid'
 import { pickLineColor } from './grid/color'
-import { buildGridScript } from './grid/script'
 
 export type GridRenderOptions = {
   step: number
@@ -51,9 +51,10 @@ function buildLineMap(image: NativeImage): { width: number; height: number; tone
   const green = new Float32Array(cells)
   const blue = new Float32Array(cells)
   const counts = new Uint32Array(cells)
-  for (let y = 0; y < pixelsHigh; y += 2) {
+  const sample = pixelsWide * pixelsHigh > 2_000_000 ? 4 : 2
+  for (let y = 0; y < pixelsHigh; y += sample) {
     const row = Math.floor(y / BLOCK) * width
-    for (let x = 0; x < pixelsWide; x += 2) {
+    for (let x = 0; x < pixelsWide; x += sample) {
       const i = (y * pixelsWide + x) * 4
       if (i + 3 >= data.length) continue
       const cell = row + Math.floor(x / BLOCK)
@@ -83,8 +84,27 @@ function buildLineMap(image: NativeImage): { width: number; height: number; tone
   return { width, height, tone, colors }
 }
 
+type PendingGrid = {
+  wcId: number
+  resolve: (png: Uint8Array) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
+const pendingGrid = new Map<string, PendingGrid>()
+let gridSeq = 0
+
+ipcMain.on('grid:result', (event, payload: { id?: string; png?: Uint8Array }) => {
+  if (!payload?.id || !payload.png) return
+  const pending = pendingGrid.get(payload.id)
+  if (!pending || pending.wcId !== event.sender.id) return
+  pendingGrid.delete(payload.id)
+  clearTimeout(pending.timer)
+  pending.resolve(payload.png)
+})
+
 /**
- * 给一张截图叠加坐标网格：每个 32px 小块按背景选色，再在渲染进程里用 canvas 合成。
+ * 给一张截图叠加坐标网格：每个 32px 小块按背景选色，再在主窗口里用 canvas 合成。
+ * 图片以二进制 IPC 传入，避免 PNG → data URL → base64 字符串的多份拷贝。
  * 不往被截的页面里注入任何东西，所以不会闪、也不会改页面布局。
  * 返回新图；取色或绘制失败时返回原图。
  */
@@ -94,30 +114,45 @@ export async function renderGrid(wc: WebContents, image: NativeImage, options: G
   if (step < 5 || size.width < 2 || size.height < 2) return image
 
   const lineMap = buildLineMap(image)
-  const script = buildGridScript({
-    step,
-    labelStep: Math.max(step, Math.round(Number(options.labelStep) || 0) || 100),
-    originX: Number(options.originX) || 0,
-    originY: Number(options.originY) || 0,
-    spanWidth: Math.max(1, Number(options.spanWidth) || size.width),
-    spanHeight: Math.max(1, Number(options.spanHeight) || size.height),
-    showOrigin: Boolean(options.showOrigin),
-    edgeOnly: Boolean(options.edgeOnly),
-    alpha: alphaFor(step),
-    block: BLOCK,
-    toneWidth: lineMap.width,
-    toneHeight: lineMap.height,
-    tone: lineMap.tone,
-    colors: lineMap.colors,
-    dataUrl: image.toDataURL()
-  })
-
-  try {
-    const out = (await wc.executeJavaScript(script, true)) as string
-    if (!out || !out.startsWith('data:image/png;base64,')) return image
-    const drawn = nativeImage.createFromDataURL(out)
-    return drawn.isEmpty() ? image : drawn
-  } catch {
-    return image
+  const png = image.toPNG()
+  if (png.length > 16 * 1024 * 1024) return image
+  const id = `grid-${++gridSeq}-${Date.now()}`
+  const request: GridRenderRequest = {
+    id,
+    png,
+    options: {
+      step,
+      labelStep: Math.max(step, Math.round(Number(options.labelStep) || 0) || 100),
+      originX: Number(options.originX) || 0,
+      originY: Number(options.originY) || 0,
+      spanWidth: Math.max(1, Number(options.spanWidth) || size.width),
+      spanHeight: Math.max(1, Number(options.spanHeight) || size.height),
+      showOrigin: Boolean(options.showOrigin),
+      edgeOnly: Boolean(options.edgeOnly),
+      alpha: alphaFor(step),
+      block: BLOCK,
+      toneWidth: lineMap.width,
+      toneHeight: lineMap.height,
+      tone: lineMap.tone,
+      colors: lineMap.colors
+    }
   }
+
+  const drawn = await new Promise<Uint8Array | null>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingGrid.delete(id)
+      resolve(null)
+    }, 10_000)
+    pendingGrid.set(id, { wcId: wc.id, resolve, timer })
+    try {
+      wc.send('grid:render', request)
+    } catch {
+      pendingGrid.delete(id)
+      clearTimeout(timer)
+      resolve(null)
+    }
+  })
+  if (!drawn) return image
+  const output = nativeImage.createFromBuffer(Buffer.from(drawn))
+  return output.isEmpty() ? image : output
 }

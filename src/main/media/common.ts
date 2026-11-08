@@ -1,8 +1,8 @@
 import type { WebContents } from 'electron'
-import { readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { closeSync, mkdirSync, openSync, readSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { TabRuntime } from '../runtime'
-import { downloadUrl, evalSource, fetchToFile } from '../page'
+import { downloadToFile, fetchToFile } from '../page'
 import type { MediaProgress, MediaSaved } from './types'
 import { mt } from '../i18n'
 
@@ -45,37 +45,51 @@ export function extOf(url: string, contentType: string): string {
  * 跨域被拒再退回页面内 fetch 流式落盘。流媒体清单不是单文件，直接说明。
  */
 export async function downloadDirect(tab: TabRuntime, src: string, kind: string, dir: string, savePath: string | undefined, onProgress: MediaProgress): Promise<MediaSaved> {
-  let buf: Buffer
+  mkdirSync(dir, { recursive: true })
+  const temp = join(dir, `dl-${Date.now()}.part`)
   let contentType = ''
-  if (src.startsWith('blob:')) {
-    const base64 = (await evalSource(
-      tab,
-      `fetch(${JSON.stringify(src)}).then((r) => r.arrayBuffer()).then((b) => { const u = new Uint8Array(b); const parts = []; for (let i = 0; i < u.length; i += 32768) parts.push(String.fromCharCode.apply(null, u.subarray(i, i + 32768))); return btoa(parts.join('')) })`
-    )) as string
-    buf = Buffer.from(base64, 'base64')
-  } else if (src.startsWith('data:')) {
-    const comma = src.indexOf(',')
-    const meta = src.slice(5, comma)
-    contentType = meta.split(';')[0]
-    const payload = src.slice(comma + 1)
-    buf = /;base64/i.test(meta) ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'utf8')
-  } else if (/^https?:/.test(src)) {
-    if (/\.(m3u8|mpd)(\?|$)/i.test(src)) throw new Error(mt('main.media.manifest'))
-    try {
-      const got = await downloadUrl(wcOf(tab), src, undefined, onProgress)
-      buf = got.buf
-      contentType = got.contentType
-    } catch {
-      const tmpPath = join(dir, `dl-${Date.now()}.part`)
-      await fetchToFile(tab, src, tmpPath, onProgress)
-      buf = readFileSync(tmpPath)
-      unlinkSync(tmpPath)
+  try {
+    if (src.startsWith('blob:') || /^https?:/.test(src)) {
+      if (/\.(m3u8|mpd)(\?|$)/i.test(src)) throw new Error(mt('main.media.manifest'))
+      try {
+        contentType = (await downloadToFile(wcOf(tab), src, temp, undefined, onProgress)).contentType
+      } catch {
+        try {
+          unlinkSync(temp)
+        } catch {
+          /* 下载失败可能还没创建文件 */
+        }
+        await fetchToFile(tab, src, temp, onProgress)
+      }
+    } else if (src.startsWith('data:')) {
+      const comma = src.indexOf(',')
+      const meta = src.slice(5, comma)
+      contentType = meta.split(';')[0]
+      const payload = src.slice(comma + 1)
+      const buf = /;base64/i.test(meta) ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'utf8')
+      writeFileSync(temp, buf)
+    } else {
+      throw new Error(mt('main.media.unknownUrl', { url: src.slice(0, 60) }))
     }
-  } else {
-    throw new Error(mt('main.media.unknownUrl', { url: src.slice(0, 60) }))
+    // 只读文件头判断容器格式，不再把整个文件读回内存
+    const head = Buffer.alloc(12)
+    const fd = openSync(temp, 'r')
+    let size = 0
+    try {
+      size = readSync(fd, head, 0, head.length, 0)
+    } finally {
+      closeSync(fd)
+    }
+    const ext = sniffExt(head.subarray(0, size)) || extOf(src, contentType)
+    const path = savePath || join(dir, `${kind}-${Date.now()}.${ext}`)
+    renameSync(temp, path)
+    return { path, kind, bytes: statSync(path).size }
+  } catch (error) {
+    try {
+      unlinkSync(temp)
+    } catch {
+      /* 临时文件可能已经移走 */
+    }
+    throw error
   }
-  const ext = sniffExt(buf) || extOf(src, contentType)
-  const path = savePath || join(dir, `${kind}-${Date.now()}.${ext}`)
-  writeFileSync(path, buf)
-  return { path, kind, bytes: buf.length }
 }

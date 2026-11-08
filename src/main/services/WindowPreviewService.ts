@@ -4,7 +4,7 @@ import { join } from 'path'
 import type { Bounds, WindowRuntime } from '../runtime'
 import { windows } from '../runtime'
 import { layoutWindow } from '../windows'
-import { sleep } from '../page'
+import { atCssSize, sleep } from '../page'
 import { renderGrid } from '../grid'
 import { withDebugger } from './debugger'
 import { storage } from './store'
@@ -103,10 +103,11 @@ async function collectLayers(runtime: WindowRuntime): Promise<Layer[]> {
 
   // 视图可能还在、webContents 已经回收（休眠、渲染进程崩溃），这时截图会直接抛
   if (active?.kind === 'page' && active.view && !active.view.webContents.isDestroyed() && !active.error) {
+    const rect = viewRect(active.view)
     layers.push({
       name: 'page',
-      image: await captureWebContents(active.view.webContents, false),
-      rect: viewRect(active.view)
+      image: atCssSize(await captureWebContents(active.view.webContents, false), rect.width, rect.height),
+      rect
     })
   }
 
@@ -114,18 +115,20 @@ async function collectLayers(runtime: WindowRuntime): Promise<Layer[]> {
   if (rail && storage.settings.tabLayout === 'left' && !runtime.headless) {
     const rect = viewRect(rail)
     if (rect.width > 0 && rect.height > 0) {
-      layers.push({ name: 'rail', image: await captureWebContents(rail.webContents, false), rect })
+      layers.push({ name: 'rail', image: atCssSize(await captureWebContents(rail.webContents, false), rect.width, rect.height), rect })
     }
   }
 
   const lock = runtime.lockView
   if (lock && active?.kind === 'page' && active.control === 'agent') {
-    layers.push({ name: 'mask', image: await captureWebContents(lock.webContents, true), rect: viewRect(lock) })
+    const rect = viewRect(lock)
+    layers.push({ name: 'mask', image: atCssSize(await captureWebContents(lock.webContents, true), rect.width, rect.height), rect })
   }
 
   const popup = runtime.popupView
   if (popup && runtime.popupOpen) {
-    layers.push({ name: 'popup', image: await captureWebContents(popup.webContents, true), rect: viewRect(popup) })
+    const rect = viewRect(popup)
+    layers.push({ name: 'popup', image: atCssSize(await captureWebContents(popup.webContents, true), rect.width, rect.height), rect })
   }
 
   return layers
@@ -153,9 +156,9 @@ export async function windowPreview(
   layoutWindow(envId)
   await sleep(80)
 
-  const base = await captureWebContents(runtime.win.webContents, false)
-  const baseSize = base.getSize()
   const [contentWidth, contentHeight] = runtime.win.getContentSize()
+  const base = atCssSize(await captureWebContents(runtime.win.webContents, false), contentWidth, contentHeight)
+  const baseSize = base.getSize()
   const scaleX = baseSize.width / Math.max(1, contentWidth)
   const scaleY = baseSize.height / Math.max(1, contentHeight)
 

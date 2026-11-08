@@ -39,14 +39,15 @@ export const zhSettings = {
       cacheWeekly: '每周一次',
       storage: {
         title: '磁盘占用',
-        detail: '截图保留最近 300 张且不超过 200MB，运行记录和媒体保留 30 天。清理只动这三类文件，不碰登录、导出和下载。',
+        detail: '截图保留最近 120 张且不超过 80MB（14 天），运行记录和媒体的旧文件保留 30 天。清理只动缓存和这些可再生成文件，不碰登录、导出和下载。',
         clean: '清理',
         freed: '已删除 {{files}} 个文件，释放约 {{mb}} MB',
         nothing: '没有需要清理的文件',
         screenshots: '截图',
         runs: '运行记录',
         media: '媒体',
-        partitions: '环境缓存'
+        partitions: '环境缓存',
+        cache: '应用缓存'
       },
       connect: '接入 Agent',
       connectDetail: '复制一段提示词给 Agent：里面带 MCP 地址和口令、skill 和命令行工具的安装方法。',

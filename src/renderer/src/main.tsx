@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { applyLanguage } from './i18n'
+import { drawGrid } from './lib/grid'
 import { App } from './App'
 import { MarketPage } from './MarketPage'
 import { PopupApp } from './Popup'
@@ -13,6 +14,17 @@ import './index.css'
 if (window.browser) {
   void window.browser.getState().then((state) => applyLanguage(state?.settings.language))
   window.browser.onState((state) => applyLanguage(state?.settings.language))
+  window.browser.onGridRender((request) => {
+    void (async () => {
+      let png = request.png
+      try {
+        png = await drawGrid(request.png, request.options)
+      } catch {
+        /* 合成失败就回原图，不要卡住主进程 */
+      }
+      window.browser.sendGridResult(request.id, png)
+    })()
+  })
 }
 
 const layer = new URLSearchParams(window.location.search).get('layer')

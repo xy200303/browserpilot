@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { GridRenderRequest } from '../shared/grid'
 import type { HistoryEntry, LayerPayload, PasswordEntry, Settings, SuggestPayload, UiState, WorkflowEdge, WorkflowNode } from '../shared/types'
 
 const api = {
@@ -145,6 +146,8 @@ const api = {
   screenReady: (): Promise<void> => ipcRenderer.invoke('screen:ready'),
   screenFailed: (message: string): Promise<void> => ipcRenderer.invoke('screen:failed', message),
   saveScreen: (data: Uint8Array, mime: string): Promise<string> => ipcRenderer.invoke('screen:save', { data, mime }),
+  appendScreen: (data: Uint8Array): Promise<number> => ipcRenderer.invoke('screen:append', data),
+  finishScreen: (mime: string): Promise<string> => ipcRenderer.invoke('screen:finish', { mime }),
   minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
   toggleMaximize: (): Promise<void> => ipcRenderer.invoke('window:toggleMaximize'),
   closeWindow: (): Promise<void> => ipcRenderer.invoke('window:close'),
@@ -157,6 +160,14 @@ const api = {
     const listener = (_event: unknown, payload: LayerPayload): void => callback(payload)
     ipcRenderer.on('layer:show', listener)
     return () => ipcRenderer.removeListener('layer:show', listener)
+  },
+  onGridRender: (callback: (request: GridRenderRequest) => void): (() => void) => {
+    const listener = (_event: unknown, request: GridRenderRequest): void => callback(request)
+    ipcRenderer.on('grid:render', listener)
+    return () => ipcRenderer.removeListener('grid:render', listener)
+  },
+  sendGridResult: (id: string, png: Uint8Array): void => {
+    ipcRenderer.send('grid:result', { id, png })
   }
 }
 

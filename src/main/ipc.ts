@@ -1,5 +1,5 @@
 import { clipboard, dialog, ipcMain } from 'electron'
-import { copyFileSync, unlinkSync, writeFileSync } from 'fs'
+import { appendFileSync, copyFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { Settings, WorkflowEdge, WorkflowNode, WorkflowParam } from '@shared/types'
 import { searchEngines } from '@shared/types'
@@ -58,6 +58,8 @@ function paramHint(param: WorkflowParam): string {
   if (param.type === 'checkbox') return param.options.length ? mt('main.paramHint.checkbox', { options: param.options.join(', ') }) : mt('main.paramHint.checkboxAny')
   return mt('main.paramHint.text')
 }
+
+const screenParts = new Map<string, { path: string; bytes: number }>()
 
 export function wireIpc(): void {
   registerLayerIpc()
@@ -467,9 +469,65 @@ export function wireIpc(): void {
     if (!runtime) return
     runtime.screenRecording = false
     runtime.screenStartedAt = undefined
+    const part = screenParts.get(runtime.envId)
+    screenParts.delete(runtime.envId)
+    if (part) {
+      try {
+        unlinkSync(part.path)
+      } catch {
+        /* 临时文件可能已经没了 */
+      }
+    }
     screenStartWaiters.get(runtime.envId)?.reject(new Error(message || mt('main.screen.notStarted')))
     screenStartWaiters.delete(runtime.envId)
     broadcast(runtime.envId)
+  })
+
+  ipcMain.handle('screen:append', (event, data: Uint8Array) => {
+    const runtime = windowFromSender(event.sender)
+    if (!runtime || !data?.byteLength) return 0
+    let part = screenParts.get(runtime.envId)
+    if (!part) {
+      const path = join(downloadTargetDir(), `screen-${createId('clip')}.mp4`)
+      part = { path: `${path}.part`, bytes: 0 }
+      screenParts.set(runtime.envId, part)
+    }
+    const buf = Buffer.from(data)
+    appendFileSync(part.path, buf)
+    part.bytes += buf.length
+    return part.bytes
+  })
+
+  ipcMain.handle('screen:finish', async (event, payload: { mime?: string }) => {
+    const runtime = windowFromSender(event.sender)
+    if (!runtime) return ''
+    const part = screenParts.get(runtime.envId)
+    screenParts.delete(runtime.envId)
+    if (!part || !part.bytes || !String(payload?.mime || '').includes('mp4')) {
+      runtime.screenRecording = false
+      runtime.screenStartedAt = undefined
+      screenWaiters.get(runtime.envId)?.reject(new Error(mt('main.screen.notMp4')))
+      screenWaiters.delete(runtime.envId)
+      broadcast(runtime.envId)
+      throw new Error(mt('main.screen.notMp4'))
+    }
+    const path = part.path.replace(/\.part$/, '')
+    try {
+      await runFfmpeg(['-y', '-i', part.path, '-c', 'copy', '-movflags', '+faststart', path], 120_000)
+    } catch {
+      copyFileSync(part.path, path)
+    }
+    try {
+      unlinkSync(part.path)
+    } catch {
+      /* 临时文件删不掉不影响结果 */
+    }
+    runtime.screenRecording = false
+    runtime.screenStartedAt = undefined
+    screenWaiters.get(runtime.envId)?.resolve(path)
+    screenWaiters.delete(runtime.envId)
+    broadcast(runtime.envId)
+    return path
   })
 
   ipcMain.handle('screen:save', async (event, payload: { data: Uint8Array; mime: string }) => {

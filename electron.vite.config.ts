@@ -5,7 +5,8 @@ import { resolve } from 'path'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    // 运行时依赖直接打进 main bundle，asar 不再带 node_modules，启动也少一次目录扫描
+    build: { externalizeDeps: false },
     resolve: { alias: { '@shared': resolve('src/shared') } }
   },
   preload: {

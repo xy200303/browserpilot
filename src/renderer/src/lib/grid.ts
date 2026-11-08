@@ -1,73 +1,39 @@
-export type GridScriptOptions = {
-  step: number
-  labelStep: number
-  originX: number
-  originY: number
-  spanWidth: number
-  spanHeight: number
-  showOrigin: boolean
-  edgeOnly: boolean
-  alpha: number
-  block: number
-  toneWidth: number
-  toneHeight: number
-  tone: number[]
-  colors: string[]
-  dataUrl: string
-}
+import type { GridRenderOptions } from '../../../shared/grid'
+
+const CHIP_BG = 'rgba(0,0,0,0.64)'
+const CHIP_FG = 'rgba(255,255,255,0.97)'
 
 /**
- * 渲染进程里跑的合成脚本：画网格线、刻度数字和起点角标。
- * 线色按 32px 小块从 colors 里取，标签跟随所在块的线色并描边。
- * edgeOnly 时只画四边刻度，不铺满整张图。
+ * 在主窗口里合成网格。图片通过 IPC 以二进制传入，避免 data URL 的 base64 往返。
+ * 逻辑和原来 executeJavaScript 里的合成脚本保持一致。
  */
-export function buildGridScript(options: GridScriptOptions): string {
-  const {
-    step,
-    labelStep,
-    originX,
-    originY,
-    spanWidth,
-    spanHeight,
-    showOrigin,
-    edgeOnly,
-    alpha,
-    block,
-    toneWidth,
-    toneHeight,
-    tone,
-    colors,
-    dataUrl
-  } = options
-
-  return `(async () => {
-  const STEP = ${step}
-  const LABEL_STEP = ${labelStep}
-  const ORIGIN_X = ${originX}
-  const ORIGIN_Y = ${originY}
-  const SPAN_W = ${spanWidth}
-  const SPAN_H = ${spanHeight}
-  const SHOW_ORIGIN = ${showOrigin ? 'true' : 'false'}
-  const EDGE_ONLY = ${edgeOnly ? 'true' : 'false'}
-  const LINE_ALPHA = ${alpha}
-  const BLOCK = ${block}
-  const TONE_W = ${toneWidth}
-  const TONE_H = ${toneHeight}
-  const TONE = ${JSON.stringify(tone)}
-  const COLORS = ${JSON.stringify(colors)}
-  const CHIP_BG = 'rgba(0,0,0,0.64)'
-  const CHIP_FG = 'rgba(255,255,255,0.97)'
-
-  const img = new Image()
-  img.src = ${JSON.stringify(dataUrl)}
-  await img.decode()
-
+export async function drawGrid(png: Uint8Array, options: GridRenderOptions): Promise<Uint8Array> {
+  const bytes = new Uint8Array(png)
+  const bitmap = await createImageBitmap(new Blob([bytes.buffer as ArrayBuffer], { type: 'image/png' }))
   const canvas = document.createElement('canvas')
-  canvas.width = img.naturalWidth
-  canvas.height = img.naturalHeight
+  canvas.width = bitmap.width
+  canvas.height = bitmap.height
   const ctx = canvas.getContext('2d')
-  if (!ctx) return ''
-  ctx.drawImage(img, 0, 0)
+  if (!ctx) return png
+  ctx.drawImage(bitmap, 0, 0)
+  bitmap.close()
+
+  const {
+    step: STEP,
+    labelStep: LABEL_STEP,
+    originX: ORIGIN_X,
+    originY: ORIGIN_Y,
+    spanWidth: SPAN_W,
+    spanHeight: SPAN_H,
+    showOrigin: SHOW_ORIGIN,
+    edgeOnly: EDGE_ONLY,
+    alpha: LINE_ALPHA,
+    block: BLOCK,
+    toneWidth: TONE_W,
+    toneHeight: TONE_H,
+    tone: TONE,
+    colors: COLORS
+  } = options
 
   const sx = canvas.width / SPAN_W
   const sy = canvas.height / SPAN_H
@@ -76,17 +42,16 @@ export function buildGridScript(options: GridScriptOptions): string {
   const tick = Math.max(3, Math.round(6 * Math.min(sx, sy)))
   const longTick = tick * 2
 
-  const colorAt = (x, y) => {
+  const colorAt = (x: number, y: number): string => {
     const bx = Math.min(TONE_W - 1, Math.max(0, Math.floor(x / BLOCK)))
     const by = Math.min(TONE_H - 1, Math.max(0, Math.floor(y / BLOCK)))
     return COLORS[TONE[by * TONE_W + bx]] || COLORS[0]
   }
 
-  const label = (text, x, y) => {
+  const label = (text: string, x: number, y: number): void => {
     const color = colorAt(x, y)
     const [r, g, b] = color.split(',').map(Number)
     const dark = 0.299 * r + 0.587 * g + 0.114 * b < 150
-    // 描边打底，必须 save/restore，否则会改掉线条的 strokeStyle
     ctx.save()
     ctx.font = font + 'px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textBaseline = 'top'
@@ -99,8 +64,7 @@ export function buildGridScript(options: GridScriptOptions): string {
     ctx.restore()
   }
 
-  // 竖线固定 x、横线固定 y，另一个方向决定当前段落属于哪一块
-  const strokeRun = (vertical, fixed, from, to) => {
+  const strokeRun = (vertical: boolean, fixed: number, from: number, to: number): void => {
     const bx = Math.min(TONE_W - 1, Math.max(0, Math.floor((vertical ? fixed : from) / BLOCK)))
     const by = Math.min(TONE_H - 1, Math.max(0, Math.floor((vertical ? from : fixed) / BLOCK)))
     ctx.strokeStyle = 'rgba(' + (COLORS[TONE[by * TONE_W + bx]] || COLORS[0]) + ',' + LINE_ALPHA + ')'
@@ -115,8 +79,7 @@ export function buildGridScript(options: GridScriptOptions): string {
     ctx.stroke()
   }
 
-  // 相邻小块同色时合成一段，纯色页面一条线只 stroke 一次
-  const strokeLine = (vertical, fixed) => {
+  const strokeLine = (vertical: boolean, fixed: number): void => {
     const total = vertical ? canvas.height : canvas.width
     let at = 0
     while (at < total) {
@@ -138,7 +101,7 @@ export function buildGridScript(options: GridScriptOptions): string {
     ctx.font = font + 'px ui-monospace, SFMono-Regular, Menlo, monospace'
     chipRect.w = ctx.measureText(text).width + 4
   }
-  const hitChip = (x, y) => SHOW_ORIGIN && x < chipRect.w + 4 && y < chipRect.h + 4
+  const hitChip = (x: number, y: number): boolean => SHOW_ORIGIN && x < chipRect.w + 4 && y < chipRect.h + 4
 
   for (let index = 0, gx = 0; gx * sx <= canvas.width - 1; gx += STEP, index += 1) {
     const x = gx * sx
@@ -182,6 +145,6 @@ export function buildGridScript(options: GridScriptOptions): string {
     ctx.fillText(text, 2, 2)
   }
 
-  return canvas.toDataURL('image/png')
-})()`
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+  return blob ? new Uint8Array(await blob.arrayBuffer()) : png
 }

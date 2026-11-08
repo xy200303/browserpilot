@@ -15,7 +15,7 @@ import {
 export function registerLayerIpc(): void {
   ipcMain.handle('layer:open', (event, payload: LayerPayload) => {
     const runtime = windowFromSender(event.sender)
-    if (!runtime?.popupView) return
+    if (!runtime) return
     let next = payload
     const rail = runtime.railView
     if (rail && rail.webContents.id === event.sender.id && (payload.kind === 'context' || payload.kind === 'menu')) {

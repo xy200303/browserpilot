@@ -49,6 +49,7 @@ jobs:
         with:
           name: browserpilot-${{ runner.os }}
           if-no-files-found: error
+          retention-days: 7
           path: |
             release/*.exe
             release/*.zip

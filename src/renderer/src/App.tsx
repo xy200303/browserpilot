@@ -18,7 +18,7 @@ const HistoryPage = lazy(() => import('./HistoryPage').then((mod) => ({ default:
 const BookmarksPage = lazy(() => import('./BookmarksPage').then((mod) => ({ default: mod.BookmarksPage })))
 
 let recorder: MediaRecorder | null = null
-let recordChunks: Blob[] = []
+let recordQueue: Promise<void> = Promise.resolve()
 let recordMime = 'video/mp4'
 let recordPreview: HTMLVideoElement | null = null
 
@@ -78,21 +78,28 @@ export function App() {
         recordPreview.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none'
         document.body.appendChild(recordPreview)
         await recordPreview.play()
-        recordChunks = []
+        recordQueue = Promise.resolve()
         recorder = new MediaRecorder(stream, { mimeType: mime })
         recorder.ondataavailable = (event) => {
-          if (event.data.size) recordChunks.push(event.data)
+          if (!event.data.size) return
+          // 分片直接落盘，不在渲染进程里把整段视频攒成 Blob
+          recordQueue = recordQueue.then(async () => {
+            const data = new Uint8Array(await event.data.arrayBuffer())
+            await window.browser.appendScreen(data)
+          })
         }
         recorder.onstop = async () => {
-          await new Promise((resolve) => setTimeout(resolve, 100))
-          const blob = new Blob(recordChunks, { type: recordMime })
-          const data = new Uint8Array(await blob.arrayBuffer())
           stream.getTracks().forEach((track) => track.stop())
           recordPreview?.remove()
           recordPreview = null
-          await window.browser.saveScreen(data, data.byteLength ? recordMime : 'empty')
+          await recordQueue
+          try {
+            await window.browser.finishScreen(recordMime)
+          } catch {
+            /* 主进程已经把失败传给等待录屏的工具 */
+          }
           recorder = null
-          recordChunks = []
+          recordQueue = Promise.resolve()
         }
         recorder.start(200)
         await window.browser.screenReady()

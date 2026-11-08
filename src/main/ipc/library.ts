@@ -1,6 +1,6 @@
 import { ipcMain, session } from 'electron'
 import { storage } from '../services/store'
-import { clearEnvCache } from '../services/CacheService'
+import { clearDefaultCache, clearEnvCache } from '../services/CacheService'
 import { broadcast } from './state'
 import {
   addTab,
@@ -115,9 +115,10 @@ export function registerLibraryIpc(): void {
     return storage.diskUsage()
   })
 
-  ipcMain.handle('data:prune', (event) => {
+  ipcMain.handle('data:prune', async (event) => {
     const runtime = windowFromSender(event.sender)
     if (!runtime) return { files: 0, bytes: 0 }
+    await clearDefaultCache()
     return storage.pruneStorage()
   })
 

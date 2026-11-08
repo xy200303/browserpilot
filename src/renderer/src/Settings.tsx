@@ -656,7 +656,7 @@ function StorageCard() {
             {t('settings.general.storage.clean')}
           </Button>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
           <div className="rounded-md border px-2.5 py-2">
             <div className="text-muted-foreground">{t('settings.general.storage.screenshots')}</div>
             <div className="mt-0.5 text-sm">{size(usage?.screenshots)}</div>
@@ -672,6 +672,10 @@ function StorageCard() {
           <div className="rounded-md border px-2.5 py-2">
             <div className="text-muted-foreground">{t('settings.general.storage.partitions')}</div>
             <div className="mt-0.5 text-sm">{size(usage?.partitions)}</div>
+          </div>
+          <div className="rounded-md border px-2.5 py-2">
+            <div className="text-muted-foreground">{t('settings.general.storage.cache')}</div>
+            <div className="mt-0.5 text-sm">{size(usage?.cache)}</div>
           </div>
         </div>
         {notice && <div className="text-xs text-muted-foreground">{notice}</div>}

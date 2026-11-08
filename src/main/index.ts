@@ -59,6 +59,8 @@ if (!gotLock) {
     // 一分钟看一次空闲：非活动标签休眠、最小化的窗口关掉
     setInterval(reapIdle, 60_000).unref()
     storage.pruneStorage('auto')
+    // 长会话也要定期收敛截图和运行记录，不能只靠下次启动
+    setInterval(() => storage.pruneStorage('auto'), 24 * 60 * 60_000).unref()
     // 启动时先清没开着的环境；开着的那扇等两分钟，避开刚启动的页面加载
     const due = cacheCleanupDue()
     void cleanupIfDue(new Set(windows.keys())).then((count) => {
