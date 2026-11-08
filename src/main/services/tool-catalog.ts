@@ -239,6 +239,7 @@ const TOOL_GROUPS: Array<[string, string]> = [
 const TOOL_KEYWORDS: Record<string, string> = {
   env_close: '关窗 关闭窗口 关掉窗口 保留登录',
   env_headless: '无头 有头 后台 隐藏窗口 显示窗口',
+  env_front: '前置窗口 切到前台 显示窗口 窗口聚焦 拿回焦点 录屏前',
   env_delete: '删环境 清登录',
   env_export: '导出登录 导出cookie',
   env_import: '导入登录 恢复登录',
@@ -396,20 +397,43 @@ tool('env_create', '新建一套空环境，并打开一扇有头窗口。remark
   return { env: id, name, remark }
 })
 
-tool('env_open', '打开已有环境的窗口。人打开时用有头。批量可传 headless true。', z.object({
+tool('env_open', '打开已有环境的窗口。人打开时用有头。批量可传 headless true。只保证窗口存在，不会把窗口带到前台；需要让用户看到窗口时用 env_front。', z.object({
   env: z.string(),
   headless: z.boolean().optional()
 }), async (args) => {
   const id = String(args.env)
   if (!storage.envs.some((item) => item.id === id)) throw new Error(`没有这套环境 ${id}`)
   const runtime = openEnvironment(id, Boolean(args.headless))
-  // env_open 是用户明确要打开窗口，这里才主动显示并聚焦
-  if (!runtime.headless) {
-    if (runtime.win.isMinimized()) runtime.win.restore()
-    runtime.win.show()
-    runtime.win.focus()
-  }
   return { env: id, headless: runtime.headless }
+})
+
+tool('env_front', '把某个环境的窗口带到前台并聚焦，可选先切到指定标签。默认所有工具都不会前置窗口；只有需要让用户看窗口、人工交接或录屏前才调用这个。', z.object({
+  env: env,
+  tabId: z.string().optional()
+}), async (args) => {
+  const envId = String(args.env || DEFAULT_ENV)
+  const runtime = openEnvironment(envId, false)
+  if (runtime.headless) throw new Error('无头窗口没有画面，先有头打开再前置')
+  let tabId = runtime.activeTabId
+  if (args.tabId) {
+    const tab = runtime.tabs.find((item) => item.id === String(args.tabId))
+    if (!tab) throw new Error(`没有这个标签 ${args.tabId}`)
+    activateTab(runtime, tab.id, false)
+    tabId = tab.id
+  }
+  if (runtime.win.isMinimized()) runtime.win.restore()
+  runtime.win.show()
+  // 后台进程直接 focus 会被 Windows 拒绝；先临时置顶保证用户能看到，2 秒后恢复普通层级
+  runtime.win.setAlwaysOnTop(true, 'screen-saver')
+  runtime.win.moveTop()
+  runtime.win.focus()
+  setTimeout(() => {
+    if (!runtime.win.isDestroyed()) {
+      runtime.win.setAlwaysOnTop(false)
+      runtime.win.moveTop()
+    }
+  }, 2000)
+  return { env: envId, tabId }
 })
 
 tool('env_update', '改环境的名称或备注，编号不变。', z.object({
@@ -474,10 +498,10 @@ tool('tab_close', '按全局编号关掉标签。', z.object({ tabId: z.string()
   return { tabId: tabRef.id }
 })
 
-tool('tab_activate', '按全局编号把标签切到前台。', z.object({ tabId: z.string() }), async (args) => {
+tool('tab_activate', '按全局编号切换活动标签。只切标签，不把窗口带到前台；需要显示窗口用 env_front。', z.object({ tabId: z.string() }), async (args) => {
   const { win, tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
   if (win.headless) applyHeadless(win, false)
-  activateTab(win, tabRef.id)
+  activateTab(win, tabRef.id, false)
   return { tabId: tabRef.id }
 })
 
@@ -1305,13 +1329,14 @@ tool('page_wait_load', '等页面加载完成（did-stop-loading）。timeout �
   return { tabId: tabRef.id, url: wc.getURL(), elapsed: Date.now() - started }
 })
 
-tool('screen_start', '开始把这扇有头窗口录成视频。maxSeconds 到时自动停，默认 300，最长 3600；一扇窗口同时只录一段。', z.object({ env: env, maxSeconds: z.number().optional() }), async (args) => {
+tool('screen_start', '开始把这扇有头窗口录成视频。录屏需要画面，会把窗口带到前台并聚焦（这是少数会前置窗口的工具）。maxSeconds 到时自动停，默认 300，最长 3600；一扇窗口同时只录一段。', z.object({ env: env, maxSeconds: z.number().optional() }), async (args) => {
   const envId = String(args.env || DEFAULT_ENV)
   const runtime = openEnvironment(envId, false)
   if (runtime.headless) throw new Error('无头窗口没有画面，先有头打开再录')
   if (runtime.screenRecording) throw new Error('这扇窗口已经在录')
   // 录屏必须让页面持续绘制，窗口被遮挡时子视图可能不刷新；这是少数需要主动前置的场景
   if (runtime.win.isMinimized()) runtime.win.restore()
+  runtime.win.setAlwaysOnTop(true, 'screen-saver')
   runtime.win.show()
   runtime.win.focus()
   const seconds = Math.max(1, Math.min(3600, Number(args.maxSeconds ?? 300)))
@@ -1407,6 +1432,7 @@ async function stopScreen(envId: string): Promise<{ env: string; path: string; s
   })
   runtime.screenRecording = false
   runtime.screenStartedAt = undefined
+  runtime.win.setAlwaysOnTop(false)
   bridge.broadcast(envId)
   const auto = screenTimers.get(envId)
   if (auto) clearTimeout(auto)
