@@ -3,6 +3,7 @@ import type { UiState, WorkflowParam } from '../../shared/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import i18n from './i18n'
 
 type RunResult = { ok?: boolean; error?: string; outputs?: Record<string, unknown> }
 type Field =
@@ -28,11 +29,11 @@ export function WorkflowUse({ workflow }: { workflow: UiState['workflows'][numbe
         void window.browser.runWorkflow({ workflow: workflow.id, inputs }).then((result) => {
           setNotice(summarize(result))
         }).catch((reason: unknown) => {
-          setNotice(reason instanceof Error ? reason.message : '执行失败')
+          setNotice(reason instanceof Error ? reason.message : i18n.t('market.runFailed'))
         }).finally(() => setBusy(false))
       }}
     >
-      {fields.length === 0 && <p className="text-xs text-muted-foreground">这次没有参数。</p>}
+      {fields.length === 0 && <p className="text-xs text-muted-foreground">{i18n.t('market.noParams')}</p>}
       {fields.map((field) => field.kind === 'time-range'
         ? (
           <div key={`${field.start.name}-${field.end.name}`} className="grid gap-2 sm:grid-cols-2">
@@ -42,24 +43,24 @@ export function WorkflowUse({ workflow }: { workflow: UiState['workflows'][numbe
         )
         : <ParamField key={field.param.name} param={field.param} value={inputs[field.param.name] ?? ''} onChange={(value) => setValue(field.param.name, value)} />)}
       <div className="flex gap-2">
-        <Button type="submit" disabled={busy}>{busy ? '执行中' : '执行'}</Button>
+        <Button type="submit" disabled={busy}>{busy ? i18n.t('market.running') : i18n.t('market.run')}</Button>
         <Button
           type="button"
           variant="outline"
           onClick={() => {
-            void window.browser.copyAgentPrompt(workflow.id).then(() => setNotice('已复制给 Agent 的说明')).catch((reason: unknown) => {
-              setNotice(reason instanceof Error ? reason.message : '复制失败')
+            void window.browser.copyAgentPrompt(workflow.id).then(() => setNotice(i18n.t('market.copiedPrompt'))).catch((reason: unknown) => {
+              setNotice(reason instanceof Error ? reason.message : i18n.t('market.copyFailed'))
             })
           }}
         >
-          交给 Agent
+          {i18n.t('market.giveToAgent')}
         </Button>
         <Button
           type="button"
           variant="outline"
           onClick={() => void window.browser.openWorkflowRuns(workflow.id)}
         >
-          运行记录
+          {i18n.t('market.runs')}
         </Button>
       </div>
       {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
@@ -142,9 +143,9 @@ function TimeRangeField({ label, value, onChange }: { label: string; value: stri
     <fieldset className="grid gap-2">
       <legend className="text-xs text-muted-foreground">{label}</legend>
       <div className="grid gap-2 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
-        <Input type="datetime-local" className="solid-field" aria-label="开始" value={toPicker(start)} onChange={(event) => onChange(joinRange(fromPicker(event.target.value), end))} />
-        <span className="text-center text-xs text-muted-foreground">至</span>
-        <Input type="datetime-local" className="solid-field" aria-label="结束" value={toPicker(end)} onChange={(event) => onChange(joinRange(start, fromPicker(event.target.value)))} />
+        <Input type="datetime-local" className="solid-field" aria-label={i18n.t('market.timeFrom')} value={toPicker(start)} onChange={(event) => onChange(joinRange(fromPicker(event.target.value), end))} />
+        <span className="text-center text-xs text-muted-foreground">{i18n.t('market.timeSeparator')}</span>
+        <Input type="datetime-local" className="solid-field" aria-label={i18n.t('market.timeTo')} value={toPicker(end)} onChange={(event) => onChange(joinRange(start, fromPicker(event.target.value)))} />
       </div>
     </fieldset>
   )
@@ -194,8 +195,8 @@ function joinRange(start: string, end: string): string {
 }
 
 function summarize(result: RunResult): string {
-  if (result.ok === false) return result.error || '执行失败'
+  if (result.ok === false) return result.error || i18n.t('market.runFailed')
   const outputs = result.outputs ?? {}
   const text = Object.entries(outputs).map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`).join('；')
-  return text ? text.slice(0, 240) : '执行完了'
+  return text ? text.slice(0, 240) : i18n.t('market.runDone')
 }
