@@ -38,6 +38,9 @@ import {
   clickDeep,
   clickLocator,
   clickPoint,
+  clickText,
+  clickTextInFrame,
+  clickLocatorInFrame,
   crossQuery,
   deepQuery,
   dragPage,
@@ -53,7 +56,10 @@ import {
   findInPage,
   hitPoint,
   hoverLocator,
+  hoverLocatorInFrame,
   hoverPoint,
+  hoverText,
+  hoverTextInFrame,
   inspectElement,
   locatorCenter,
   locatorGesturePoint,
@@ -79,6 +85,7 @@ import {
   typeAtPoint,
   typeDeep,
   typeLocator,
+  typeLocatorInFrame,
   uploadFiles,
   waitForGone,
   waitForLoad,
@@ -253,9 +260,9 @@ const TOOL_KEYWORDS: Record<string, string> = {
   page_dialog: '弹窗 对话框 确认框 alert confirm prompt',
   page_console: '控制台 console 报错 js错误 日志',
   page_find: '页内查找 查找文字 ctrl+f find',
-  page_hover: '悬停 悬浮 移上去 hover',
-  page_click: '点击 双击 右键 click dblclick',
-  page_type: '输入 填写 打字 type',
+  page_hover: '悬停 悬浮 移上去 hover 按文字 text frame iframe',
+  page_click: '点击 双击 右键 click dblclick 按文字 文本 text frame iframe',
+  page_type: '输入 填写 打字 type frame iframe',
   page_wait: '等待 等元素 wait',
   page_wait_load: '等加载 加载完成 页面加载完',
   page_save_media: '保存图片 保存视频 下载媒体 抓图 存媒体',
@@ -781,9 +788,12 @@ tool('page_query', '按同一种定位取出所有匹配，返回数组。每一
   return { tabId: tabRef.id, total: found.total, matches: found.matches }
 })
 
-tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个。button 传 right 是右键（会触发页面或窗口的右键菜单）。XPath 原样交给 DOM.performSearch，选择器原样交给 DOM.querySelectorAll。匹配到多个会失败，不取其中一条。画布这种没有稳定节点的目标改用 x 和 y：不带 shotWidth、shotHeight 时是当前视口的 CSS 像素；带上截图返回的宽高时，x 和 y 是这张图上的像素，会先换算到视口再点。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。inject 在该点的元素上派发指针事件。untilXpath 或 untilSelector 只在按元素点击时使用，表示点完后要出现的元素；没出现会在同一个定位上再点，最多 3 次。失败时带上匹配个数、文字和当时能不能点到。count 传 2 是双击（最多 3 连击）。', z.object({
+tool('page_click', '点击元素。优先用 text 按可见文字点（可选 textMatch: exact，默认包含），不用自己算坐标；也可以用 xpath 或 selector，必须恰好匹配一个。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。button 传 right 是右键。画布这种没有稳定节点的目标改用 x 和 y：不带 shotWidth、shotHeight 时是当前视口的 CSS 像素；带上截图返回的宽高时，x 和 y 是这张图上的像素，会先换算到视口再点。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。inject 在该点的元素上派发指针事件。untilXpath 或 untilSelector 只在按元素点击时使用，表示点完后要出现的元素；没出现会在同一个定位上再点，最多 3 次。失败时带上匹配个数、文字和当时能不能点到。count 传 2 是双击（最多 3 连击）。', z.object({
   ...pageArgs,
   ...locateFields,
+  text: z.string().optional(),
+  textMatch: z.enum(['exact', 'contains']).optional(),
+  frame: z.string().optional(),
   x: z.union([z.number(), z.string()]).optional(),
   y: z.union([z.number(), z.string()]).optional(),
   shotWidth: z.union([z.number(), z.string()]).optional(),
@@ -800,13 +810,30 @@ tool('page_click', '按 XPath 或 CSS 选择器点击，必须恰好匹配一个
   const tabRef = await pageTab(args)
   const button = args.button === 'right' ? 'right' as const : 'left' as const
   const count = Math.max(1, Math.min(3, Number(args.count ?? 1))) 
+  const frame = typeof args.frame === 'string' && args.frame ? String(args.frame) : ''
+  const text = typeof args.text === 'string' && args.text.trim() ? String(args.text) : ''
+  const textMatch = args.textMatch === 'exact' ? 'exact' as const : 'contains' as const
+  if (frame) {
+    if (text) {
+      const hit = await clickTextInFrame(tabRef, frame, text, textMatch, viaOf(args.via))
+      return { tabId: tabRef.id, text: hit.label, x: Math.round(hit.x), y: Math.round(hit.y) }
+    }
+    const located = locatorFrom(args)
+    if (!located) throw new Error('frame 里点击需要 xpath 或 selector，或 text')
+    const hit = await clickLocatorInFrame(tabRef, frame, located, viaOf(args.via))
+    return { tabId: tabRef.id, x: Math.round(hit.x), y: Math.round(hit.y) }
+  }
+  if (text) {
+    const hit = await clickText(tabRef, text, textMatch, viaOf(args.via))
+    return { tabId: tabRef.id, text: hit.label, x: Math.round(hit.x), y: Math.round(hit.y) }
+  }
   const point = pointArgs(args)
   if (point) {
     await clickPoint(tabRef, point.x, point.y, viaOf(args.via), point.shot, button, count)
     return { tabId: tabRef.id }
   }
   const located = locatorFrom(args)
-  if (!located) throw new Error('需要 xpath 或 selector，或画布坐标 x 和 y')
+  if (!located) throw new Error('需要 xpath 或 selector、text，或画布坐标 x 和 y')
   if (located.pierce) {
     await clickDeep(tabRef, located, viaOf(args.via), button)
     return { tabId: tabRef.id }
@@ -842,8 +869,9 @@ tool('page_wait', '等元素出现或消失。state 默认 appear（出现），
   return { tabId: tabRef.id, state: args.state }
 })
 
-tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 xpath 或 selector 指定目标，pierce 为 true 穿透 Shadow DOM 和同源 iframe；也可以用 x、y 坐标（先点击该点聚焦再输入，跨域 iframe 里的输入框用这种方式）。native 先真实点击再逐键输入。inject 直接写入。', z.object({
+tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 xpath 或 selector 指定目标，pierce 为 true 穿透 Shadow DOM 和同源 iframe；跨域 iframe 里的输入框传 frame（src 包含的一段）+ xpath/selector；也可以用 x、y 坐标（先点击该点聚焦再输入）。多行文本、整段文档用 page_paste，逐键输入会被部分页面改写。native 先真实点击再逐键输入。inject 直接写入。', z.object({
   ...pageArgs, text: z.string(), ...locateFields,
+  frame: z.string().optional(),
   x: z.union([z.number(), z.string()]).optional(),
   y: z.union([z.number(), z.string()]).optional(),
   shotWidth: z.union([z.number(), z.string()]).optional(),
@@ -854,6 +882,13 @@ tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，�
   via: z.enum(['inject', 'native', 'cdp']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
+  const frame = typeof args.frame === 'string' && args.frame ? String(args.frame) : ''
+  if (frame) {
+    const located = locatorFrom(args)
+    if (!located) throw new Error('frame 里输入需要 xpath 或 selector')
+    await typeLocatorInFrame(tabRef, frame, located, String(args.text))
+    return { tabId: tabRef.id }
+  }
   const point = pointArgs(args)
   if (point) {
     await typeAtPoint(tabRef, point.x, point.y, String(args.text), viaOf(args.via))
@@ -1207,9 +1242,12 @@ tool('page_dialog', '页面弹窗（alert / confirm / prompt）会自动按策�
   }
 })
 
-tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单、悬浮提示这类悬停交互。目标用 xpath / selector，或坐标 x、y（支持截图坐标换算）。via 默认 cdp，native 用 sendInputEvent，inject 在元素上派发 mouseover/mouseenter。', z.object({
+tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单、悬浮提示这类悬停交互。优先用 text 按可见文字找目标（可选 textMatch: exact）；也可以用 xpath / selector，或坐标 x、y（支持截图坐标换算）。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。via 默认 cdp，native 用 sendInputEvent，inject 在元素上派发 mouseover/mouseenter。', z.object({
   ...pageArgs,
   ...locateFields,
+  text: z.string().optional(),
+  textMatch: z.enum(['exact', 'contains']).optional(),
+  frame: z.string().optional(),
   x: z.union([z.number(), z.string()]).optional(),
   y: z.union([z.number(), z.string()]).optional(),
   shotWidth: z.union([z.number(), z.string()]).optional(),
@@ -1220,13 +1258,30 @@ tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单
   via: z.enum(['inject', 'native', 'cdp']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
+  const frame = typeof args.frame === 'string' && args.frame ? String(args.frame) : ''
+  const text = typeof args.text === 'string' && args.text.trim() ? String(args.text) : ''
+  const textMatch = args.textMatch === 'exact' ? 'exact' as const : 'contains' as const
+  if (frame) {
+    if (text) {
+      const hit = await hoverTextInFrame(tabRef, frame, text, textMatch, viaOf(args.via))
+      return { tabId: tabRef.id, text: hit.label }
+    }
+    const located = locatorFrom(args)
+    if (!located) throw new Error('frame 里悬停需要 xpath 或 selector，或 text')
+    const hit = await hoverLocatorInFrame(tabRef, frame, located, viaOf(args.via))
+    return { tabId: tabRef.id, text: hit.label }
+  }
+  if (text) {
+    const hit = await hoverText(tabRef, text, textMatch, viaOf(args.via))
+    return { tabId: tabRef.id, text: hit.label }
+  }
   const point = pointArgs(args)
   if (point) {
     await hoverPoint(tabRef, point.x, point.y, point.shot, viaOf(args.via))
     return { tabId: tabRef.id }
   }
   const located = locatorFrom(args)
-  if (!located) throw new Error('需要 xpath 或 selector，或坐标 x 和 y')
+  if (!located) throw new Error('需要 xpath 或 selector、text，或坐标 x 和 y')
   await hoverLocator(tabRef, located, viaOf(args.via))
   return { tabId: tabRef.id }
 })

@@ -2613,3 +2613,166 @@ export async function findInPage(
   if (!found) throw new Error('页面里找不到可搜索的内容')
   return found
 }
+
+export type TextHit = { x: number; y: number; w: number; h: number; label: string; tag: string; dom?: boolean; blocked?: string }
+
+const TEXT_HIT_SOURCE = `(function (text, match) {
+  const norm = (value) => String(value || '').replace(/\\s+/g, ' ').trim()
+  const wanted = norm(text)
+  const nodes = [...document.querySelectorAll('a,button,input,label,li,span,div,td,th,h1,h2,h3,h4,p,summary')]
+  const hits = []
+  for (const el of nodes) {
+    if (el === document.body || el === document.documentElement) continue
+    const style = getComputedStyle(el)
+    if (style.visibility === 'hidden' || style.display === 'none' || style.pointerEvents === 'none') continue
+    const rect = el.getBoundingClientRect()
+    if (rect.width < 2 || rect.height < 2) continue
+    if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= innerHeight || rect.left >= innerWidth) continue
+    if (rect.width * rect.height > 400000) continue
+    const label = norm(el.innerText || el.value || el.getAttribute('aria-label') || '')
+    if (!label) continue
+    if (match === 'exact' ? label !== wanted : !label.includes(wanted)) continue
+    hits.push({ el, label, rect })
+  }
+  hits.sort((a, b) => a.rect.width * a.rect.height - b.rect.width * b.rect.height)
+  const best = hits[0]
+  if (!best) return null
+  // 文字元素不一定可点：带 for 的标签、包着隐藏 radio 的自定义控件，改点它的可点代理
+  let target = null
+  const related = (best.el.getAttribute && best.el.getAttribute('for')) || ''
+  if (related) {
+    const input = document.getElementById(related)
+    if (input) {
+      const proxy = input.closest('.ui-radio') || input.closest('label')
+      target = proxy ? (proxy.querySelector('a.jqradio') || proxy.querySelector('label') || proxy) : input
+      if (target === input && input.getBoundingClientRect().width < 2) {
+        input.click()
+        return { x: best.rect.left, y: best.rect.top, w: best.rect.width, h: best.rect.height, label: best.label.slice(0, 80), tag: 'input', dom: true }
+      }
+    }
+  }
+  if (!target) target = best.el.closest('a,button,input,select,textarea,label,summary,[role=button],[onclick]') || best.el
+  const rect = target.getBoundingClientRect()
+  if (rect.width < 2 || rect.height < 2) {
+    target.click()
+    return { x: best.rect.left, y: best.rect.top, w: best.rect.width, h: best.rect.height, label: best.label.slice(0, 80), tag: target.tagName.toLowerCase(), dom: true }
+  }
+  // 检查中心点有没有被弹层/遮罩盖住，别把点击送给遮罩
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
+  const at = document.elementFromPoint(cx, cy)
+  const cover = at && at !== target && !target.contains(at) && !at.contains(target)
+    ? at.tagName.toLowerCase() + (at.className ? '.' + String(at.className).split(' ')[0] : '')
+    : ''
+  return {
+    x: rect.left,
+    y: rect.top,
+    w: rect.width,
+    h: rect.height,
+    label: best.label.slice(0, 80),
+    tag: target.tagName.toLowerCase(),
+    blocked: cover
+  }
+})`
+
+const FRAME_ELEMENT_SOURCE = `(function (selector, xpath) {
+  let el = null
+  if (selector) { try { el = document.querySelector(selector) } catch (e) { el = null } }
+  else if (xpath) {
+    try { el = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue } catch (e) { el = null }
+  }
+  if (!el) return null
+  el.scrollIntoView({ block: 'center', inline: 'nearest' })
+  const rect = el.getBoundingClientRect()
+  return { x: rect.left, y: rect.top, w: rect.width, h: rect.height, tag: el.tagName.toLowerCase() }
+})`
+
+const FRAME_FOCUS_SOURCE = `(function (selector, xpath) {
+  let el = null
+  if (selector) { try { el = document.querySelector(selector) } catch (e) { el = null } }
+  else if (xpath) {
+    try { el = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue } catch (e) { el = null }
+  }
+  if (!el) return false
+  el.scrollIntoView({ block: 'center', inline: 'nearest' })
+  el.focus()
+  return true
+})`
+
+function frameLocatorSource(locator: Locator): string {
+  return `(${FRAME_ELEMENT_SOURCE})(${JSON.stringify(locator.selector || '')}, ${JSON.stringify(locator.xpath || '')})`
+}
+
+async function frameOffset(tab: TabRuntime, frameMatch: string): Promise<{ x: number; y: number }> {
+  const offset = (await evalSource(tab, `(() => {
+    const found = [...document.querySelectorAll('iframe')].find((item) => (item.src || '').includes(${JSON.stringify(frameMatch)}))
+    if (!found) return null
+    const rect = found.getBoundingClientRect()
+    return { x: rect.left, y: rect.top }
+  })()`)) as { x: number; y: number } | null
+  if (!offset) throw new Error(`没有 src 包含「${frameMatch}」的 iframe`)
+  return offset
+}
+
+export async function clickText(tab: TabRuntime, text: string, match: 'exact' | 'contains' = 'contains', via: ActVia = 'cdp'): Promise<TextHit> {
+  await ensureActive(tab)
+  const hit = (await evalSource(tab, `(${TEXT_HIT_SOURCE})(${JSON.stringify(text)}, ${JSON.stringify(match)})`)) as TextHit | null
+  if (!hit) throw new Error(`页面上没有${match === 'exact' ? '文字等于' : '文字包含'}「${text}」的可点击元素`)
+  if (hit.blocked) throw new Error(`「${text}」被 ${hit.blocked} 挡住，先关掉弹层再点`)
+  if (!hit.dom) await clickPoint(tab, hit.x + hit.w / 2, hit.y + hit.h / 2, via)
+  return hit
+}
+
+export async function hoverText(tab: TabRuntime, text: string, match: 'exact' | 'contains' = 'contains', via: ActVia = 'cdp'): Promise<TextHit> {
+  await ensureActive(tab)
+  const hit = (await evalSource(tab, `(${TEXT_HIT_SOURCE})(${JSON.stringify(text)}, ${JSON.stringify(match)})`)) as TextHit | null
+  if (!hit) throw new Error(`页面上没有${match === 'exact' ? '文字等于' : '文字包含'}「${text}」的元素`)
+  await hoverPoint(tab, hit.x + hit.w / 2, hit.y + hit.h / 2, undefined, via)
+  return hit
+}
+
+export async function clickTextInFrame(tab: TabRuntime, frame: string, text: string, match: 'exact' | 'contains' = 'contains', via: ActVia = 'cdp'): Promise<TextHit> {
+  await ensureActive(tab)
+  const hit = (await evalInFrame(tab, `(${TEXT_HIT_SOURCE})(${JSON.stringify(text)}, ${JSON.stringify(match)})`, frame)) as TextHit | null
+  if (!hit) throw new Error(`iframe 里没有${match === 'exact' ? '文字等于' : '文字包含'}「${text}」的元素`)
+  if (hit.blocked) throw new Error(`iframe 里的「${text}」被 ${hit.blocked} 挡住`)
+  if (!hit.dom) {
+    const offset = await frameOffset(tab, frame)
+    await clickPoint(tab, offset.x + hit.x + hit.w / 2, offset.y + hit.y + hit.h / 2, via)
+  }
+  return hit
+}
+
+export async function clickLocatorInFrame(tab: TabRuntime, frame: string, locator: Locator, via: ActVia = 'cdp'): Promise<TextHit> {
+  await ensureActive(tab)
+  const hit = (await evalInFrame(tab, frameLocatorSource(locator), frame)) as TextHit | null
+  if (!hit) throw new Error(`iframe 里没有 ${locatorLabel(locator)}`)
+  const offset = await frameOffset(tab, frame)
+  await clickPoint(tab, offset.x + hit.x + hit.w / 2, offset.y + hit.y + hit.h / 2, via)
+  return hit
+}
+
+export async function typeLocatorInFrame(tab: TabRuntime, frame: string, locator: Locator, text: string): Promise<void> {
+  await ensureActive(tab)
+  const focused = await evalInFrame(tab, `(${FRAME_FOCUS_SOURCE})(${JSON.stringify(locator.selector || '')}, ${JSON.stringify(locator.xpath || '')})`, frame)
+  if (focused !== true) throw new Error(`iframe 里没有 ${locatorLabel(locator)}`)
+  await typeByCdp(tab, text)
+}
+
+export async function hoverLocatorInFrame(tab: TabRuntime, frame: string, locator: Locator, via: ActVia = 'cdp'): Promise<TextHit> {
+  await ensureActive(tab)
+  const hit = (await evalInFrame(tab, frameLocatorSource(locator), frame)) as TextHit | null
+  if (!hit) throw new Error(`iframe 里没有 ${locatorLabel(locator)}`)
+  const offset = await frameOffset(tab, frame)
+  await hoverPoint(tab, offset.x + hit.x + hit.w / 2, offset.y + hit.y + hit.h / 2, undefined, via)
+  return hit
+}
+
+export async function hoverTextInFrame(tab: TabRuntime, frame: string, text: string, match: 'exact' | 'contains' = 'contains', via: ActVia = 'cdp'): Promise<TextHit> {
+  await ensureActive(tab)
+  const hit = (await evalInFrame(tab, `(${TEXT_HIT_SOURCE})(${JSON.stringify(text)}, ${JSON.stringify(match)})`, frame)) as TextHit | null
+  if (!hit) throw new Error(`iframe 里没有文字包含「${text}」的元素`)
+  const offset = await frameOffset(tab, frame)
+  await hoverPoint(tab, offset.x + hit.x + hit.w / 2, offset.y + hit.y + hit.h / 2, undefined, via)
+  return hit
+}
