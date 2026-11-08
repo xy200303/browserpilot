@@ -1,0 +1,151 @@
+export const zhSettings = {
+  settings: {
+    title: '设置',
+    sections: {
+      env: '环境',
+      net: '抓包',
+      general: '通用',
+      passwords: '密码',
+      privacy: '隐私',
+      about: '关于'
+    },
+    general: {
+      title: '通用',
+      detail: '这些选项保存在本机，改完即生效。',
+      language: {
+        title: '界面语言',
+        detail: '只影响界面。工具描述和报错走模型侧，始终是英文，避免同一份提示词随语言翻倍。',
+        auto: '跟随系统'
+      }
+    }
+  },
+  settings2: {
+    env: {
+      search: '搜索环境或网站',
+      new: '新建',
+      title: '环境',
+      detail: '一套环境里可以登录多个网站。新建的窗口都是有头的，关掉窗口不会清掉登录。',
+      noMatch: '没有匹配的环境',
+      empty: '还没有环境',
+      initial: '环',
+      open: '打开',
+      show: '显示',
+      statusHeadless: '无头窗口开着',
+      statusHeaded: '有头窗口开着',
+      statusClosed: '窗口没打开',
+      sites: '{{count}} 个网站',
+      noSites: '还没有打开过的网站',
+      back: '返回',
+      name: '名称',
+      remark: '备注',
+      save: '保存',
+      delete: '删除',
+      websites: '网站',
+      noSitesDetail: '还没有打开过的网站。',
+      cookieOn: 'Cookie 还在',
+      cookieOff: '没有 Cookie',
+      deleteTitle: '删除环境',
+      deleteDetail: '从本机删除「{{name}}」。这套里的登录会一起去掉。',
+      newTitle: '新建环境',
+      newDetail: '新建的窗口是有头的。关掉窗口不会清掉登录。',
+      create: '新建',
+      headless: '无头',
+      headed: '有头',
+      notOpen: '未打开'
+    },
+    net: {
+      title: '抓包',
+      detail: '当前网页标签上的请求。正文里的 Cookie 只留在本机。',
+      empty: '还没有记录。让 Agent 对这个标签调用 net_start。'
+    },
+    privacy: {
+      title: '隐私与数据',
+      scope: '只影响当前环境「{{env}}」。',
+      clearTitle: '清除浏览数据',
+      history: '浏览历史',
+      cookies: 'Cookie 与站点数据',
+      cache: '缓存',
+      clearSelected: '清除所选数据',
+      clearing: '正在清除…',
+      confirmClear: '确认清除',
+      cleared: '已清除所选数据。',
+      clearHint: '清除 Cookie 会让这个环境里的网站退出登录；缓存清了以后页面需要重新加载。',
+      permissions: '站点权限',
+      clearAll: '清除全部',
+      none: '还没有记住的站点权限。',
+      allow: '允许',
+      deny: '拒绝',
+      revoke: '撤销',
+      permissionHint: '页面请求摄像头、麦克风、通知、位置时，会弹系统对话框；勾选「记住这次选择」后出现在这里。',
+      perm: {
+        media: '摄像头 / 麦克风',
+        geolocation: '位置',
+        notifications: '通知',
+        clipboard: '剪贴板',
+        display: '屏幕共享',
+        midi: 'MIDI 设备',
+        pointerLock: '鼠标锁定',
+        fullscreen: '全屏',
+        openExternal: '打开外部应用'
+      }
+    },
+    passwords: {
+      title: '密码',
+      detail: '网页登录时自动记下账号密码，下次打开同一个网站自动填入。按环境隔离，只保存在本机。',
+      protect: '密码保护',
+      checking: '检查系统密钥…',
+      secure: '系统密钥环已启用',
+      insecure: '系统没有可用的密钥环，密码只做本机编码',
+      checkingShort: '检查中',
+      encrypted: '已加密',
+      plain: '未加密',
+      revealFailed: '（解不出来：系统密钥环不可用或已经变化）',
+      insecureDetail: 'Ubuntu 服务器这类没有 gnome-keyring / kwallet 的系统会走这条路：文件还在本机，但能读到这个用户目录的人就能解出密码。建议关掉「自动保存」，或装好密钥环后重启应用；已经保存的密码在这里删掉即可。',
+      autoSave: '自动保存',
+      autoSaveDetail: '提交登录表单时记下来。关掉后不再新增，已保存的仍然可以填。',
+      autoFill: '自动填充',
+      autoFillDetail: '打开登录页时填进账号和密码，页面里已经输入过就不覆盖。',
+      empty: '还没有保存的密码。在当前环境里登录一次就会出现在这里。',
+      noUsername: '（没填账号）',
+      hide: '隐藏',
+      show: '显示',
+      delete: '删除',
+      clear: '清空这套环境的密码'
+    },
+    general: {
+      searchEngine: '搜索引擎',
+      searchEngineDetail: '新标签页打开这个搜索引擎的首页。地址栏里输入文字时，也用它来搜索。',
+      tabLayout: '标签栏',
+      tabLayoutDetail: '顶部是横条。左侧是竖排，靠近时盖住网页展开，点顶部固定后网页才让开。',
+      top: '顶部',
+      left: '左侧',
+      downloadDir: '下载位置',
+      downloadDirDetail: '网页下载、Agent 保存的图片/视频、窗口录屏都默认放这里。不改就是系统下载目录（Windows 的「下载」、macOS / Linux 的 Downloads）。',
+      systemDir: '系统下载目录',
+      choose: '选择…',
+      resetDefault: '恢复默认',
+      toolMode: '工具列表',
+      toolModeDetail: 'Agent 能看到的工具。按需搜索只先给核心工具，其它用 search_tools 查；全部则一次给全，占上下文更多。',
+      search: '按需搜索',
+      full: '全部',
+      connect: '接入 Agent',
+      connectDetail: '复制一段提示词给 Agent：里面带 MCP 地址和口令、skill 和命令行工具的安装方法。',
+      copyPrompt: '复制提示词',
+      mcp: 'MCP',
+      mcpDetail: '只听 127.0.0.1。关掉后再打开会换一次端口上的服务。',
+      field: {
+        address: '监听地址',
+        port: '端口',
+        endpoint: '端点',
+        concurrency: '批量并发上限',
+        headlessLimit: '无头窗口上限'
+      }
+    },
+    about: {
+      title: '关于',
+      tagline: '给 Agent 用的浏览器。同一个进程里可以开多套环境，一套环境一扇窗口。',
+      version: '当前版本',
+      versionDetail: '安装包里的版本号'
+    }
+  }
+} as const

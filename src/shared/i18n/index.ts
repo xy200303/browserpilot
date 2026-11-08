@@ -1,8 +1,19 @@
 import type { AppLanguage, LanguageSetting } from '../types'
-import { enUS } from './en-US'
-import { zhCN } from './zh-CN'
+import { enMarket } from './en-US/market'
+import { enPages } from './en-US/pages'
+import { enSettings } from './en-US/settings'
+import { enShell } from './en-US/shell'
+import { enWorkflow } from './en-US/workflow'
+import { zhMarket } from './zh-CN/market'
+import { zhPages } from './zh-CN/pages'
+import { zhSettings } from './zh-CN/settings'
+import { zhShell } from './zh-CN/shell'
+import { zhWorkflow } from './zh-CN/workflow'
 
-export type { MessageShape } from './zh-CN'
+export type { MessageShape } from './shape'
+
+export const zhCN = { ...zhShell, ...zhPages, ...zhSettings, ...zhMarket, ...zhWorkflow }
+export const enUS = { ...enShell, ...enPages, ...enSettings, ...enMarket, ...enWorkflow }
 
 export const resources = {
   'zh-CN': { translation: zhCN },
