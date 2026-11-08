@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { cn } from 'cn'
+import i18n from './i18n'
 
 type HandleInfo = { id: string; label: string }
 type CardData = { title: string; kind: string; kindText: string; hasTarget: boolean; sources: HandleInfo[]; inputs: string[]; outputs: string[] }
@@ -39,39 +40,39 @@ type Patch = {
 type Choice = { key: string; label: string; selector: string[] }
 
 const kindText: Record<string, string> = {
-  start: '开始',
-  end: '结束',
-  goto: '打开',
-  click: '点击',
-  fill: '填写',
-  select: '选择',
-  press: '按键',
-  scroll: '滚动',
-  swipe: '滑动',
-  stroke: '落笔',
-  upload: '上传',
-  handoff: '交接',
-  script: '页面脚本',
-  code: '代码',
-  cdp: 'CDP',
-  'http-request': '请求',
-  extract: '提取',
-  export: '导出',
-  'if-else': '判断',
-  loop: '循环',
-  captcha: '验证码',
-  wait: '等待',
-  download: '下载'
+  start: i18n.t('workflow.node.start'),
+  end: i18n.t('workflow.node.end'),
+  goto: i18n.t('workflow.node.goto'),
+  click: i18n.t('workflow.node.click'),
+  fill: i18n.t('workflow.node.fill'),
+  select: i18n.t('workflow.node.select'),
+  press: i18n.t('workflow.node.press'),
+  scroll: i18n.t('workflow.node.scroll'),
+  swipe: i18n.t('workflow.node.swipe'),
+  stroke: i18n.t('workflow.node.stroke'),
+  upload: i18n.t('workflow.node.upload'),
+  handoff: i18n.t('workflow.node.handoff'),
+  script: i18n.t('workflow.node.script'),
+  code: i18n.t('workflow.node.code'),
+  cdp: i18n.t('workflow.node.cdp'),
+  'http-request': i18n.t('workflow.node.httpRequest'),
+  extract: i18n.t('workflow.node.extract'),
+  export: i18n.t('workflow.node.export'),
+  'if-else': i18n.t('workflow.node.ifElse'),
+  loop: i18n.t('workflow.node.loop'),
+  captcha: i18n.t('workflow.node.captcha'),
+  wait: i18n.t('workflow.node.wait'),
+  download: i18n.t('workflow.node.download')
 }
 
 const addable = ['goto', 'click', 'fill', 'select', 'press', 'scroll', 'swipe', 'stroke', 'upload', 'handoff', 'captcha', 'wait', 'download', 'script', 'code', 'http-request', 'extract', 'export', 'if-else', 'loop', 'end', 'cdp'] as const
 
 const operators = [
-  { id: 'contains', label: '包含' },
-  { id: 'is', label: '等于' },
-  { id: 'empty', label: '为空' },
-  { id: 'not empty', label: '不为空' },
-  { id: 'locator', label: '页面上有' }
+  { id: 'contains', label: i18n.t('workflow.op.contains') },
+  { id: 'is', label: i18n.t('workflow.op.is') },
+  { id: 'empty', label: i18n.t('workflow.op.empty') },
+  { id: 'not empty', label: i18n.t('workflow.op.notEmpty') },
+  { id: 'locator', label: i18n.t('workflow.op.locator') }
 ]
 
 function nodeId(): string {
@@ -170,7 +171,7 @@ function levelAt(graph: Graph, stack: string[]): { nodes: WorkflowNode[]; edges:
   for (const id of stack) {
     const node = nodes.find((item) => item.id === id && item.data.type === 'loop')
     if (!node) return { nodes, edges, parentId: titles.length ? stack[titles.length - 1] : undefined, missing: true, titles }
-    titles.push(String(node.data.title || '循环'))
+    titles.push(String(node.data.title || i18n.t('workflow.node.loop')))
     nodes = Array.isArray(node.data.nodes) ? (node.data.nodes as WorkflowNode[]) : []
     edges = Array.isArray(node.data.edges) ? (node.data.edges as WorkflowEdge[]) : []
   }
@@ -194,12 +195,12 @@ function connectError(edges: WorkflowEdge[], connection: { source?: string | nul
   const source = connection.source || ''
   const target = connection.target || ''
   if (!source || !target) return ''
-  if (source === target) return '不能连到自己'
+  if (source === target) return i18n.t('workflow.err.selfLoop')
   const handle = connection.sourceHandle || 'source'
-  if (edges.some((edge) => edge.source === source && edge.target === target && (edge.sourceHandle || 'source') === handle)) return '这条线已经有了'
+  if (edges.some((edge) => edge.source === source && edge.target === target && (edge.sourceHandle || 'source') === handle)) return i18n.t('workflow.err.duplicate')
   const incoming = edges.filter((edge) => edge.target === target)
-  if (incoming.length && incoming.some((edge) => edge.source !== source)) return '这个节点已经有进入的线，不能汇合'
-  if (reaches(edges, target, source)) return '这样会成环'
+  if (incoming.length && incoming.some((edge) => edge.source !== source)) return i18n.t('workflow.err.merge')
+  if (reaches(edges, target, source)) return i18n.t('workflow.err.cycle')
   return ''
 }
 
@@ -246,7 +247,7 @@ function defaultData(type: string): WorkflowNode['data'] {
   if (type === 'cdp') return { type, title, method: '', params: {} }
   if (type === 'http-request') return { type, title, method: 'GET', url: 'https://' }
   if (type === 'extract') return { type, title, pattern: '', variable_selector: ['sys', 'url'] }
-  if (type === 'export') return { type, title, filename: '导出.csv', headers: [], rows_selector: ['sys', 'url'] }
+  if (type === 'export') return { type, title, filename: i18n.t('workflow.defaults.exportFile'), headers: [], rows_selector: ['sys', 'url'] }
   if (type === 'if-else') {
     return {
       type,
@@ -261,7 +262,7 @@ function defaultData(type: string): WorkflowNode['data'] {
       mode: 'until',
       max: 40,
       until: { comparison_operator: 'not empty', variable_selector: ['loop', 'index'] },
-      nodes: [{ id: nodeId(), position: { x: 0, y: 0 }, data: { type: 'code', title: '循环体', code: 'return {}' } }],
+      nodes: [{ id: nodeId(), position: { x: 0, y: 0 }, data: { type: 'code', title: i18n.t('workflow.defaults.loopBody'), code: 'return {}' } }],
       edges: []
     }
   }
@@ -333,19 +334,19 @@ function producersFor(graph: Graph, stack: string[], nodeId: string): WorkflowNo
 
 function choiceList(graph: Graph, stack: string[], nodeId: string, insideLoop: boolean): Choice[] {
   const list: Choice[] = [
-    { key: selectorKey(['sys', 'url']), label: '当前网址', selector: ['sys', 'url'] },
-    { key: selectorKey(['sys', 'title']), label: '当前标题', selector: ['sys', 'title'] },
-    { key: selectorKey(['sys', 'tabId']), label: '标签编号', selector: ['sys', 'tabId'] },
-    { key: selectorKey(['sys', 'env']), label: '环境编号', selector: ['sys', 'env'] }
+    { key: selectorKey(['sys', 'url']), label: i18n.t('workflow.sel.url'), selector: ['sys', 'url'] },
+    { key: selectorKey(['sys', 'title']), label: i18n.t('workflow.sel.title'), selector: ['sys', 'title'] },
+    { key: selectorKey(['sys', 'tabId']), label: i18n.t('workflow.sel.tabId'), selector: ['sys', 'tabId'] },
+    { key: selectorKey(['sys', 'env']), label: i18n.t('workflow.sel.env'), selector: ['sys', 'env'] }
   ]
   if (insideLoop) {
-    list.push({ key: selectorKey(['loop', 'index']), label: '循环序号', selector: ['loop', 'index'] })
-    list.push({ key: selectorKey(['loop', 'item']), label: '循环当前项', selector: ['loop', 'item'] })
+    list.push({ key: selectorKey(['loop', 'index']), label: i18n.t('workflow.sel.loopIndex'), selector: ['loop', 'index'] })
+    list.push({ key: selectorKey(['loop', 'item']), label: i18n.t('workflow.sel.loopItem'), selector: ['loop', 'item'] })
   }
   for (const item of startVariables(graph)) {
     const variable = String(item.variable || '')
     if (!variable) continue
-    list.push({ key: selectorKey(['input', variable]), label: `参数 ${String(item.label || variable)}`, selector: ['input', variable] })
+    list.push({ key: selectorKey(['input', variable]), label: i18n.t('workflow.sel.param', { name: String(item.label || variable) }), selector: ['input', variable] })
   }
   for (const node of producersFor(graph, stack, nodeId)) {
     for (const field of outputFields(node)) {
@@ -378,9 +379,9 @@ function CardNode({ data, selected }: NodeProps<FlowNode>) {
       <div className="px-3 py-2">
         <div className="text-[10px] text-muted-foreground">{data.kindText}</div>
         <div className="truncate text-xs" title={data.title}>{data.title}</div>
-        {data.inputs.length > 0 && <div className="truncate text-[10px] text-muted-foreground" title={data.inputs.join('、')}>输入 {data.inputs.join('、')}</div>}
-        {data.outputs.length > 0 && <div className="truncate text-[10px] text-muted-foreground" title={data.outputs.join('、')}>输出 {data.outputs.join('、')}</div>}
-        {data.kind === 'loop' && <div className="text-[10px] text-muted-foreground">双击进入</div>}
+        {data.inputs.length > 0 && <div className="truncate text-[10px] text-muted-foreground" title={data.inputs.join('、')}>{i18n.t('workflow.port.input')} {data.inputs.join('、')}</div>}
+        {data.outputs.length > 0 && <div className="truncate text-[10px] text-muted-foreground" title={data.outputs.join('、')}>{i18n.t('workflow.port.output')} {data.outputs.join('、')}</div>}
+        {data.kind === 'loop' && <div className="text-[10px] text-muted-foreground">{i18n.t('workflow.port.doubleClick')}</div>}
       </div>
       {data.sources.length === 1 && (
         <Handle type="source" position={Position.Right} id={data.sources[0].id} className="!size-2.5 !border-2 !border-popover !bg-foreground" />
@@ -443,8 +444,8 @@ function SelectorField({ label, value, choices, onChange }: { label: string; val
       >
         <SelectTrigger><SelectValue /></SelectTrigger>
         <SelectContent>
-          {!selected && <SelectItem value="__empty">选择上游产出</SelectItem>}
-          {!known && selected && <SelectItem value={selected}>{Array.isArray(value) ? value.map((item) => String(item)).join(' / ') : '当前变量'}</SelectItem>}
+          {!selected && <SelectItem value="__empty">{i18n.t('workflow.port.pick')}</SelectItem>}
+          {!known && selected && <SelectItem value={selected}>{Array.isArray(value) ? value.map((item) => String(item)).join(' / ') : i18n.t('workflow.sel.variable')}</SelectItem>}
           {choices.map((choice) => <SelectItem key={choice.key} value={choice.key}>{choice.label}</SelectItem>)}
         </SelectContent>
       </Select>
@@ -460,40 +461,40 @@ function shownType(type: unknown): string {
 function StartInputs({ variables, onChange }: { variables: Record<string, unknown>[]; onChange: (variables: Record<string, unknown>[]) => void }) {
   return (
     <div className="grid gap-2">
-      <div className="text-xs">输入</div>
+      <div className="text-xs">{i18n.t('workflow.port.input')}</div>
       {variables.map((item, index) => (
-        <div key={String(item.variable || item.label || '参数')} className="grid gap-2 rounded-lg border p-2">
-          <TextField label="参数名" value={String(item.variable || '')} onCommit={(variable) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, variable } : candidate))} />
-          <TextField label="显示名" value={String(item.label || '')} onCommit={(label) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, label } : candidate))} />
+        <div key={String(item.variable || item.label || i18n.t('workflow.defaults.param'))} className="grid gap-2 rounded-lg border p-2">
+          <TextField label={i18n.t('workflow.field.paramName')} value={String(item.variable || '')} onCommit={(variable) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, variable } : candidate))} />
+          <TextField label={i18n.t('workflow.field.displayName')} value={String(item.label || '')} onCommit={(label) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, label } : candidate))} />
           <Label className="grid gap-1 text-xs text-muted-foreground">
-            类型
+            {i18n.t('workflow.field.type')}
             <Select value={shownType(item.type)} onValueChange={(type) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, type } : candidate))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="text-input">文本</SelectItem>
-                <SelectItem value="number">数字</SelectItem>
-                <SelectItem value="time">时间</SelectItem>
-                <SelectItem value="time-range">时间范围</SelectItem>
-                <SelectItem value="select">单选</SelectItem>
-                <SelectItem value="checkbox">复选</SelectItem>
+                <SelectItem value="text-input">{i18n.t('workflow.field.text')}</SelectItem>
+                <SelectItem value="number">{i18n.t('workflow.field.number')}</SelectItem>
+                <SelectItem value="time">{i18n.t('workflow.field.time')}</SelectItem>
+                <SelectItem value="time-range">{i18n.t('workflow.field.timeRange')}</SelectItem>
+                <SelectItem value="select">{i18n.t('workflow.field.single')}</SelectItem>
+                <SelectItem value="checkbox">{i18n.t('workflow.field.multi')}</SelectItem>
               </SelectContent>
             </Select>
           </Label>
           {(item.type === 'select' || item.type === 'checkbox') && (
             <TextField
-              label="选项"
+              label={i18n.t('workflow.field.options')}
               value={Array.isArray(item.options) ? item.options.join('，') : ''}
               onCommit={(text) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, options: text.split(/[,，]/).map((part) => part.trim()).filter(Boolean) } : candidate))}
             />
           )}
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">必填</span>
+            <span className="text-xs text-muted-foreground">{i18n.t('workflow.field.required')}</span>
             <Switch checked={item.required !== false} onCheckedChange={(required) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, required } : candidate))} />
           </div>
-          <Button type="button" variant="ghost" size="xs" onClick={() => onChange(variables.filter((_candidate, cursor) => cursor !== index))}>删除</Button>
+          <Button type="button" variant="ghost" size="xs" onClick={() => onChange(variables.filter((_candidate, cursor) => cursor !== index))}>{i18n.t('workflow.field.remove')}</Button>
         </div>
       ))}
-      <Button type="button" variant="outline" size="sm" onClick={() => onChange([...variables, { variable: `参数${variables.length + 1}`, label: `参数${variables.length + 1}`, type: 'text-input', required: true }])}>添加输入</Button>
+      <Button type="button" variant="outline" size="sm" onClick={() => onChange([...variables, { variable: `${i18n.t('workflow.defaults.param')}${variables.length + 1}`, label: `${i18n.t('workflow.defaults.param')}${variables.length + 1}`, type: 'text-input', required: true }])}>{i18n.t('workflow.field.addParam')}</Button>
     </div>
   )
 }
@@ -501,15 +502,15 @@ function StartInputs({ variables, onChange }: { variables: Record<string, unknow
 function EndOutputs({ outputs, choices, onChange }: { outputs: Record<string, unknown>[]; choices: Choice[]; onChange: (outputs: Record<string, unknown>[]) => void }) {
   return (
     <div className="grid gap-2">
-      <div className="text-xs">输出</div>
+      <div className="text-xs">{i18n.t('workflow.port.output')}</div>
       {outputs.map((item, index) => (
-        <div key={String(item.variable || '结果')} className="grid gap-2 rounded-lg border p-2">
-          <TextField label="名称" value={String(item.variable || '')} onCommit={(variable) => onChange(outputs.map((candidate, cursor) => cursor === index ? { ...candidate, variable } : candidate))} />
-          <SelectorField label="取值" value={item.value_selector} choices={choices} onChange={(value_selector) => onChange(outputs.map((candidate, cursor) => cursor === index ? { ...candidate, value_selector } : candidate))} />
-          <Button type="button" variant="ghost" size="xs" onClick={() => onChange(outputs.filter((_candidate, cursor) => cursor !== index))}>删除</Button>
+        <div key={String(item.variable || i18n.t('workflow.defaults.result'))} className="grid gap-2 rounded-lg border p-2">
+          <TextField label={i18n.t('workflow.field.name')} value={String(item.variable || '')} onCommit={(variable) => onChange(outputs.map((candidate, cursor) => cursor === index ? { ...candidate, variable } : candidate))} />
+          <SelectorField label={i18n.t('workflow.field.value')} value={item.value_selector} choices={choices} onChange={(value_selector) => onChange(outputs.map((candidate, cursor) => cursor === index ? { ...candidate, value_selector } : candidate))} />
+          <Button type="button" variant="ghost" size="xs" onClick={() => onChange(outputs.filter((_candidate, cursor) => cursor !== index))}>{i18n.t('workflow.field.remove')}</Button>
         </div>
       ))}
-      <Button type="button" variant="outline" size="sm" onClick={() => onChange([...outputs, { variable: `结果${outputs.length + 1}`, value_selector: ['sys', 'url'] }])}>添加输出</Button>
+      <Button type="button" variant="outline" size="sm" onClick={() => onChange([...outputs, { variable: `${i18n.t('workflow.defaults.result')}${outputs.length + 1}`, value_selector: ['sys', 'url'] }])}>{i18n.t('workflow.field.addOutput')}</Button>
     </div>
   )
 }
@@ -528,20 +529,20 @@ function CodePorts({
   const names = Object.keys(outputs)
   return (
     <div className="grid gap-2">
-      <div className="text-xs">输入</div>
+      <div className="text-xs">{i18n.t('workflow.port.input')}</div>
       {variables.map((item, index) => (
-        <div key={String(item.variable || '输入')} className="grid gap-2 rounded-lg border p-2">
-          <TextField label="名称" value={String(item.variable || '')} onCommit={(variable) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, variable } : candidate), outputs)} />
-          <SelectorField label="取值" value={item.value_selector} choices={choices} onChange={(value_selector) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, value_selector } : candidate), outputs)} />
-          <Button type="button" variant="ghost" size="xs" onClick={() => onChange(variables.filter((_candidate, cursor) => cursor !== index), outputs)}>删除</Button>
+        <div key={String(item.variable || i18n.t('workflow.defaults.input'))} className="grid gap-2 rounded-lg border p-2">
+          <TextField label={i18n.t('workflow.field.name')} value={String(item.variable || '')} onCommit={(variable) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, variable } : candidate), outputs)} />
+          <SelectorField label={i18n.t('workflow.field.value')} value={item.value_selector} choices={choices} onChange={(value_selector) => onChange(variables.map((candidate, cursor) => cursor === index ? { ...candidate, value_selector } : candidate), outputs)} />
+          <Button type="button" variant="ghost" size="xs" onClick={() => onChange(variables.filter((_candidate, cursor) => cursor !== index), outputs)}>{i18n.t('workflow.field.remove')}</Button>
         </div>
       ))}
-      <Button type="button" variant="outline" size="sm" onClick={() => onChange([...variables, { variable: `输入${variables.length + 1}`, value_selector: ['sys', 'url'] }], outputs)}>添加输入</Button>
-      <div className="text-xs">输出</div>
+      <Button type="button" variant="outline" size="sm" onClick={() => onChange([...variables, { variable: `${i18n.t('workflow.defaults.input')}${variables.length + 1}`, value_selector: ['sys', 'url'] }], outputs)}>{i18n.t('workflow.field.addParam')}</Button>
+      <div className="text-xs">{i18n.t('workflow.port.output')}</div>
       {names.map((name) => (
         <div key={name} className="grid gap-2 rounded-lg border p-2">
           <TextField
-            label="名称"
+            label={i18n.t('workflow.field.name')}
             value={name}
             onCommit={(next) => {
               if (!next || next === name) return
@@ -551,18 +552,18 @@ function CodePorts({
             }}
           />
           <Label className="grid gap-1 text-xs text-muted-foreground">
-            类型
+            {i18n.t('workflow.field.type')}
             <Select
               value={outputs[name]?.type || 'string'}
               onValueChange={(type) => onChange(variables, { ...outputs, [name]: { ...outputs[name], type } })}
             >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="string">文本</SelectItem>
-                <SelectItem value="number">数字</SelectItem>
-                <SelectItem value="boolean">布尔</SelectItem>
-                <SelectItem value="object">对象</SelectItem>
-                <SelectItem value="array">数组</SelectItem>
+                <SelectItem value="string">{i18n.t('workflow.field.text')}</SelectItem>
+                <SelectItem value="number">{i18n.t('workflow.field.number')}</SelectItem>
+                <SelectItem value="boolean">{i18n.t('workflow.field.boolean')}</SelectItem>
+                <SelectItem value="object">{i18n.t('workflow.field.object')}</SelectItem>
+                <SelectItem value="array">{i18n.t('workflow.field.array')}</SelectItem>
               </SelectContent>
             </Select>
           </Label>
@@ -576,11 +577,11 @@ function CodePorts({
               onChange(variables, next)
             }}
           >
-            删除
+            {i18n.t('workflow.field.remove')}
           </Button>
         </div>
       ))}
-      <Button type="button" variant="outline" size="sm" onClick={() => onChange(variables, { ...outputs, [`输出${names.length + 1}`]: { type: 'string' } })}>添加输出</Button>
+      <Button type="button" variant="outline" size="sm" onClick={() => onChange(variables, { ...outputs, [`${i18n.t('workflow.port.outputNamed')}${names.length + 1}`]: { type: 'string' } })}>{i18n.t('workflow.field.addOutput')}</Button>
     </div>
   )
 }
@@ -595,24 +596,24 @@ function ExportSelectors({ node, choices, patch }: { node: WorkflowNode; choices
   if (Array.isArray(node.data.rows_selector) && !Array.isArray(node.data.data_selector)) {
     return (
       <>
-        <SelectorField label="表头" value={node.data.headers_selector} choices={choices} onChange={(headers_selector) => patch({ ...node.data, headers_selector })} />
-        <SelectorField label="行" value={node.data.rows_selector} choices={choices} onChange={(rows_selector) => patch({ ...node.data, rows_selector })} />
+        <SelectorField label={i18n.t('workflow.field.headers')} value={node.data.headers_selector} choices={choices} onChange={(headers_selector) => patch({ ...node.data, headers_selector })} />
+        <SelectorField label={i18n.t('workflow.field.rows')} value={node.data.rows_selector} choices={choices} onChange={(rows_selector) => patch({ ...node.data, rows_selector })} />
       </>
     )
   }
-  return <SelectorField label="输入" value={node.data.data_selector} choices={choices} onChange={(data_selector) => patch({ ...node.data, data_selector })} />
+  return <SelectorField label={i18n.t('workflow.port.input')} value={node.data.data_selector} choices={choices} onChange={(data_selector) => patch({ ...node.data, data_selector })} />
 }
 
 function LoopSelectors({ node, choices, until, patch }: { node: WorkflowNode; choices: Choice[]; until: Record<string, unknown>; patch: (data: WorkflowNode['data']) => void }) {
   if (node.data.type !== 'loop') return null
   const keepGoing = (
     <Label className="grid gap-1 text-xs text-muted-foreground">
-      一轮失败时
+      {i18n.t('workflow.loop.onFail')}
       <Select value={String(node.data.continueOnError === 'true' ? 'true' : 'false')} onValueChange={(continueOnError) => patch({ ...node.data, continueOnError })}>
         <SelectTrigger><SelectValue /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="false">整个流程停下</SelectItem>
-          <SelectItem value="true">记下错误，继续下一轮</SelectItem>
+          <SelectItem value="false">{i18n.t('workflow.loop.stop')}</SelectItem>
+          <SelectItem value="true">{i18n.t('workflow.loop.keepGoing')}</SelectItem>
         </SelectContent>
       </Select>
     </Label>
@@ -620,15 +621,15 @@ function LoopSelectors({ node, choices, until, patch }: { node: WorkflowNode; ch
   if (node.data.mode === 'list') {
     return (
       <>
-        <SelectorField label="输入" value={node.data.items_selector} choices={choices} onChange={(items_selector) => patch({ ...node.data, items_selector })} />
+        <SelectorField label={i18n.t('workflow.port.input')} value={node.data.items_selector} choices={choices} onChange={(items_selector) => patch({ ...node.data, items_selector })} />
         {keepGoing}
       </>
     )
   }
   return (
     <>
-      <SelectorField label="直到" value={until.variable_selector} choices={choices} onChange={(variable_selector) => patch({ ...node.data, until: { ...until, variable_selector } })} />
-      <TextField label="比较值" value={String(until.value || '')} onCommit={(value) => patch({ ...node.data, until: { ...until, value } })} />
+      <SelectorField label={i18n.t('workflow.field.until')} value={until.variable_selector} choices={choices} onChange={(variable_selector) => patch({ ...node.data, until: { ...until, variable_selector } })} />
+      <TextField label={i18n.t('workflow.field.compare')} value={String(until.value || '')} onCommit={(value) => patch({ ...node.data, until: { ...until, value } })} />
       {keepGoing}
     </>
   )
@@ -639,16 +640,16 @@ function FillFields({ node, patch }: { node: WorkflowNode; patch: (data: Workflo
   return (
     <>
       <Label className="grid gap-1 text-xs text-muted-foreground">
-        写入方式
+        {i18n.t('workflow.field.writeMode')}
         <Select value={node.data.entry === 'paste' ? 'paste' : 'type'} onValueChange={(entry) => patch({ ...node.data, entry })}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="type">逐字输入</SelectItem>
-            <SelectItem value="paste">粘贴</SelectItem>
+            <SelectItem value="type">{i18n.t('workflow.field.typeChar')}</SelectItem>
+            <SelectItem value="paste">{i18n.t('workflow.field.paste')}</SelectItem>
           </SelectContent>
         </Select>
       </Label>
-      <TextField label="内容" value={String(node.data.text || '')} onCommit={(text) => patch({ ...node.data, text })} />
+      <TextField label={i18n.t('workflow.field.content')} value={String(node.data.text || '')} onCommit={(text) => patch({ ...node.data, text })} />
     </>
   )
 }
@@ -657,14 +658,14 @@ function DirectionField({ node, patch }: { node: WorkflowNode; patch: (data: Wor
   if (node.data.type !== 'scroll' && node.data.type !== 'swipe') return null
   return (
     <Label className="grid gap-1 text-xs text-muted-foreground">
-      方向
+      {i18n.t('workflow.field.direction')}
       <Select value={String(node.data.direction || 'down')} onValueChange={(direction) => patch({ ...node.data, direction })}>
         <SelectTrigger><SelectValue /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="up">上</SelectItem>
-          <SelectItem value="down">下</SelectItem>
-          {node.data.type === 'swipe' && <SelectItem value="left">左</SelectItem>}
-          {node.data.type === 'swipe' && <SelectItem value="right">右</SelectItem>}
+          <SelectItem value="up">{i18n.t('workflow.field.up')}</SelectItem>
+          <SelectItem value="down">{i18n.t('workflow.field.down')}</SelectItem>
+          {node.data.type === 'swipe' && <SelectItem value="left">{i18n.t('workflow.field.left')}</SelectItem>}
+          {node.data.type === 'swipe' && <SelectItem value="right">{i18n.t('workflow.field.right')}</SelectItem>}
         </SelectContent>
       </Select>
     </Label>
@@ -681,10 +682,10 @@ function StrokeFields({ node, patch }: { node: WorkflowNode; patch: (data: Workf
   }
   return (
     <>
-      <TextField label="路径（SVG d）" multiline value={String(node.data.path || '')} onCommit={(path) => patch({ ...node.data, path })} />
+      <TextField label={i18n.t('workflow.field.path')} multiline value={String(node.data.path || '')} onCommit={(path) => patch({ ...node.data, path })} />
       <div className="grid grid-cols-2 gap-2">
-        <TextField label="画布宽" value={String(viewBox[0] ?? '')} onCommit={(value) => setBox(0, value)} />
-        <TextField label="画布高" value={String(viewBox[1] ?? '')} onCommit={(value) => setBox(1, value)} />
+        <TextField label={i18n.t('workflow.field.canvasWidth')} value={String(viewBox[0] ?? '')} onCommit={(value) => setBox(0, value)} />
+        <TextField label={i18n.t('workflow.field.canvasHeight')} value={String(viewBox[1] ?? '')} onCommit={(value) => setBox(1, value)} />
       </div>
     </>
   )
@@ -697,7 +698,7 @@ function LocatorFields({ node, locator, patch }: { node: WorkflowNode; locator: 
       {(['xpath', 'selector', 'text'] as const).map((key) => (
         <TextField
           key={key}
-          label={key === 'selector' ? 'CSS' : key === 'xpath' ? 'XPath' : '文字'}
+          label={key === 'selector' ? 'CSS' : key === 'xpath' ? 'XPath' : i18n.t('workflow.field.text')}
           value={String(locator[key] || '')}
           onCommit={(value) => {
             const next = { ...locator, [key]: value }
@@ -714,7 +715,7 @@ function LocatorFields({ node, locator, patch }: { node: WorkflowNode; locator: 
         />
       ))}
       <TextField
-        label="角色名称（如 button 提交）"
+        label={i18n.t('workflow.field.roleName')}
         value={String(locator.role || '')}
         onCommit={(value) => {
           const next: Record<string, unknown> = { ...locator, role: value }
@@ -759,8 +760,8 @@ function ConditionEditor({
         >
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
-            {!selected && <SelectItem value="__empty">选择上游产出</SelectItem>}
-            {!known && selected && <SelectItem value={selected}>{Array.isArray(condition.variable_selector) ? condition.variable_selector.join(' / ') : '当前变量'}</SelectItem>}
+            {!selected && <SelectItem value="__empty">{i18n.t('workflow.port.pick')}</SelectItem>}
+            {!known && selected && <SelectItem value={selected}>{Array.isArray(condition.variable_selector) ? condition.variable_selector.join(' / ') : i18n.t('workflow.sel.variable')}</SelectItem>}
             {choices.map((choice) => <SelectItem key={choice.key} value={choice.key}>{choice.label}</SelectItem>)}
           </SelectContent>
         </Select>
@@ -772,7 +773,7 @@ function ConditionEditor({
         </SelectContent>
       </Select>
       {(operator === 'contains' || operator === 'is') && (
-        <TextField label="比较值" value={String(condition.value || '')} onCommit={(value) => onChange({ ...condition, value })} />
+        <TextField label={i18n.t('workflow.field.compare')} value={String(condition.value || '')} onCommit={(value) => onChange({ ...condition, value })} />
       )}
     </div>
   )
@@ -813,7 +814,7 @@ function CaseFields({
                   patch({ ...node.data, cases: next }, dropped)
                 }}
               >
-                删除
+                {i18n.t('workflow.field.remove')}
               </Button>
             </div>
             {conditions.map((condition, conditionIndex) => (
@@ -844,9 +845,9 @@ function CaseFields({
           })
         }}
       >
-        添加分支
+        {i18n.t('workflow.add.branch')}
       </Button>
-      <p className="text-xs text-muted-foreground">都不成立时走 ELSE。</p>
+      <p className="text-xs text-muted-foreground">{i18n.t('workflow.hint.elseBranch')}</p>
     </div>
   )
 }
@@ -867,7 +868,7 @@ function readNodeBits(node: WorkflowNode): {
 
 function RemoveNode({ node, onRemove }: { node: WorkflowNode; onRemove: () => void }) {
   if (node.data.type === 'start') return null
-  return <Button type="button" variant="destructive" size="sm" onClick={onRemove}>删除节点</Button>
+  return <Button type="button" variant="destructive" size="sm" onClick={onRemove}>{i18n.t('workflow.btn.deleteNode')}</Button>
 }
 
 function NextLink({
@@ -890,17 +891,17 @@ function NextLink({
     <div className="grid gap-2 border-t pt-3">
       {sources.length > 1 && (
         <Label className="grid gap-1 text-xs text-muted-foreground">
-          从哪个端点连出
+          {i18n.t('workflow.port.from')}
           <Select value={handle} onValueChange={onPick}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              {sources.map((source) => <SelectItem key={source.id} value={source.id}>{source.label || '输出'}</SelectItem>)}
+              {sources.map((source) => <SelectItem key={source.id} value={source.id}>{source.label || i18n.t('workflow.port.output')}</SelectItem>)}
             </SelectContent>
           </Select>
         </Label>
       )}
       <Label className="grid gap-1 text-xs text-muted-foreground">
-        添加下一步
+        {i18n.t('workflow.add.step')}
         <Select value={addType} onValueChange={onAddType}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -908,7 +909,7 @@ function NextLink({
           </SelectContent>
         </Select>
       </Label>
-      <Button type="button" size="sm" onClick={() => onAdd(addType, handle)}>接到这个端点</Button>
+      <Button type="button" size="sm" onClick={() => onAdd(addType, handle)}>{i18n.t('workflow.add.connect')}</Button>
     </div>
   )
 }
@@ -928,7 +929,7 @@ function NodeHeading({ node, patch }: { node: WorkflowNode; patch: NodePatch }) 
         <div className="text-[10px] text-muted-foreground">{kindText[node.data.type] || node.data.type}</div>
         <div className="truncate text-xs text-muted-foreground">{node.id}</div>
       </div>
-      <TextField label="标题" value={String(node.data.title || '')} onCommit={(title) => patch({ ...node.data, title })} />
+      <TextField label={i18n.t('workflow.field.title')} value={String(node.data.title || '')} onCommit={(title) => patch({ ...node.data, title })} />
     </>
   )
 }
@@ -951,10 +952,10 @@ function NodePorts({
       {showFor(node, ['start'], <StartInputs variables={records(node.data.variables)} onChange={(variables) => patch({ ...node.data, variables })} />)}
       {showFor(node, ['code', 'script'], <CodePorts variables={records(node.data.variables)} outputs={codeOutputs} choices={choices} onChange={(variables, outputs) => patch({ ...node.data, variables, outputs })} />)}
       {showFor(node, ['end'], <EndOutputs outputs={records(node.data.outputs)} choices={choices} onChange={(outputs) => patch({ ...node.data, outputs })} />)}
-      {showFor(node, ['extract'], <SelectorField label="输入" value={node.data.variable_selector} choices={choices} onChange={(variable_selector) => patch({ ...node.data, variable_selector })} />)}
+      {showFor(node, ['extract'], <SelectorField label={i18n.t('workflow.port.input')} value={node.data.variable_selector} choices={choices} onChange={(variable_selector) => patch({ ...node.data, variable_selector })} />)}
       <ExportSelectors node={node} choices={choices} patch={patch} />
       <LoopSelectors node={node} choices={choices} until={until} patch={patch} />
-      {showFor(node, ['http-request', 'extract', 'export', 'loop'], <p className="text-xs text-muted-foreground">输出 {portSummary(node).outputs.join('、')}</p>)}
+      {showFor(node, ['http-request', 'extract', 'export', 'loop'], <p className="text-xs text-muted-foreground">{i18n.t('workflow.port.output')} {portSummary(node).outputs.join(', ')}</p>)}
     </>
   )
 }
@@ -962,45 +963,45 @@ function NodePorts({
 function NodePageFields({ node, patch }: { node: WorkflowNode; patch: NodePatch }) {
   return (
     <>
-      {showFor(node, ['goto'], <TextField label="地址" value={String(node.data.url || '')} onCommit={(url) => patch({ ...node.data, url })} />)}
+      {showFor(node, ['goto'], <TextField label={i18n.t('workflow.field.address')} value={String(node.data.url || '')} onCommit={(url) => patch({ ...node.data, url })} />)}
       <FillFields node={node} patch={patch} />
-      {showFor(node, ['select'], <TextField label="选项" value={String(node.data.option || '')} onCommit={(option) => patch({ ...node.data, option })} />)}
-      {showFor(node, ['press'], <TextField label="按键" value={String(node.data.shortcut || '')} onCommit={(shortcut) => patch({ ...node.data, shortcut })} />)}
+      {showFor(node, ['select'], <TextField label={i18n.t('workflow.field.options')} value={String(node.data.option || '')} onCommit={(option) => patch({ ...node.data, option })} />)}
+      {showFor(node, ['press'], <TextField label={i18n.t('workflow.field.key')} value={String(node.data.shortcut || '')} onCommit={(shortcut) => patch({ ...node.data, shortcut })} />)}
       <DirectionField node={node} patch={patch} />
       <StrokeFields node={node} patch={patch} />
       {showFor(node, ['captcha'], (
         <>
           <Label className="grid gap-1 text-xs text-muted-foreground">
-            识别引擎
+            {i18n.t('workflow.field.engine')}
             <Select value={String(node.data.engine || 'auto')} onValueChange={(engine) => patch({ ...node.data, engine })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="auto">自动</SelectItem>
-                <SelectItem value="cv">内置视觉</SelectItem>
+                <SelectItem value="auto">{i18n.t('workflow.field.auto')}</SelectItem>
+                <SelectItem value="cv">{i18n.t('workflow.field.cv')}</SelectItem>
                 <SelectItem value="ddddocr">ddddocr</SelectItem>
-                <SelectItem value="onnx">ONNX 模型</SelectItem>
+                <SelectItem value="onnx">{i18n.t('workflow.field.onnx')}</SelectItem>
               </SelectContent>
             </Select>
           </Label>
-          <TextField label="重试次数" value={String(node.data.retries ?? '2')} onCommit={(retries) => patch({ ...node.data, retries })} />
+          <TextField label={i18n.t('workflow.field.retries')} value={String(node.data.retries ?? '2')} onCommit={(retries) => patch({ ...node.data, retries })} />
         </>
       ))}
       {showFor(node, ['wait'], (
         <>
           <Label className="grid gap-1 text-xs text-muted-foreground">
-            等到
+            {i18n.t('workflow.field.waitFor')}
             <Select value={String(node.data.state || 'appear')} onValueChange={(state) => patch({ ...node.data, state })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="appear">出现</SelectItem>
-                <SelectItem value="gone">消失</SelectItem>
+                <SelectItem value="appear">{i18n.t('workflow.field.appear')}</SelectItem>
+                <SelectItem value="gone">{i18n.t('workflow.field.gone')}</SelectItem>
               </SelectContent>
             </Select>
           </Label>
-          <TextField label="超时（秒）" value={String(node.data.timeout ?? '10')} onCommit={(timeout) => patch({ ...node.data, timeout })} />
+          <TextField label={i18n.t('workflow.field.timeout')} value={String(node.data.timeout ?? '10')} onCommit={(timeout) => patch({ ...node.data, timeout })} />
         </>
       ))}
-      {showFor(node, ['handoff'], <TextField label="提示" value={String(node.data.message || '')} onCommit={(message) => patch({ ...node.data, message })} />)}
+      {showFor(node, ['handoff'], <TextField label={i18n.t('workflow.field.message')} value={String(node.data.message || '')} onCommit={(message) => patch({ ...node.data, message })} />)}
     </>
   )
 }
@@ -1009,9 +1010,9 @@ function HttpFields({ node, patch }: { node: WorkflowNode; patch: NodePatch }) {
   if (node.data.type !== 'http-request') return null
   return (
     <>
-      <TextField label="方法" value={String(node.data.method || 'GET')} onCommit={(method) => patch({ ...node.data, method })} />
-      <TextField label="地址" value={String(node.data.url || '')} onCommit={(url) => patch({ ...node.data, url })} />
-      <TextField label="请求正文" multiline value={typeof node.data.body === 'string' ? node.data.body : ''} onCommit={(body) => patch({ ...node.data, body })} />
+      <TextField label={i18n.t('workflow.field.method')} value={String(node.data.method || 'GET')} onCommit={(method) => patch({ ...node.data, method })} />
+      <TextField label={i18n.t('workflow.field.address')} value={String(node.data.url || '')} onCommit={(url) => patch({ ...node.data, url })} />
+      <TextField label={i18n.t('workflow.field.body')} multiline value={typeof node.data.body === 'string' ? node.data.body : ''} onCommit={(body) => patch({ ...node.data, body })} />
     </>
   )
 }
@@ -1020,14 +1021,14 @@ function NodeCodeFields({ node, patch }: { node: WorkflowNode; patch: NodePatch 
   return (
     <>
       <HttpFields node={node} patch={patch} />
-      {showFor(node, ['script'], <TextField label="页面脚本" multiline value={String(node.data.source || '')} onCommit={(source) => patch({ ...node.data, source })} />)}
-      {showFor(node, ['code'], <TextField label="代码" multiline value={String(node.data.code || '')} onCommit={(code) => patch({ ...node.data, code })} />)}
-      {showFor(node, ['extract'], <TextField label="正则" value={String(node.data.pattern || '')} onCommit={(pattern) => patch({ ...node.data, pattern })} />)}
-      {showFor(node, ['export'], <TextField label="文件名" value={String(node.data.filename || '')} onCommit={(filename) => patch({ ...node.data, filename })} />)}
+      {showFor(node, ['script'], <TextField label={i18n.t('workflow.field.pageScript')} multiline value={String(node.data.source || '')} onCommit={(source) => patch({ ...node.data, source })} />)}
+      {showFor(node, ['code'], <TextField label={i18n.t('workflow.field.code')} multiline value={String(node.data.code || '')} onCommit={(code) => patch({ ...node.data, code })} />)}
+      {showFor(node, ['extract'], <TextField label={i18n.t('workflow.field.regex')} value={String(node.data.pattern || '')} onCommit={(pattern) => patch({ ...node.data, pattern })} />)}
+      {showFor(node, ['export'], <TextField label={i18n.t('workflow.field.filename')} value={String(node.data.filename || '')} onCommit={(filename) => patch({ ...node.data, filename })} />)}
       {showFor(node, ['click'], (
         <div className="grid gap-2">
-          <TextField label="画布 X" value={node.data.x == null ? '' : String(node.data.x)} onCommit={(x) => patch(withPoint(node.data, 'x', x))} />
-          <TextField label="画布 Y" value={node.data.y == null ? '' : String(node.data.y)} onCommit={(y) => patch(withPoint(node.data, 'y', y))} />
+          <TextField label={i18n.t('workflow.field.canvasX')} value={node.data.x == null ? '' : String(node.data.x)} onCommit={(x) => patch(withPoint(node.data, 'x', x))} />
+          <TextField label={i18n.t('workflow.field.canvasY')} value={node.data.y == null ? '' : String(node.data.y)} onCommit={(y) => patch(withPoint(node.data, 'y', y))} />
         </div>
       ))}
     </>
@@ -1071,7 +1072,7 @@ function NodePanel({
       <NodeCodeFields node={node} patch={patch} />
       <LocatorFields node={node} locator={locator} patch={patch} />
       <CaseFields node={node} cases={cases} edges={edges} choices={choices} patch={patch} />
-      {showFor(node, ['loop'], <Button type="button" variant="outline" size="sm" onClick={onEnter}>进入循环</Button>)}
+      {showFor(node, ['loop'], <Button type="button" variant="outline" size="sm" onClick={onEnter}>{i18n.t('workflow.port.enterLoop')}</Button>)}
       <NextLink
         sources={sources}
         handle={handle}
@@ -1097,24 +1098,24 @@ function RunHistory({ workflowId, reloadKey }: { workflowId: string; reloadKey: 
   return (
     <div className="grid gap-2">
       <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => setOpen(!open)}>
-        {open ? '收起运行记录' : '最近运行'}
+        {open ? i18n.t('workflow.run.collapse') : i18n.t('workflow.run.recent')}
       </Button>
       {open && (
         <div className="grid max-h-64 gap-2 overflow-auto rounded-lg border border-neutral-200 bg-white p-2">
-          {runs.length === 0 && <p className="px-1 py-3 text-center text-xs text-neutral-400">还没跑过</p>}
+          {runs.length === 0 && <p className="px-1 py-3 text-center text-xs text-neutral-400">{i18n.t('workflow.run.none')}</p>}
           {runs.map((run) => (
             <div key={run.id} className="grid gap-1 rounded-md border border-neutral-200 p-2 text-xs">
               <div className="flex items-center gap-2">
-                <span className={run.ok ? 'text-green-600' : 'text-red-500'}>{run.ok ? '成功' : '失败'}</span>
+                <span className={run.ok ? 'text-green-600' : 'text-red-500'}>{run.ok ? i18n.t('workflow.run.ok') : i18n.t('workflow.run.failed')}</span>
                 <span className="text-neutral-500">{new Date(run.at).toLocaleString()}</span>
-                {run.node && <span className="text-neutral-500">节点 {run.node}</span>}
+                {run.node && <span className="text-neutral-500">{i18n.t('workflow.run.node', { name: run.node })}</span>}
               </div>
               {run.error && <p className="text-red-500">{run.error}</p>}
               {run.outputs && Object.keys(run.outputs).length > 0 && (
                 <pre className="max-h-24 overflow-auto rounded bg-neutral-50 p-1 whitespace-pre-wrap">{JSON.stringify(run.outputs, null, 1)}</pre>
               )}
               {run.files && run.files.length > 0 && <p className="truncate text-neutral-500">{run.files.join('、')}</p>}
-              {run.screenshot && <p className="truncate text-neutral-400">现场截图：{run.screenshot}</p>}
+              {run.screenshot && <p className="truncate text-neutral-400">{i18n.t('workflow.run.screenshot', { path: run.screenshot })}</p>}
             </div>
           ))}
         </div>
@@ -1153,7 +1154,7 @@ function EditorCanvas({ workflow, onBack }: { workflow: WorkflowInfo; onBack: ()
     try {
       await window.browser.updateWorkflow({ workflow: workflow.id, ...patch })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '没能保存')
+      setError(caught instanceof Error ? caught.message : i18n.t('workflow.err.saveFailed'))
     }
   }, [workflow.id])
 
@@ -1191,7 +1192,7 @@ function EditorCanvas({ workflow, onBack }: { workflow: WorkflowInfo; onBack: ()
   return (
     <section className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onBack}>关闭</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onBack}>{i18n.t('workflow.btn.close')}</Button>
         <Button type="button" variant="ghost" size="sm" className="max-w-36 truncate px-2" onClick={() => setStack([])}>{workflow.name}</Button>
         {level.titles.map((title, index) => (
           <Button key={stack[index]} type="button" variant="ghost" size="sm" className="px-2" onClick={() => setStack(stack.slice(0, index + 1))}>
@@ -1205,15 +1206,15 @@ function EditorCanvas({ workflow, onBack }: { workflow: WorkflowInfo; onBack: ()
           className="ml-auto"
           onClick={() => {
             void window.browser.exportWorkflow(workflow.id).catch((caught: unknown) => {
-              setError(caught instanceof Error ? caught.message : '导出失败')
+              setError(caught instanceof Error ? caught.message : i18n.t('workflow.err.exportFailed'))
             })
           }}
         >
-          导出
+          {i18n.t('workflow.btn.export')}
         </Button>
       </div>
 
-      <p className="text-xs text-muted-foreground">从右侧端点拖到下一个节点左侧。选中连线后按 Delete 删除。判断的每个分支是一个端点。</p>
+      <p className="text-xs text-muted-foreground">{i18n.t('workflow.hint.canvas')}</p>
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border bg-[#f3f3f3]">
         <ReactFlow
@@ -1250,7 +1251,7 @@ function EditorCanvas({ workflow, onBack }: { workflow: WorkflowInfo; onBack: ()
           onBeforeDelete={async ({ nodes: doomed, edges: doomedEdges }) => {
             const start = doomed.find((node) => node.data.kind === 'start')
             if (start && doomed.length === 1 && doomedEdges.length === 0) {
-              setError('开始节点不能删除')
+              setError(i18n.t('workflow.err.startUndeletable'))
               return false
             }
             return { nodes: doomed.filter((node) => node.data.kind !== 'start'), edges: doomedEdges }
@@ -1305,7 +1306,7 @@ function EditorCanvas({ workflow, onBack }: { workflow: WorkflowInfo; onBack: ()
               }}
             />
           ) : (
-            <p className="p-3 text-xs text-muted-foreground">点一个节点，在这里改输入和输出。输入从上游产出里选。</p>
+            <p className="p-3 text-xs text-muted-foreground">{i18n.t('workflow.hint.panel')}</p>
           )}
         </aside>
       </div>
