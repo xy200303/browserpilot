@@ -340,20 +340,22 @@ function tool(name: string, description: string, schema: z.ZodTypeAny, run: Tool
   if (schema instanceof z.ZodObject) shapes.set(name, schema.shape)
 }
 const TOOL_GROUPS: Array<[string, string]> = [
-  ['env_', '环境'],
-  ['tab_', '标签'],
-  ['group_', '分组'],
-  ['page_', '页面'],
-  ['screen_', '录屏'],
-  ['workflow_', '工作流'],
-  ['net_', '网络'],
-  ['captcha_', '验证码'],
-  ['bookmark_', '书签'],
-  ['history_', '历史'],
-  ['session_', '会话'],
+  ['env_', 'Environments'],
+  ['tab_', 'Tabs'],
+  ['group_', 'Groups'],
+  ['page_', 'Page'],
+  ['screen', 'Recording'],
+  ['screen_', 'Recording'],
+  ['workflow_', 'Workflows'],
+  ['net_', 'Network'],
+  ['captcha_', 'Captcha'],
+  ['bookmark_', 'Bookmarks'],
+  ['history_', 'History'],
+  ['session_', 'Sessions'],
   ['cookie_', 'Cookie'],
-  ['download_', '下载'],
-  ['clipboard_', '剪贴板'],
+  ['download', 'Downloads'],
+  ['download_', 'Downloads'],
+  ['clipboard_', 'Clipboard'],
   ['settings_', '设置'],
   ['permission_', '权限'],
   ['password_', '密码'],
@@ -422,7 +424,7 @@ const TOOL_KEYWORDS: Record<string, string> = {
 }
 
 function groupOf(name: string): string {
-  return TOOL_GROUPS.find(([prefix]) => name.startsWith(prefix))?.[1] ?? '其它'
+  return TOOL_GROUPS.find(([prefix]) => name.startsWith(prefix))?.[1] ?? 'Other'
 }
 
 function rankTool(name: string, tokens: string[]): number {
@@ -438,7 +440,7 @@ function rankTool(name: string, tokens: string[]): number {
   return 3
 }
 
-tool('search_tools', '按关键词搜工具，名称、描述、分组都会匹配，空格分隔多个词（全部命中才算）。分页返回 total / page / page_size，每条带参数 schema，查到后直接用 name 调用即可。传 name 精确取一个工具的完整定义；不传关键词就按目录顺序列全部。工具很多时先搜再用，不要凭记忆猜参数。', z.object({
+tool('search_tools', 'Search tools by keyword across names, descriptions and groups (space separated, all words must match). Paginates with total/page/page_size and returns each schema. Pass name to get one tool in full; with no query it lists the catalog. Search first instead of guessing parameters.', z.object({
   query: z.string().optional(),
   name: z.string().optional(),
   page: z.number().optional(),
@@ -494,7 +496,7 @@ export function shapeOf(name: string): z.ZodRawShape {
   return shapes.get(name) ?? {}
 }
 
-tool('env_list', '列出环境编号、名称、备注、窗口是否开着、有头还是无头。不返回 Cookie。', z.object({}), async () => ({
+tool('env_list', 'List environments with id, name, note, window open or not, headed or headless. Never returns cookies.', z.object({}), async () => ({
   envs: await Promise.all(storage.envs.map(async (item) => ({
     id: item.id,
     name: item.name,
@@ -506,7 +508,7 @@ tool('env_list', '列出环境编号、名称、备注、窗口是否开着、�
   })))
 }))
 
-tool('env_create', '新建一套空环境，并打开一扇有头窗口。remark 必填，写清这套环境用来做什么（例如「客户 A 的后台」「知乎账号 2」），方便以后识别。', z.object({
+tool('env_create', 'Create an empty environment and open a headed window. remark is required: state what this environment is for (customer A dashboard, second account).', z.object({
   name: z.string().min(1),
   remark: z.string().min(1)
 }), async (args) => {
@@ -519,7 +521,7 @@ tool('env_create', '新建一套空环境，并打开一扇有头窗口。remark
   return { env: id, name, remark }
 })
 
-tool('env_open', '打开已有环境的窗口。人打开时用有头。批量可传 headless true。只保证窗口存在，不会把窗口带到前台；需要让用户看到窗口时用 env_front。', z.object({
+tool('env_open', 'Open the window of an existing environment. Headed when a human is involved; pass headless true for batch work. Does not raise the window; use env_front for that.', z.object({
   env: z.string(),
   headless: z.boolean().optional()
 }), async (args) => {
@@ -529,7 +531,7 @@ tool('env_open', '打开已有环境的窗口。人打开时用有头。批量�
   return { env: id, headless: runtime.headless }
 })
 
-tool('env_front', '把某个环境的窗口带到前台并聚焦，可选先切到指定标签。默认所有工具都不会前置窗口；只有需要让用户看窗口、人工交接或录屏前才调用这个。', z.object({
+tool('env_front', 'Raise and focus an environment window, optionally activating a tab first. No other tool steals focus; call this only when the user must see the window (handoff, demo, recording).', z.object({
   env: env,
   tabId: z.string().optional()
 }), async (args) => {
@@ -558,7 +560,7 @@ tool('env_front', '把某个环境的窗口带到前台并聚焦，可选先切�
   return { env: envId, tabId }
 })
 
-tool('env_update', '改环境的名称或备注，编号不变。', z.object({
+tool('env_update', 'Rename an environment or change its note. The id stays the same.', z.object({
   env: z.string(),
   name: z.string().optional(),
   remark: z.string().optional()
@@ -573,7 +575,7 @@ tool('env_update', '改环境的名称或备注，编号不变。', z.object({
   return { env: item.id, name: item.name, remark: item.remark }
 })
 
-tool('env_delete', '关掉这套环境的窗口并清掉登录。默认环境不能删。', z.object({ env: z.string() }), async (args) => {
+tool('env_delete', 'Close the window and clear its logins. The default environment cannot be deleted.', z.object({ env: z.string() }), async (args) => {
   const id = String(args.env)
   if (id === DEFAULT_ENV) throw new Error('默认环境不能删除')
   const runtime = windows.get(id)
@@ -594,7 +596,7 @@ tool('env_delete', '关掉这套环境的窗口并清掉登录。默认环境不
   return { env: id }
 })
 
-tool('tab_list', '列出全部窗口里的标签。编号全局唯一。', z.object({}), async () => ({
+tool('tab_list', 'List tabs across all windows. Tab ids are globally unique.', z.object({}), async () => ({
   tabs: [...windows.values()].flatMap((win) => win.tabs.map((item) => ({
     id: item.id,
     envId: item.envId,
@@ -605,7 +607,7 @@ tool('tab_list', '列出全部窗口里的标签。编号全局唯一。', z.obj
   })))
 }))
 
-tool('tab_open', '在环境的窗口里新开标签。不传 env 用默认环境。', z.object({
+tool('tab_open', 'Open a new tab in an environment window. Defaults to the default environment.', z.object({
   url: z.string(),
   env: env
 }), async (args) => {
@@ -614,20 +616,20 @@ tool('tab_open', '在环境的窗口里新开标签。不传 env 用默认环境
   return { tabId: tabRef.id, env: runtime.envId }
 })
 
-tool('tab_close', '按全局编号关掉标签。', z.object({ tabId: z.string() }), async (args) => {
+tool('tab_close', 'Close a tab by its global id.', z.object({ tabId: z.string() }), async (args) => {
   const { win, tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
   closeTab(win, tabRef.id)
   return { tabId: tabRef.id }
 })
 
-tool('tab_activate', '按全局编号切换活动标签。只切标签，不把窗口带到前台；需要显示窗口用 env_front。', z.object({ tabId: z.string() }), async (args) => {
+tool('tab_activate', 'Make a tab active by id. Does not raise the window; use env_front to show it.', z.object({ tabId: z.string() }), async (args) => {
   const { win, tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
   if (win.headless) applyHeadless(win, false)
   activateTab(win, tabRef.id, false)
   return { tabId: tabRef.id }
 })
 
-tool('group_create', '在一套环境的窗口里新建分组。', z.object({
+tool('group_create', 'Create a tab group in an environment window.', z.object({
   name: z.string(),
   color: z.string().optional(),
   env: env
@@ -639,7 +641,7 @@ tool('group_create', '在一套环境的窗口里新建分组。', z.object({
   return { groupId: id, env: envId }
 })
 
-tool('group_update', '改分组的名称或颜色，编号不变。', z.object({
+tool('group_update', 'Rename or recolor a group. The id stays the same.', z.object({
   groupId: z.string(),
   name: z.string().optional(),
   color: z.string().optional()
@@ -652,7 +654,7 @@ tool('group_update', '改分组的名称或颜色，编号不变。', z.object({
   return { groupId: group.id, name: group.name, color: group.color }
 })
 
-tool('group_list', '列出分组和里面的标签。', z.object({ env: env }), async (args) => ({
+tool('group_list', 'List groups and the tabs inside them.', z.object({ env: env }), async (args) => ({
   groups: storage.groups
     .filter((item) => !args.env || item.envId === args.env)
     .map((item) => ({
@@ -661,7 +663,7 @@ tool('group_list', '列出分组和里面的标签。', z.object({ env: env }), 
     }))
 }))
 
-tool('tab_group', '把标签放进分组。groupId 为空则移出。', z.object({
+tool('tab_group', 'Put a tab into a group. An empty groupId removes it from the group.', z.object({
   tabId: z.string(),
   groupId: z.string().nullable().optional()
 }), async (args) => {
@@ -689,7 +691,7 @@ async function pageTab(args: Record<string, unknown>, lock = true): Promise<TabR
   return resolved.tab
 }
 
-tool('env_close', '关掉这套环境的窗口，保留登录态、Cookie 和标签会话。和 env_delete 不同，后者会把登录一起清掉。', z.object({
+tool('env_close', 'Close the environment window but keep logins, cookies and the tab session. env_delete clears logins instead.', z.object({
   env: env
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
@@ -699,7 +701,7 @@ tool('env_close', '关掉这套环境的窗口，保留登录态、Cookie 和标
   return { env: envId, closed: true }
 })
 
-tool('env_headless', '把已经打开的环境在有头和无头之间切换。无头时窗口不可见，截图和脚本照常。', z.object({
+tool('env_headless', 'Switch an open environment between headed and headless. Headless hides the window; screenshots and scripts still work.', z.object({
   env: env,
   headless: z.boolean()
 }), async (args) => {
@@ -712,7 +714,7 @@ tool('env_headless', '把已经打开的环境在有头和无头之间切换。�
   return { env: envId, headless }
 })
 
-tool('tab_restore', '重新打开刚关掉的标签（按关闭顺序恢复）。没有可恢复的就返回 restored: false。', z.object({
+tool('tab_restore', 'Reopen the most recently closed tab. Returns restored false when there is nothing to restore.', z.object({
   env: env
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
@@ -722,7 +724,7 @@ tool('tab_restore', '重新打开刚关掉的标签（按关闭顺序恢复）�
   return { env: envId, restored: Boolean(restored), tabId: restored?.id, url: restored?.url }
 })
 
-tool('tab_duplicate', '复制一个标签：同一个地址再开一个，放在原标签后面。', z.object({
+tool('tab_duplicate', 'Duplicate a tab: open the same address again right after the original.', z.object({
   tabId: z.string()
 }), async (args) => {
   const { win, tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
@@ -731,7 +733,7 @@ tool('tab_duplicate', '复制一个标签：同一个地址再开一个，放在
   return { tabId: copy.id, from: tabRef.id, url: copy.url }
 })
 
-tool('tab_close_others', '关掉同一个窗口里除这个标签以外的所有标签。', z.object({
+tool('tab_close_others', 'Close every other tab in the same window.', z.object({
   tabId: z.string()
 }), async (args) => {
   const { win, tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
@@ -739,7 +741,7 @@ tool('tab_close_others', '关掉同一个窗口里除这个标签以外的所有
   return { tabId: tabRef.id, remaining: win.tabs.length }
 })
 
-tool('tab_mute', '切换标签静音。', z.object({
+tool('tab_mute', 'Toggle tab audio mute.', z.object({
   tabId: z.string()
 }), async (args) => {
   const { win, tab: tabRef } = resolveTab({ tabId: String(args.tabId) })
@@ -747,7 +749,7 @@ tool('tab_mute', '切换标签静音。', z.object({
   return { tabId: tabRef.id, muted: Boolean(tabRef.muted) }
 })
 
-tool('group_delete', '删掉一个分组。组里的标签保留，只是不再分组。', z.object({
+tool('group_delete', 'Delete a group. Its tabs are kept, just ungrouped.', z.object({
   groupId: z.string()
 }), async (args) => {
   const id = String(args.groupId)
@@ -766,7 +768,7 @@ tool('group_delete', '删掉一个分组。组里的标签保留，只是不再�
   return { groupId: id, name: group.name }
 })
 
-tool('permission_list', '列出这套环境记住的站点权限（摄像头、麦克风、通知、位置等）。', z.object({
+tool('permission_list', 'List site permissions remembered for this environment (camera, microphone, notifications, location and so on).', z.object({
   env: env
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
@@ -782,7 +784,7 @@ tool('permission_list', '列出这套环境记住的站点权限（摄像头、�
   }
 })
 
-tool('password_list', '列出这套环境保存的登录账号，只有站点和账号，不含密码。用来判断某个站点能不能靠自动填充登录。', z.object({
+tool('password_list', 'List saved logins for this environment: site and account only, never passwords. Use it to judge whether a site can be filled automatically.', z.object({
   env: env
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
@@ -804,9 +806,9 @@ function pickSettings(): Record<string, unknown> {
   }
 }
 
-tool('settings_get', '读取浏览器设置：界面语言、标签栏位置、搜索引擎、密码开关、批量并发、无头窗口上限。端口和 MCP 开关属于本机服务配置，不在这里。', z.object({}), async () => ({ settings: pickSettings() }))
+tool('settings_get', 'Read browser settings: UI language, tab layout, search engine, password switches, batch concurrency, headless limit. Port and MCP switches are local service config, not included.', z.object({}), async () => ({ settings: pickSettings() }))
 
-tool('settings_set', '改浏览器设置。只支持 language（auto / zh-CN / en-US，只影响界面）、tabLayout（top/left）、searchEngine、passwordSave、passwordAutofill、batchConcurrency、headlessLimit、toolMode（full / search）。改完立即生效。', z.object({
+tool('settings_set', 'Change browser settings: language (auto, zh-CN or en-US, UI only), tabLayout (top or left), searchEngine, passwordSave, passwordAutofill, batchConcurrency, headlessLimit, toolMode (full or search). Applies immediately.', z.object({
   language: z.enum(['auto', 'zh-CN', 'en-US']).optional(),
   tabLayout: z.enum(['top', 'left']).optional(),
   searchEngine: z.string().optional(),
@@ -846,9 +848,9 @@ async function writeClipboard(text: string): Promise<void> {
   if (written instanceof Promise) await written
 }
 
-tool('clipboard_read', '读系统剪贴板里的文本。可能含敏感内容，只在本机用，不要贴到对话里。', z.object({}), async () => ({ text: await readClipboard() }))
+tool('clipboard_read', 'Read text from the system clipboard. May contain secrets; keep it local.', z.object({}), async () => ({ text: await readClipboard() }))
 
-tool('clipboard_write', '把一段文本写进系统剪贴板。', z.object({
+tool('clipboard_write', 'Write text to the system clipboard.', z.object({
   text: z.string()
 }), async (args) => {
   const text = String(args.text)
@@ -856,38 +858,38 @@ tool('clipboard_write', '把一段文本写进系统剪贴板。', z.object({
   return { ok: true, length: text.length }
 })
 
-tool('page_navigate', '打开地址。', z.object({ ...pageArgs, url: z.string() }), async (args) => {
+tool('page_navigate', 'Open an address.', z.object({ ...pageArgs, url: z.string() }), async (args) => {
   const tabRef = await pageTab(args)
   await navigate(tabRef, String(args.url))
   return { tabId: tabRef.id, url: tabRef.url }
 })
 
-tool('page_back', '后退。', z.object(pageArgs), async (args) => {
+tool('page_back', 'Go back.', z.object(pageArgs), async (args) => {
   const tabRef = await pageTab(args)
   tabRef.view?.webContents.navigationHistory.goBack()
   return { tabId: tabRef.id }
 })
 
-tool('page_forward', '前进。', z.object(pageArgs), async (args) => {
+tool('page_forward', 'Go forward.', z.object(pageArgs), async (args) => {
   const tabRef = await pageTab(args)
   tabRef.view?.webContents.navigationHistory.goForward()
   return { tabId: tabRef.id }
 })
 
-tool('page_reload', '刷新。', z.object(pageArgs), async (args) => {
+tool('page_reload', 'Reload the page.', z.object(pageArgs), async (args) => {
   const tabRef = await pageTab(args)
   tabRef.view?.webContents.reload()
   await waitForLoad(tabRef.view!.webContents).catch(() => undefined)
   return { tabId: tabRef.id }
 })
 
-tool('page_snapshot', '读取当前无障碍树。编号只对这一次有效。不改变当前是谁在操作。', z.object(pageArgs), async (args) => {
+tool('page_snapshot', 'Read the accessibility tree. Refs are valid for this call only. Does not change who controls the browser.', z.object(pageArgs), async (args) => {
   const tabRef = await pageTab(args, false)
   const tree = await readTree(tabRef)
   return { tabId: tabRef.id, snapshot: tree.text }
 })
 
-tool('page_query', '按同一种定位取出所有匹配，返回数组。每一项有序号、文字、当前能不能点到和位置 rect。点击和输入不走这个数组，它们必须恰好匹配一个。pierce 为 true 时穿透 Shadow DOM 和同源 iframe 查找。', z.object({
+tool('page_query', 'Return every match for one locator with index, text, hittable flag and rect. Click and type never use this list; they require exactly one match. pierce also searches shadow DOM and same-origin iframes.', z.object({
   ...pageArgs, ...locateFields
 }), async (args) => {
   const locator = locatorFrom(args)
@@ -905,7 +907,7 @@ tool('page_query', '按同一种定位取出所有匹配，返回数组。每一
   return { tabId: tabRef.id, total: found.total, matches: found.matches }
 })
 
-tool('page_click', '点击元素。优先用 text 按可见文字点（可选 textMatch: exact，默认包含），不用自己算坐标；也可以用 role + name（可访问角色和名称，nameMatch: exact），或用 xpath 或 selector。within 限定了搜索容器（CSS 选择器，支持 :has-text("...")），index 取第几个匹配（从 0 开始），offsetX/offsetY 相对元素中心偏移。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。button 传 right 是右键。画布这种没有稳定节点的目标改用 x 和 y：不带截图信息时是当前视口的 CSS 像素；把 page_screenshot 返回的 shotId 原样传进来，x 和 y 就用图片上的像素，工具会自动换算到视口（也可以继续用 shotWidth、shotHeight、shotX、shotY、shotScale 手动换算）。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。inject 在该点的元素上派发指针事件。untilXpath 或 untilSelector 只在按元素点击时使用，表示点完后要出现的元素；没出现会在同一个定位上再点，最多 3 次。失败时带上匹配个数、文字和当时能不能点到。count 传 2 是双击（最多 3 连击）。', z.object({
+tool('page_click', 'Click an element. Prefer text (visible label, textMatch exact optional), then role plus name, then xpath or selector. within narrows to a CSS container (supports :has-text), index picks the Nth match, offsetX and offsetY shift from the center. Use frame for cross-origin iframes and button right for context menus. For canvas targets use x and y: viewport CSS pixels, or image pixels when shotId comes from page_screenshot. via defaults to cdp; native uses sendInputEvent; inject dispatches pointer events in the page. untilXpath or untilSelector retries up to 3 times until the element appears. count 2 double-clicks.', z.object({
   ...pageArgs,
   ...locateFields,
   text: z.string().optional(),
@@ -1013,7 +1015,7 @@ tool('page_click', '点击元素。优先用 text 按可见文字点（可选 te
   return { tabId: tabRef.id }
 })
 
-tool('page_wait', '等待。两种用法：等元素出现或消失（state 默认 appear，gone 是消失，配 xpath/selector）；等页面不再动（stable 传秒数，指布局连续这么久没变化，广告撑开、图片加载、字体替换之后用它）。两者都给就先等元素再等稳定。timeout 是秒，默认 10，最长 60。导航后、点按钮触发异步渲染后用它，不要写死 sleep。pierce 为 true 时穿透 Shadow DOM 和同源 iframe 查找。', z.object({
+tool('page_wait', 'Wait for an element (state appear or gone with xpath or selector) or for the layout to settle (stable: seconds without change; use it after ads expand or images and fonts load). Both waits for the element first. timeout seconds default 10, max 60. Prefer this over fixed sleeps. pierce searches shadow DOM and same-origin iframes.', z.object({
   ...pageArgs, ...locateFields,
   state: z.enum(['appear', 'gone']).default('appear'),
   stable: z.number().optional(),
@@ -1046,7 +1048,7 @@ tool('page_wait', '等待。两种用法：等元素出现或消失（state 默�
   return { tabId: tabRef.id, state: args.state, ...(stableSeconds ? { stable: stableSeconds } : {}) }
 })
 
-tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 label 按关联标签/占位符找输入框（最省事），或用 page_snapshot 的 ref；也可以用 xpath 或 selector，pierce 为 true 穿透 Shadow DOM 和同源 iframe；跨域 iframe 里的输入框传 frame（src 包含的一段）+ xpath/selector；也可以用 x、y 坐标（先点击该点聚焦再输入；带 page_screenshot 的 shotId 时 x、y 用图片像素）。多行文本、整段文档传 entry: "paste"（整段插入，不逐键），逐键输入会被部分页面改写。native 先真实点击再逐键输入。inject 直接写入。', z.object({
+tool('page_type', 'Type text. Focus first, then type; non-Latin input uses Input.insertText. Locate with label (associated label or placeholder, simplest), a page_snapshot ref, xpath or selector, or x and y. entry paste inserts the whole string at once and avoids per-keystroke rewriting. via defaults to cdp; native clicks first; inject writes directly.', z.object({
   ...pageArgs, text: z.string(), ...locateFields,
   label: z.string().optional(),
   placeholder: z.string().optional(),
@@ -1099,7 +1101,7 @@ tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，�
   return { tabId: tabRef.id }
 })
 
-tool('page_select', '选中一项。via 默认 cdp：用 Input.dispatchMouseEvent 打开再点选项。用 xpath 或 selector 指定下拉框。native 用真实点击。inject 对 select 直接改值。', z.object({
+tool('page_select', 'Choose an option in a select. via defaults to cdp (click, then click the option); native uses real clicks; inject sets the value directly.', z.object({
   ...pageArgs, option: z.string(), ...locateFields, via: z.enum(['inject', 'native', 'cdp']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
@@ -1109,7 +1111,7 @@ tool('page_select', '选中一项。via 默认 cdp：用 Input.dispatchMouseEven
   return { tabId: tabRef.id }
 })
 
-tool('page_key', '把快捷键送进网页，不触发窗口自己的新建或关闭标签。via 默认 cdp，用 Input.dispatchKeyEvent。native 用 sendInputEvent。', z.object({
+tool('page_key', 'Send a shortcut to the page without triggering window-level new or close tab. via defaults to cdp; native uses sendInputEvent.', z.object({
   ...pageArgs, shortcut: z.string(), via: z.enum(['cdp', 'native']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
@@ -1117,7 +1119,7 @@ tool('page_key', '把快捷键送进网页，不触发窗口自己的新建或�
   return { tabId: tabRef.id }
 })
 
-tool('page_scroll', '翻长列表用滚动，不用滑动。via 默认 cdp，用滚轮。native 用 sendInputEvent。不指定元素时从视口中心滚一下。untilXpath 或 untilSelector 表示滚到该元素能被点到：先把它滚进视口，再用页面命中确认没有被顶栏挡住，最多 16 次。失败时带上匹配个数、文字和当时能不能点到。', z.object({
+tool('page_scroll', 'Scroll a long list. This is not the same as swipe. via defaults to cdp (wheel); native uses sendInputEvent. Without a target it scrolls from the viewport center. untilXpath or untilSelector scrolls until the element is hittable, at most 16 tries, and reports what blocked it.', z.object({
   ...pageArgs,
   direction: z.enum(['up', 'down']).default('down'),
   ...locateFields,
@@ -1131,7 +1133,7 @@ tool('page_scroll', '翻长列表用滚动，不用滑动。via 默认 cdp，用
   return { tabId: tabRef.id }
 })
 
-tool('page_swipe', '按住拖拽，用来拖滑块或横滑一块区域。翻长列表用 page_scroll，滑动滚不动整页。via 默认 cdp，用按下、移动、松开。native 用 sendInputEvent。不指定元素时从视口中心滑。指定元素时只在它此刻露出来的区域里滑。untilXpath 或 untilSelector 表示滑到该元素能被点到，最多 20 次。', z.object({
+tool('page_swipe', 'Press, drag and release: sliders or horizontal panning. Use page_scroll for long lists; swiping does not scroll the page. via defaults to cdp; native uses sendInputEvent. Without a target it swipes from the viewport center. untilXpath or untilSelector repeats at most 20 times.', z.object({
   ...pageArgs,
   direction: z.enum(['up', 'down', 'left', 'right']).default('up'),
   ...locateFields,
@@ -1145,7 +1147,7 @@ tool('page_swipe', '按住拖拽，用来拖滑块或横滑一块区域。翻长
   return { tabId: tabRef.id }
 })
 
-tool('page_drag', '按住一个点或元素，按 dx、dy 精确拖拽，轨迹自带拟人的加减速、横向抖动和微过冲回正。拖滑块验证码、拖排序这类要精确距离的目标用它，不要用 page_swipe。起点用 x、y（当前视口 CSS 像素；带 shotWidth、shotHeight 时按截图比例换算，再带 shotX、shotY、shotScale 时按 captcha_panel 这类裁剪图换算），或用 xpath、selector（取元素中心）。dx、dy 是位移，可正可负；也可以给 toSelector 或 toText 直接拖到另一个元素。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。', z.object({
+tool('page_drag', 'Drag from a point or element by dx and dy with a human-like track (acceleration, jitter, slight overshoot). Use it for slider captchas and precise distances instead of page_swipe. Start from x and y (viewport CSS pixels, or image pixels with shotWidth, shotHeight and shotId) or from xpath or selector. toSelector or toText drags onto another element. via defaults to cdp.', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -1200,7 +1202,7 @@ tool('page_drag', '按住一个点或元素，按 dx、dy 精确拖拽，轨迹�
   return { tabId: tabRef.id, from: moved.from, to: moved.to }
 })
 
-tool('page_inspect', '识别一个元素是什么类型：video、image、canvas、audio、link、input、text。返回类型、地址（src/href/poster）、标签、id、class、位置和文字。目标用 xpath、selector，或坐标 x、y（支持 shot 换算，同 page_click）。按截图算出坐标后先用它确认点到了哪个元素，保存图片视频前也用它确认类型。', z.object({
+tool('page_inspect', 'Identify what an element is: video, image, canvas, audio, link, input or text. Returns kind, address (src, href or poster), tag, id, class, rect and text. Target by xpath or selector, or by x and y. After deriving coordinates from a screenshot, use this to confirm what you are about to click.', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -1219,7 +1221,7 @@ tool('page_inspect', '识别一个元素是什么类型：video、image、canvas
   return { tabId: tabRef.id, ...info }
 })
 
-tool('page_save_media', '把元素上的图片、视频、音频或画布存成本机文件，走这套环境的登录态。直链直接下；B站、抖音、YouTube 的 DASH 轨自动合并 mp4；m3u8/mpd 用 ffmpeg 拉流转 mp4；抓不到轨的流媒体改用 page_record_video 录画面。目标用 xpath、selector，或坐标 x、y。', z.object({
+tool('page_save_media', 'Save an image, video, audio or canvas element to a local file using this environment session. Direct links download as is; DASH tracks (Bilibili, Douyin, YouTube) are merged into mp4; m3u8 or mpd go through ffmpeg; player-side streams fall back to page_record_video. Target by xpath or selector, or by x and y.', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -1241,7 +1243,7 @@ tool('page_save_media', '把元素上的图片、视频、音频或画布存成�
   return { tabId: tabRef.id, ...saved }
 })
 
-tool('download', '本机下载记录和下载目录，action 四选一。list：列出本次运行期间的下载（重启后清空，文件还在），每条给 name、path、state、bytes、url、env，网页按钮触发的、page_save_media 存的、右键另存的都在里面；带 wait（秒，最长 120）会先等进行中的下载结束，用来确认「点了下载之后存到哪」。dir：不带 path 返回当前下载目录，带 path 改成那个目录（绝对路径，不存在自动建），传空或 "default" 恢复系统默认。open / show / copy / pause / resume / cancel / retry / remove / clear：对某条记录操作，id 从 list 取；只支持 http/https 的失败任务能 retry；clear 清掉所有已结束记录，不删文件。', z.object({
+tool('download', 'Local download records and the download directory. action list lists downloads since this run (files persist), each with name, path, state, bytes, url and env; wait waits for active downloads, max 120s. action dir returns the directory, or changes it when path is given (absolute, created if missing; default restores the system folder). open, show, copy, pause, resume, cancel, retry, remove and clear act on one id from list; retry only applies to failed http or https items.', z.object({
   action: z.enum(['list', 'dir', 'open', 'show', 'copy', 'pause', 'resume', 'cancel', 'retry', 'remove', 'clear']),
   env: env,
   wait: z.number().optional(),
@@ -1324,7 +1326,7 @@ tool('download', '本机下载记录和下载目录，action 四选一。list：
   return { action, id, state: after?.state ?? 'removed', path: after?.path ?? item.path }
 })
 
-tool('page_record_video', '把页面里正在播放的视频录下来：用 captureStream + MediaRecorder 录渲染出来的画面，重编码成 webm。seconds 是录多少秒（默认 10，最长 3600），会自动开始播放。任何能播的站都能录（B站、腾讯等流媒体也行），代价是要实时播完。不给 savePath 就存进下载目录（默认系统下载目录）。m3u8 追台等直链/流媒体抓轨用 page_save_media，又快又无损。', z.object({
+tool('page_record_video', 'Record a playing video via captureStream and MediaRecorder into webm. seconds defaults to 10, max 3600; playback starts automatically. Works on any site but runs in real time. Uses the download directory when savePath is omitted. For direct streams use page_save_media instead.', z.object({
   ...pageArgs,
   seconds: z.number().optional(),
   savePath: z.string().optional()
@@ -1350,7 +1352,7 @@ async function canvasBox(tabRef: TabRuntime, args: { selector?: string; x?: numb
   return { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height) }
 }
 
-tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径点数组按路径画线；加 smooth: true 用样条插值把控制点连成平滑曲线；给 path（SVG 路径字符串，支持 M/L/H/V/C/S/Q/T/A/Z，含贝塞尔曲线）按 viewBox 缩放到 x、y、width、height 的区域画；或给 shape（circle/rect/triangle/heart/star）加 x、y、width、height 画标准图形。close: true 闭合路径。多段路径（多个 M）会逐段抬笔。目标区域可以直接给 selector：工具自己量元素矩形，path 按 viewBox 缩放进这块区域、points 按元素内部坐标理解，不必手抄 x/y/width/height（手抄的坐标会过期）。用来在画板、签名板、Canva 这类画布上作画。点可带 pressure（0~1）和 tiltX/tiltY/twist，走 cdp 时按 pen 笔发。默认画完会校验一次（读画布像素看这一笔还在不在），返回 check：painted 是新增像素的采样点数，kept 是半秒后还在的点数，wiped 表示被站点重绘抹掉了，empty 表示一个像素都没画上；读不到 2D 上下文（WebGL、跨域）时 check.supported 为 false。不要校验时传 verify: false，省六百毫秒左右。via 默认 cdp。', z.object({
+tool('page_draw', 'Draw on a canvas. Give points, or path (SVG d, supports M/L/H/V/C/S/Q/T/A/Z) with viewBox, or shape (circle, rect, triangle, heart, star). smooth fits a spline through the points, close closes the path, multiple M segments lift the pen. Pass selector to let the tool measure the element: path scales into it and points are element-local, so no stale x, y, width or height. Points may carry pressure (0-1) plus tiltX, tiltY and twist. By default the tool reads canvas pixels afterwards and returns check with painted, kept, wiped and empty; unsupported when there is no 2D context. verify false saves about 600ms. via defaults to cdp.', z.object({
   ...pageArgs,
   points: z.array(z.object({ x: z.number(), y: z.number(), pressure: z.number().optional(), tiltX: z.number().optional(), tiltY: z.number().optional(), twist: z.number().optional() })).optional(),
   path: z.string().optional(),
@@ -1409,7 +1411,7 @@ tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径
   return { tabId: tabRef.id, ...drawn, ...(filled ? { fillPoints: filled.points } : {}), ...(check ? { check } : {}) }
 })
 
-tool('page_upload', '把本机文件交给页面上的文件控件，不弹出系统选择框。用 xpath 或 selector 指定控件。不指定时用页面上的第一个文件控件。', z.object({
+tool('page_upload', 'Hand local files to a file input without opening the system dialog. Target by xpath or selector; otherwise the first file input on the page.', z.object({
   ...pageArgs, paths: z.array(z.string()), ...locateFields
 }), async (args) => {
   const tabRef = await pageTab(args)
@@ -1421,20 +1423,20 @@ tool('page_upload', '把本机文件交给页面上的文件控件，不弹出�
   return { tabId: tabRef.id }
 })
 
-tool('page_lock', '锁定当前网页。遮罩上是「Agent 正在操作浏览器」和「接管」。', z.object(pageArgs), async (args) => {
+tool('page_lock', 'Lock the page behind an overlay that says the agent is operating the browser, with a take-over button.', z.object(pageArgs), async (args) => {
   const resolved = resolveTab({ tabId: args.tabId ? String(args.tabId) : undefined, env: args.env ? String(args.env) : undefined }, true)
   showAgentMask(resolved.tab)
   resolved.tab.userTookOver = false
   return { tabId: resolved.tab.id }
 })
 
-tool('page_unlock', '去掉遮罩。用户可以操作，任务不暂停。', z.object(pageArgs), async (args) => {
+tool('page_unlock', 'Remove the overlay. The user can interact; the task is not paused.', z.object(pageArgs), async (args) => {
   const resolved = resolveTab({ tabId: args.tabId ? String(args.tabId) : undefined, env: args.env ? String(args.env) : undefined }, true)
   shareControl(resolved.tab, false)
   return { tabId: resolved.tab.id }
 })
 
-tool('page_handoff', '放开页面让用户完成这一步。看页面不会重新盖上遮罩，下一步操作才会重新锁定。', z.object({
+tool('page_handoff', 'Pause and let the user finish this step. Viewing the page does not re-lock it; the next action does.', z.object({
   ...pageArgs, message: z.string()
 }), async (args) => {
   const tabRef = await pageTab(args, false)
@@ -1442,7 +1444,7 @@ tool('page_handoff', '放开页面让用户完成这一步。看页面不会重�
   return { tabId: tabRef.id, message: args.message }
 })
 
-tool('page_dialog', '页面弹窗（alert / confirm / prompt）会自动按策略处理，不会再把标签卡住：默认 alert 直接关掉，confirm 返回取消、prompt 返回 null。要让接下来的确认框返回「确定」，先调 action=accept（once: true 只作用于下一个弹窗），再点按钮；action=list 看最近的弹窗和当前策略。', z.object({
+tool('page_dialog', 'Page dialogs (alert, confirm, prompt) are answered automatically so tabs never block: alerts are dismissed, confirm returns cancel, prompt returns null. Call action accept first (once true for the next dialog only) when a confirmation must return OK. action list shows recent dialogs and the current policy.', z.object({
   tabId: z.string(),
   action: z.enum(['list', 'accept', 'dismiss']),
   once: z.boolean().optional(),
@@ -1470,7 +1472,7 @@ tool('page_dialog', '页面弹窗（alert / confirm / prompt）会自动按策�
   }
 })
 
-tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单、悬浮提示这类悬停交互。优先用 text 按可见文字找目标（可选 textMatch: exact），或用 page_snapshot 的 ref，或用 role + name；也可以用 xpath / selector，或坐标 x、y；within / index 的用法和 page_click 一样；带 page_screenshot 的 shotId 时 x、y 直接用图片像素。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。via 默认 cdp，native 用 sendInputEvent，inject 在元素上派发 mouseover/mouseenter。', z.object({
+tool('page_hover', 'Move the pointer over an element or point to trigger hover menus and tooltips. Prefer text, a snapshot ref, or role plus name; xpath, selector and x and y also work. within and index behave like page_click. via defaults to cdp; inject fires mouseover and mouseenter.', z.object({
   ...pageArgs,
   ...locateFields,
   text: z.string().optional(),
@@ -1542,7 +1544,7 @@ tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单
   return { tabId: tabRef.id }
 })
 
-tool('page_screenshot', '看页面。截视口、某个元素、或视口里的一块区域，默认带坐标网格，看完直接按图上的刻度点。不改变当前是谁在操作。', z.object({
+tool('page_screenshot', 'Look at the page: viewport, one element, or a region, with a coordinate grid by default so you can click by the printed ticks. Does not change who controls the browser.', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional().describe('区域左上角横坐标（视口 CSS 像素）'),
@@ -1595,7 +1597,7 @@ tool('page_screenshot', '看页面。截视口、某个元素、或视口里的�
   }
 })
 
-tool('page_overlay', '列出挡住页面的浮层（广告 iframe、全屏遮罩、弹窗）和它们的位置。action=dismiss 会隐藏常见广告 iframe，并点击常见关闭按钮。不会删除页面业务内容；操作前可以先 list 看一眼。', z.object({
+tool('page_overlay', 'List overlays covering the page (ad iframes, full-screen masks, popups) with their rects. action dismiss hides common ad iframes and clicks common close buttons. It never removes page content; list first when unsure.', z.object({
   ...pageArgs,
   action: z.enum(['list', 'dismiss']).optional()
 }), async (args) => {
@@ -1604,7 +1606,7 @@ tool('page_overlay', '列出挡住页面的浮层（广告 iframe、全屏遮罩
   return { tabId: tabRef.id, overlays: await listOverlays(tabRef) }
 })
 
-tool('page_console', '读取这个标签的控制台输出和 JS 错误（最近 300 条，新的在前）。未捕获异常和 Promise 拒绝会带 stack，页面点不动、按钮报错、脚本没反应时先看这里。action=clear 清空。', z.object({
+tool('page_console', 'Read console output and JS errors for this tab (last 300, newest first). Uncaught errors and promise rejections include stacks. Check this first when clicks do nothing or a script seems ignored. action clear empties it.', z.object({
   tabId: z.string(),
   action: z.enum(['list', 'clear']).optional(),
   limit: z.number().optional()
@@ -1620,7 +1622,7 @@ tool('page_console', '读取这个标签的控制台输出和 JS 错误（最近
   return { tabId: tabRef.id, messages: consoleFor(wc).slice(0, limit) }
 })
 
-tool('page_find', '在页面里查找文字，相当于 Ctrl+F。第一次传 text 开始找，findNext 继续下一个，stop 清除高亮。返回匹配总数和当前是第几个。', z.object({
+tool('page_find', 'Find text in the page like Ctrl+F. Pass text to start, findNext for the next match, stop to clear the highlight. Returns total matches and the current index.', z.object({
   tabId: z.string(),
   text: z.string().optional(),
   forward: z.boolean().optional(),
@@ -1638,7 +1640,7 @@ tool('page_find', '在页面里查找文字，相当于 Ctrl+F。第一次传 te
   return { tabId: tabRef.id, ...result }
 })
 
-tool('page_wait_load', '等页面加载完成（did-stop-loading）。timeout 是秒，默认 15，最长 60。加载失败会直接报错。比写死 sleep 稳，导航后、点链接后用它。', z.object({
+tool('page_wait_load', 'Wait until the page finishes loading (did-stop-loading). timeout seconds default 15, max 60. Throws when loading fails. More reliable than sleeping after navigation or a link click.', z.object({
   tabId: z.string(),
   timeout: z.number().optional()
 }), async (args) => {
@@ -1651,7 +1653,7 @@ tool('page_wait_load', '等页面加载完成（did-stop-loading）。timeout �
   return { tabId: tabRef.id, url: wc.getURL(), elapsed: Date.now() - started }
 })
 
-tool('screen', '窗口录屏，action 三选一。start：把这扇有头窗口录成视频，需要画面，会把窗口带到前台并聚焦（少数会前置窗口的工具），maxSeconds 到时自动停，默认 300、最长 3600，一扇窗口同时只录一段。stop：停止并写成 mp4 存到下载目录，返回路径、时长和字节数。status：返回是否在录、开始时间和已录秒数。', z.object({
+tool('screen', 'Window recording. action start records this headed window (it comes to the front; the only tool that does), maxSeconds default 300 up to 3600, one recording per window. action stop writes an mp4 into the download directory and returns path, seconds and bytes. action status reports recording state, start time and elapsed seconds.', z.object({
   env: env,
   action: z.enum(['start', 'stop', 'status']),
   maxSeconds: z.number().optional()
@@ -1714,7 +1716,7 @@ tool('screen', '窗口录屏，action 三选一。start：把这扇有头窗口�
   return { env: envId, maxSeconds: seconds }
 })
 
-tool('window_preview', '把主界面、网页、遮罩和弹层合成一张应用截图，给 GUI 自动化用。默认整窗，传 x、y、width、height 只截局部（应用内容区 CSS 像素）；点网页仍然用 page_screenshot 的视口坐标。', z.object({
+tool('window_preview', 'Composite screenshot of the app shell, page, overlays and popups for GUI automation. Full window by default; x, y, width and height crop the app content area. For clicking inside web pages keep using page_screenshot viewport coordinates.', z.object({
   env: env,
   grid: z.union([z.boolean(), z.number()]).optional().describe('坐标网格间距，默认 100，false 或 0 关闭。原点是应用内容区左上角，不含系统标题栏；局部截图的刻度仍是内容区里的绝对坐标'),
   x: z.union([z.number(), z.string()]).optional().describe('局部截图起点 x（应用内容区 CSS 像素）'),
@@ -1784,7 +1786,7 @@ async function stopScreen(envId: string): Promise<{ env: string; path: string; s
   }
 }
 
-tool('page_source', '读取网页源码。dom 是当前文档，response 是这次导航的原始 HTML。', z.object({
+tool('page_source', 'Read page source. dom is the live document, response is the original HTML of this navigation.', z.object({
   ...pageArgs, kind: z.enum(['dom', 'response']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args, false)
@@ -1793,7 +1795,7 @@ tool('page_source', '读取网页源码。dom 是当前文档，response 是这�
   return { tabId: tabRef.id, kind, html }
 })
 
-tool('page_script', '在当前网页里执行一段 JavaScript，把返回值交回。用来读页面数据或做没有单独工具的操作。frame 填子框架 URL 的一段（比如 graph.qq.com），脚本就在那个 iframe 里跑，跨域也可以。', z.object({
+tool('page_script', 'Run JavaScript in the page and return its value. Use it to read data or do something no dedicated tool covers. frame takes a fragment of the frame URL (for example graph.qq.com) and runs inside that iframe, cross-origin included.', z.object({
   ...pageArgs, source: z.string(), frame: z.string().optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
@@ -1813,7 +1815,7 @@ tool('page_script', '在当前网页里执行一段 JavaScript，把返回值交
   }
 })
 
-tool('page_cdp_batch', '在同一个调试会话里按顺序跑一组 CDP 命令，中间不断开。commands 是数组，每项有 method、params（可选）和 delay（这条跑完后等多少秒，默认 0，上限 5）。只发一条就传长度为 1 的数组。返回每条命令的结果数组。', z.object({
+tool('page_cdp_batch', 'Run CDP commands in order on one debugger session without reconnecting. commands is an array of method, params and delay; delay is seconds to wait after each command, max 5. Pass a one-element array for a single command.', z.object({
   ...pageArgs,
   commands: z.array(z.object({
     method: z.string(),
@@ -1826,13 +1828,13 @@ tool('page_cdp_batch', '在同一个调试会话里按顺序跑一组 CDP 命令
   return { tabId: tabRef.id, results }
 })
 
-tool('captcha_panel', '把验证码区域截成一张图，返回图片路径 path、像素宽高、视口 CSS 坐标矩形 rect 和换算比例 scale。识别交给读图的 Agent：看图后自己算出点击位置或拖动距离，按 mapping 换算成 CSS 坐标后用 page_click 或 page_drag 操作。滑块、图标点选、语序点选、五子棋等任意类型都能用，是 captcha_solve 内置识别失败时的通用兜底。', z.object(pageArgs), async (args) => {
+tool('captcha_panel', 'Screenshot just the captcha area and return path, pixel size, viewport CSS rect and scale. The agent reads the image, works out click points or drag distance, converts through mapping and acts with page_click or page_drag. Works for any captcha type and is the fallback when captcha_solve cannot recognise it.', z.object(pageArgs), async (args) => {
   const tabRef = await pageTab(args)
   const panel = await captchaPanelShot(tabRef)
   return { tabId: tabRef.id, ...panel }
 })
 
-tool('captcha_detect', '识别页面上的验证码目标位置。目前支持 geetest-slide（极验 v4 滑块），type 传 auto 自动判断。返回 distance（滑块要拖的距离，视口 CSS 像素）、knob（滑块旋钮中心）、engine（实际用的识别引擎）和置信度 confidence。mark 为 true 时把识别出的缺口画在背景图上存盘，返回 markPath。engine 选识别引擎：cv（内置视觉算法，零依赖，极验滑块上最准）、ddddocr（调本机 Python 的开源 ddddocr 库，需 pip install ddddocr）、onnx（用户数据目录 models/geetest-slide.onnx + 该目录装好 onnxruntime-node）；auto 按 cv → ddddocr → onnx 顺序找可用的。其它类型用 captcha_panel 截图交给 Agent 自己识别。', z.object({
+tool('captcha_detect', 'Detect the captcha target. Currently geetest-slide (Geetest v4 slider); type auto detects it. Returns distance (drag distance in viewport CSS pixels), knob center, engine and confidence. mark true saves the gap drawn on the background image. engine picks cv (built-in, no dependencies, best on Geetest), ddddocr (local Python), onnx (models/geetest-slide.onnx) or auto.', z.object({
   ...pageArgs,
   type: z.string().default('auto'),
   engine: z.enum(['auto', 'ddddocr', 'onnx', 'cv']).default('auto'),
@@ -1843,13 +1845,13 @@ tool('captcha_detect', '识别页面上的验证码目标位置。目前支持 g
   return { tabId: tabRef.id, ...target }
 })
 
-tool('captcha_read', '把验证码区域截图后用 ddddocr 做文字识别，返回 text 和图片路径。适合英数文字验证码。需要本机 Python 且 pip install ddddocr。', z.object(pageArgs), async (args) => {
+tool('captcha_read', 'OCR a captcha area with ddddocr and return text plus the image path. Works for alphanumeric captchas. Requires local Python with ddddocr installed.', z.object(pageArgs), async (args) => {
   const tabRef = await pageTab(args)
   const result = await captchaRead(tabRef)
   return { tabId: tabRef.id, ...result }
 })
 
-tool('captcha_solve', '识别并拖动滑块完成验证码，一次调用里做完识别、拟人拖拽和结果检查。retries 是识别失败后的重试次数（默认 2），每次重试会等验证码刷新后重新识别。engine 选识别引擎：cv、ddddocr、onnx 或 auto（默认，按 cv → ddddocr → onnx 找可用的）。返回 solved、attempts 和每次尝试的距离与结果。', z.object({
+tool('captcha_solve', 'Recognise and drag a slider captcha in one call: detect, human-like drag, verify. retries (default 2) re-detects after the captcha refreshes. engine is cv, ddddocr, onnx or auto. Returns solved, attempts and the distance of each try.', z.object({
   ...pageArgs,
   type: z.string().default('auto'),
   engine: z.enum(['auto', 'ddddocr', 'onnx', 'cv']).default('auto'),
@@ -1896,7 +1898,7 @@ const recordingCall = z.object({
   description: z.string().optional()
 })
 
-tool('workflow_record', '把接下来的一串工具调用录成工作流。action=start 开始录，action=stop 结束；stop 时给了 name 就直接保存成同名工作流（同名覆盖），不给 name 只返回图和录制结果。能录的：打开网页、点击（文字、role+name、xpath/selector 或 x/y）、输入（xpath/selector）、按键、滚动、选择下拉、上传、画布落笔（selector + SVG path）、等待。按 ref 定位、或输入用 label 找的调用录不进去，会在 skipped 里列出原因，不会悄悄少一步。', recordingCall, async (args) => {
+tool('workflow_record', 'Record the next tool calls into a workflow. action start begins, action stop ends; with name it is saved (overwriting a same-name workflow), otherwise the graph is returned. Recordable: navigate, click (text, role plus name, xpath or selector, or x and y), type (xpath or selector), key, scroll, select, upload, draw (selector plus SVG path), wait. Calls located by ref or by label cannot be recorded and appear in skipped with the reason.', recordingCall, async (args) => {
   if (String(args.action) === 'start') {
     recording = { startedAt: Date.now(), calls: [] }
     return { recording: true, startedAt: recording.startedAt }
@@ -1925,7 +1927,7 @@ tool('workflow_record', '把接下来的一串工具调用录成工作流。acti
   return { calls: calls.length, steps: nodes.length - 2, skipped, ...(saved ? { workflow: saved.workflow, name: saved.name } : { graph: { nodes, edges } }) }
 })
 
-tool('workflow_write', '新建或整份覆盖一份工作流。图用 nodes 和 edges。script 在当前网页里跑，code 在主进程里独立跑。填写用 fill，entry 为 type 或 paste。循环用 loop。同名再次写入覆盖整张图，编号不变。只改其中几个节点用 workflow_update。', workflowBody, async (args) => {
+tool('workflow_write', 'Create or fully replace a workflow from nodes and edges. script runs in the page, code runs in the main process. Use fill with entry type or paste, and loop for loops. Writing the same name replaces the graph and keeps its id; use workflow_update for partial edits.', workflowBody, async (args) => {
   const body = args as {
     app: { name: string; description?: string; icon?: string }
     workflow: {
@@ -1963,7 +1965,7 @@ const edgePatch = z.object({
   targetHandle: z.string().optional()
 }).passthrough()
 
-tool('workflow_update', '改已有工作流的一部分。nodes 按编号替换节点，新编号追加；写了 parent 就把新节点放进那个循环。removeNodes 删节点及其连线。edges 在两端所在的那一层替换或追加。没提到的节点和连线保持原样。', z.object({
+tool('workflow_update', 'Patch part of an existing workflow. nodes replace by id and append when new; parent puts a new node inside that loop. removeNodes deletes nodes and their edges. edges replace or append within their level. Untouched nodes and edges stay as they are.', z.object({
   name: z.string().optional(),
   workflow: z.string().optional(),
   description: z.string().optional(),
@@ -1989,7 +1991,7 @@ tool('workflow_update', '改已有工作流的一部分。nodes 按编号替换�
   return { workflow: saved.id, name: saved.app.name, nodes: saved.workflow.graph.nodes.length }
 })
 
-tool('workflow_list', '列出已保存的工作流和参数名。', z.object({}), async () => ({
+tool('workflow_list', 'List saved workflows and their parameter names.', z.object({}), async () => ({
   workflows: storage.workflows.map((item) => ({
     id: item.id,
     name: item.app.name,
@@ -1999,7 +2001,7 @@ tool('workflow_list', '列出已保存的工作流和参数名。', z.object({})
   }))
 }))
 
-tool('workflow_run', '按工作流名称和输入，在一次调用里跑完整张图。', z.object({
+tool('workflow_run', 'Run the whole workflow by name with inputs in one call.', z.object({
   name: z.string().optional(),
   workflow: z.string().optional(),
   inputs: z.record(z.string()).optional(),
@@ -2013,7 +2015,7 @@ tool('workflow_run', '按工作流名称和输入，在一次调用里跑完整�
   return runWorkflow(resolved.tab, app, (args.inputs as Record<string, string>) ?? {})
 })
 
-tool('workflow_batch', '同一套环境里按多行输入跑工作流。默认一行一行来，并发最多 3。', z.object({
+tool('workflow_batch', 'Run a workflow once per input row in one environment, one row at a time, up to 3 concurrent.', z.object({
   workflow: z.string(),
   rows: z.array(z.record(z.string())),
   concurrency: z.number().optional(),
@@ -2039,7 +2041,7 @@ tool('workflow_batch', '同一套环境里按多行输入跑工作流。默认�
   return { results }
 })
 
-tool('workflow_export', '把工作流导出成 JSON 文件，返回本机路径。', z.object({
+tool('workflow_export', 'Export a workflow to a JSON file and return its local path.', z.object({
   name: z.string().optional(),
   workflow: z.string().optional()
 }), async (args) => {
@@ -2048,7 +2050,7 @@ tool('workflow_export', '把工作流导出成 JSON 文件，返回本机路径�
   return { path: exportWorkflow(key) }
 })
 
-tool('workflow_delete', '从本机删掉一个工作流。目录里的还可以再安装。', z.object({
+tool('workflow_delete', 'Delete a saved workflow from this machine. Copies in the market can be installed again.', z.object({
   name: z.string().optional(),
   workflow: z.string().optional()
 }), async (args) => {
@@ -2060,7 +2062,7 @@ tool('workflow_delete', '从本机删掉一个工作流。目录里的还可以�
   return removed
 })
 
-tool('workflow_import', '从本机 JSON 文件导入工作流。同名覆盖，编号不变。', z.object({
+tool('workflow_import', 'Import a workflow from a local JSON file. Same name overwrites, the id stays.', z.object({
   path: z.string()
 }), async (args) => {
   const saved = importWorkflow(String(args.path))
@@ -2068,31 +2070,31 @@ tool('workflow_import', '从本机 JSON 文件导入工作流。同名覆盖，�
   return { workflow: saved.id, name: saved.app.name, nodes: saved.workflow.graph.nodes.length }
 })
 
-tool('net_start', '开始记录这个标签的 HTTP。请求头可能含有 Cookie，只留在本机。', z.object({ tabId: z.string() }), async (args) => {
+tool('net_start', 'Start recording HTTP for this tab. Request headers may contain cookies; everything stays local.', z.object({ tabId: z.string() }), async (args) => {
   await netStart(String(args.tabId))
   return { tabId: args.tabId }
 })
 
-tool('net_stop', '停止记录并断开调试器。', z.object({ tabId: z.string() }), async (args) => {
+tool('net_stop', 'Stop recording and detach the debugger.', z.object({ tabId: z.string() }), async (args) => {
   netStop(String(args.tabId))
   return { tabId: args.tabId }
 })
 
-tool('net_list', '列出请求摘要，不含正文。', z.object({ tabId: z.string(), urlContains: z.string().optional() }), async (args) => ({
+tool('net_list', 'List request summaries without bodies.', z.object({ tabId: z.string(), urlContains: z.string().optional() }), async (args) => ({
   requests: netList(String(args.tabId), args.urlContains ? String(args.urlContains) : undefined)
 }))
 
-tool('net_get', '返回一条请求，含正文（若还留着）。只在本机。', z.object({ reqId: z.string() }), async (args) => {
+tool('net_get', 'Return one request including its body when still kept. Local only.', z.object({ reqId: z.string() }), async (args) => {
   const item = netGet(String(args.reqId))
   if (!item) throw new Error(`没有这条请求 ${String(args.reqId)}`)
   return { request: item }
 })
 
-tool('net_export', '把这个标签的记录写成 HAR，返回路径。', z.object({ tabId: z.string() }), async (args) => ({
+tool('net_export', 'Write this tab records as HAR and return the path.', z.object({ tabId: z.string() }), async (args) => ({
   path: netExport(String(args.tabId), storage.dir('runs'))
 }))
 
-tool('net_mock', '拦截这个标签的请求并按规则返回假数据，用于接口测试和故障注入。rules 是数组，每项有 urlContains（URL 包含这段就拦截）和可选的 status（默认 200）、body（字符串，默认 {}）、headers。不匹配的请求正常放行。调 net_mock_off 解除。拦截和抓包可以同时开。', z.object({
+tool('net_mock', 'Intercept requests in this tab and answer with fake data for API testing and fault injection. rules holds urlContains plus optional status (200), body (string, {} by default) and headers. Non-matching requests pass through. Turn it off with net_mock_off. Mocking and recording can run together.', z.object({
   tabId: z.string(),
   rules: z.array(z.object({
     urlContains: z.string(),
@@ -2105,12 +2107,12 @@ tool('net_mock', '拦截这个标签的请求并按规则返回假数据，用�
   return { tabId: args.tabId, rules: (args.rules as unknown[]).length }
 })
 
-tool('net_mock_off', '解除这个标签的请求拦截。', z.object({ tabId: z.string() }), async (args) => {
+tool('net_mock_off', 'Stop intercepting requests in this tab.', z.object({ tabId: z.string() }), async (args) => {
   await netMockOff(String(args.tabId))
   return { tabId: args.tabId }
 })
 
-tool('page_watch', '盯住一个元素，它的文字或位置变了就返回变化前后，超时返回变化前的快照。timeout 是秒，默认 30，最长 120；interval 是秒，默认 0.5。用来等价格变化、新消息、状态翻转。pierce 为 true 时穿透 Shadow DOM 和 iframe。', z.object({
+tool('page_watch', 'Watch an element and return before and after when its text or position changes; on timeout it returns the snapshot taken before. timeout seconds default 30 (max 120), interval seconds default 0.5. Useful for prices, new messages and state flips. pierce searches shadow DOM and iframes.', z.object({
   ...pageArgs, ...locateFields,
   timeout: z.number().optional(),
   interval: z.number().optional()
@@ -2140,7 +2142,7 @@ tool('page_watch', '盯住一个元素，它的文字或位置变了就返回变
   return { tabId: tabRef.id, changed: false, before, timeout: timeout / 1000 }
 })
 
-tool('connect_info', '返回 BrowserPilot 的接入提示词：MCP 地址和口令、skill 安装地址、命令行用法。可以交给别的 Agent，也可以自己按它装 skill、注册 MCP。copy 为 true 时同时写进系统剪贴板。口令只在本机用，不要转发。', z.object({
+tool('connect_info', 'Return the BrowserPilot onboarding prompt: MCP address and token, skill install URL, CLI usage. Handy for wiring another agent. copy true also writes it to the clipboard. The token is local; do not forward it.', z.object({
   copy: z.boolean().optional()
 }), async (args) => {
   const data = args.copy ? await copyConnectInfo() : connectInfo()
@@ -2154,7 +2156,7 @@ tool('connect_info', '返回 BrowserPilot 的接入提示词：MCP 地址和口�
   }
 })
 
-tool('env_export', '把这套环境的登录（Cookie）导出成 JSON 文件，返回路径。不含 localStorage。文件里有完整 Cookie，只在本机用，不要发给别人。', z.object({ env: z.string() }), async (args) => {
+tool('env_export', 'Export cookies for this environment to a JSON file and return the path. localStorage is not included. The file holds live cookies; keep it local.', z.object({ env: z.string() }), async (args) => {
   const id = String(args.env)
   const item = storage.envs.find((envItem) => envItem.id === id)
   if (!item) throw new Error(`没有这套环境 ${id}`)
@@ -2165,7 +2167,7 @@ tool('env_export', '把这套环境的登录（Cookie）导出成 JSON 文件，
   return { env: id, path, cookies: cookies.length }
 })
 
-tool('env_import', '从 env_export 导出的 JSON 恢复登录。env 不给就新建一套环境。返回环境编号。', z.object({
+tool('env_import', 'Restore logins from a file written by env_export. Without env a new environment is created. Returns the environment id.', z.object({
   path: z.string(),
   env: z.string().optional(),
   name: z.string().optional()
@@ -2205,7 +2207,7 @@ function dataEnv(args: { env?: string }): string {
   return typeof args.env === 'string' && args.env ? args.env : DEFAULT_ENV
 }
 
-tool('bookmark_list', '列出一套环境的书签，最近加的在前。query 按标题或网址过滤。', z.object({
+tool('bookmark_list', 'List bookmarks for an environment, newest first. query filters by title or address.', z.object({
   env: env,
   query: z.string().optional()
 }), async (args) => {
@@ -2218,7 +2220,7 @@ tool('bookmark_list', '列出一套环境的书签，最近加的在前。query 
   }
 })
 
-tool('bookmark_add', '给一套环境加书签。网址已经在书签里就更新标题，不会重复加。', z.object({
+tool('bookmark_add', 'Add a bookmark to an environment. An existing address gets its title updated instead of a duplicate.', z.object({
   env: env,
   url: z.string(),
   title: z.string().optional()
@@ -2231,7 +2233,7 @@ tool('bookmark_add', '给一套环境加书签。网址已经在书签里就更�
   return { env: envId, id: item.id, url: item.url, title: item.title }
 })
 
-tool('bookmark_remove', '删书签：给 id 或 url 删一条，all 为 true 清空这套环境的书签。返回删掉几条。', z.object({
+tool('bookmark_remove', 'Delete bookmarks: by id or url, or everything when all is true. Returns how many were removed.', z.object({
   env: env,
   id: z.string().optional(),
   url: z.string().optional(),
@@ -2248,7 +2250,7 @@ tool('bookmark_remove', '删书签：给 id 或 url 删一条，all 为 true 清
   return { env: envId, removed }
 })
 
-tool('history_list', '列出一套环境的历史记录，最近的在前。query 按标题或网址过滤，limit 默认 50、最多 500。', z.object({
+tool('history_list', 'List history for an environment, newest first. query filters by title or address; limit defaults to 50, max 500.', z.object({
   env: env,
   query: z.string().optional(),
   limit: z.number().optional()
@@ -2265,7 +2267,7 @@ tool('history_list', '列出一套环境的历史记录，最近的在前。quer
   }
 })
 
-tool('history_remove', '删历史记录：给 id 或 url 删一条，all 为 true 清空这套环境。导航产生的记录会自动写入，不用手动加。', z.object({
+tool('history_remove', 'Delete history: by id or url, or everything when all is true. Navigation is recorded automatically.', z.object({
   env: env,
   id: z.string().optional(),
   url: z.string().optional(),
@@ -2282,7 +2284,7 @@ tool('history_remove', '删历史记录：给 id 或 url 删一条，all 为 tru
   return { env: envId, removed }
 })
 
-tool('session_list', '列出保存的标签会话（关窗口时自动存，下次开窗口恢复）。不传 env 列出所有环境。', z.object({
+tool('session_list', 'List saved tab sessions (saved when a window closes, restored on reopen). Omit env to list all environments.', z.object({
   env: env
 }), async (args) => {
   const envId = typeof args.env === 'string' && args.env ? args.env : ''
@@ -2299,7 +2301,7 @@ tool('session_list', '列出保存的标签会话（关窗口时自动存，下�
   return { sessions }
 })
 
-tool('session_save', '把一套环境现在开着的标签存成会话快照。窗口没开就报错。', z.object({
+tool('session_save', 'Snapshot the tabs currently open in an environment. Errors when its window is not open.', z.object({
   env: env
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
@@ -2310,7 +2312,7 @@ tool('session_save', '把一套环境现在开着的标签存成会话快照。�
   return { env: envId, tabs: saved?.tabs.length ?? 0, savedAt: saved?.savedAt }
 })
 
-tool('session_restore', '把保存的会话重新打开成标签：窗口没开会先开，已经在的标签跳过，最多 20 个。', z.object({
+tool('session_restore', 'Reopen a saved session as tabs: opens the window if needed, skips tabs already open, at most 20.', z.object({
   env: env
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
@@ -2327,7 +2329,7 @@ tool('session_restore', '把保存的会话重新打开成标签：窗口没开�
   return { env: envId, opened }
 })
 
-tool('session_clear', '清掉保存的会话，下次打开这套环境的窗口不再恢复这些标签。不影响已经开着的标签和历史记录。', z.object({
+tool('session_clear', 'Delete a saved session so the next window for this environment starts empty. Open tabs and history are untouched.', z.object({
   env: env
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
@@ -2340,7 +2342,7 @@ function cookieAddress(cookie: { domain?: string; path?: string; secure?: boolea
   return `${cookie.secure ? 'https' : 'http'}://${host}${cookie.path || '/'}`
 }
 
-tool('cookie_list', '列出这套环境的 Cookie，可按域名过滤。值里可能有登录令牌，只在本机用，不要贴到对话或日志里。', z.object({
+tool('cookie_list', 'List cookies for this environment, optionally filtered by domain. Values may contain session tokens; keep them local.', z.object({
   env: env,
   domain: z.string().optional()
 }), async (args) => {
@@ -2366,7 +2368,7 @@ tool('cookie_list', '列出这套环境的 Cookie，可按域名过滤。值里�
   }
 })
 
-tool('cookie_set', '给这套环境写一条 Cookie。url 不给就按 domain 拼一个地址。同名同域的会被覆盖。', z.object({
+tool('cookie_set', 'Write one cookie into this environment. Without url an address is built from domain. Same name and domain is overwritten.', z.object({
   env: env,
   name: z.string(),
   value: z.string(),
@@ -2396,7 +2398,7 @@ tool('cookie_set', '给这套环境写一条 Cookie。url 不给就按 domain �
   return { env: envId, ok: true }
 })
 
-tool('cookie_remove', '删 Cookie：给 url + name 删一条；给 domain 删这个域名下全部；all 为 true 清空这套环境。返回删掉几条。', z.object({
+tool('cookie_remove', 'Delete cookies: url plus name for one, domain for all of that domain, or all for the environment. Returns how many were removed.', z.object({
   env: env,
   name: z.string().optional(),
   url: z.string().optional(),
