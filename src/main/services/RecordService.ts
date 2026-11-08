@@ -15,6 +15,12 @@ import {
   queryLocator,
   svgPathToPoints,
   drawPaths,
+  canvasSums,
+  checkStroke,
+  thinPoints,
+  scrollLocatorIntoView,
+  viewport,
+  type CanvasSums,
   locatorSeen,
   resolveLocator,
   screenshot,
@@ -341,6 +347,16 @@ function upsertEdge(graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, edg
   if (!placed) throw new Error(`连线两端不在同一层 ${edge.source} → ${edge.target}`)
 }
 
+async function strokeBaseline(tab: TabRuntime, points: Array<{ x: number; y: number }>): Promise<{ sample: Array<{ x: number; y: number }>; before: CanvasSums }> {
+  const sample = thinPoints(points, 32)
+  const before = await canvasSums(tab, sample)
+  return { sample, before }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function strokeBox(tab: TabRuntime, data: Data, pool: Pool): Promise<{ x: number; y: number; width: number; height: number }> {
   const rect = data.rect
   if (Array.isArray(rect) && rect.length === 4) {
@@ -353,9 +369,27 @@ async function strokeBox(tab: TabRuntime, data: Data, pool: Pool): Promise<{ x: 
   const raw = data.locator ?? data.target
   const locator = locatorFrom(raw, pool)
   if (!locator) throw new Error('落笔节点要写 locator（画布元素）或 rect（视口里的区域）')
-  const found = await queryLocator(tab, locator)
-  if (found.total !== 1) throw new Error(`落笔目标匹配到 ${found.total} 个，要恰好一个`)
-  const box = found.matches[0]?.rect
+  // 只有露不全的时候才滚：有些站点点击后会自己把画布滚到中间，多滚一次坐标就偏了
+  const first = await queryLocator(tab, locator).catch(() => undefined)
+  const seen = first && first.total === 1 ? first.matches[0]?.rect : undefined
+  const [viewWidth, viewHeight] = viewport(tab)
+  if (!seen || seen.y < 0 || seen.x < 0 || seen.y + seen.h > viewHeight || seen.x + seen.w > viewWidth) {
+    await scrollLocatorIntoView(tab, locator).catch(() => undefined)
+  }
+  // 滚动可能是平滑的，等位置稳定下来再取，不然坐标会差滚动量
+  let box: { x: number; y: number; w: number; h: number } | undefined
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const found = await queryLocator(tab, locator)
+    if (found.total !== 1) throw new Error(`落笔目标匹配到 ${found.total} 个，要恰好一个`)
+    const next = found.matches[0]?.rect
+    if (!next) throw new Error('落笔目标没有可见区域，先滚进视口')
+    if (box && Math.abs(box.x - next.x) < 0.5 && Math.abs(box.y - next.y) < 0.5) {
+      box = next
+      break
+    }
+    box = next
+    await sleep(70)
+  }
   if (!box) throw new Error('落笔目标没有可见区域，先滚进视口')
   return { x: box.x, y: box.y, width: box.w, height: box.h }
 }
@@ -607,8 +641,23 @@ async function execNode(
     const viewBox = Array.isArray(data.viewBox) && data.viewBox.length === 2
       ? ([Number(data.viewBox[0]), Number(data.viewBox[1])] as [number, number])
       : undefined
-    await drawPaths(tab, gestureOf(data.via), svgPathToPoints(path, box, viewBox))
-    return
+    const subpaths = svgPathToPoints(path, box, viewBox)
+    if (data.verify === false) {
+      await drawPaths(tab, gestureOf(data.via), subpaths)
+      return
+    }
+    // 冷启动的页面偶尔会吃掉第一笔（焦点还没落到画布上），没画上就再补一次
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const baseline = await strokeBaseline(tab, subpaths.flat())
+      await drawPaths(tab, gestureOf(data.via), subpaths)
+      const result = await checkStroke(tab, baseline.sample, baseline.before)
+      if (result.wiped) {
+        throw new Error('这一笔画完被站点重绘覆盖了：它没进站点的文档，只改了屏幕像素。换个画法（用站点自己的工具）或确认目标 canvas 是文档画布，确定要跳过校验就在节点里设 verify: false')
+      }
+      if (!result.empty) return
+      if (attempt === 0) await sleep(200)
+    }
+    throw new Error('这一笔连续两次都没有画出可见像素：确认画笔已选中、颜色不是背景色、坐标落在画布范围内。确定要跳过校验就在节点里设 verify: false')
   }
   if (data.type === 'fill') {
     const locator = mustLocator(data.locator, pool)

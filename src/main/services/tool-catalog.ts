@@ -49,9 +49,12 @@ import {
   elementBox,
   dismissOverlays,
   listOverlays,
+  canvasSums,
+  checkStroke,
   drawPath,
   drawPaths,
   drawShapePoints,
+  thinPoints,
   fillScanlines,
   fillSerpentine,
   svgPathToPoints,
@@ -1249,9 +1252,9 @@ tool('page_record_video', '把页面里正在播放的视频录下来：用 capt
   return { tabId: tabRef.id, ...result }
 })
 
-tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径点数组按路径画线；加 smooth: true 用样条插值把控制点连成平滑曲线；给 path（SVG 路径字符串，支持 M/L/H/V/C/S/Q/T/A/Z，含贝塞尔曲线）按 viewBox 缩放到 x、y、width、height 的区域画；或给 shape（circle/rect/triangle/heart/star）加 x、y、width、height 画标准图形。close: true 闭合路径。多段路径（多个 M）会逐段抬笔。用来在画板、签名板、Canva 这类画布上作画。via 默认 cdp。', z.object({
+tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径点数组按路径画线；加 smooth: true 用样条插值把控制点连成平滑曲线；给 path（SVG 路径字符串，支持 M/L/H/V/C/S/Q/T/A/Z，含贝塞尔曲线）按 viewBox 缩放到 x、y、width、height 的区域画；或给 shape（circle/rect/triangle/heart/star）加 x、y、width、height 画标准图形。close: true 闭合路径。多段路径（多个 M）会逐段抬笔。用来在画板、签名板、Canva 这类画布上作画。点可带 pressure（0~1）和 tiltX/tiltY/twist，走 cdp 时按 pen 笔发。默认画完会校验一次（读画布像素看这一笔还在不在），返回 check：painted 是新增像素的采样点数，kept 是半秒后还在的点数，wiped 表示被站点重绘抹掉了，empty 表示一个像素都没画上；读不到 2D 上下文（WebGL、跨域）时 check.supported 为 false。不要校验时传 verify: false，省六百毫秒左右。via 默认 cdp。', z.object({
   ...pageArgs,
-  points: z.array(z.object({ x: z.number(), y: z.number() })).optional(),
+  points: z.array(z.object({ x: z.number(), y: z.number(), pressure: z.number().optional(), tiltX: z.number().optional(), tiltY: z.number().optional(), twist: z.number().optional() })).optional(),
   path: z.string().optional(),
   viewBox: z.array(z.number()).length(2).optional(),
   shape: z.enum(['circle', 'rect', 'triangle', 'heart', 'star']).optional(),
@@ -1263,15 +1266,20 @@ tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径
   close: z.boolean().optional(),
   fill: z.boolean().optional(),
   spacing: z.number().optional(),
+  verify: z.boolean().optional(),
   via: z.enum(['cdp', 'native', 'pointer']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
+  const verify = args.verify !== false
   if (typeof args.path === 'string' && args.path) {
     if (args.x === undefined || args.y === undefined || !args.width || !args.height) throw new Error('path 要配 x、y、width、height 定目标区域')
     const box = { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height) }
     const subpaths = svgPathToPoints(String(args.path), box, Array.isArray(args.viewBox) ? [Number((args.viewBox as number[])[0]), Number((args.viewBox as number[])[1])] : undefined)
+    const sample = verify ? thinPoints(subpaths.flat(), 32) : []
+    const before = sample.length ? await canvasSums(tabRef, sample) : undefined
     const drawn = await drawPaths(tabRef, gestureVia(args.via), subpaths)
-    return { tabId: tabRef.id, ...drawn }
+    const check = before ? await checkStroke(tabRef, sample, before) : undefined
+    return { tabId: tabRef.id, ...drawn, ...(check ? { check } : {}) }
   }
   let points = args.points as Array<{ x: number; y: number }> | undefined
   if (!points) {
@@ -1281,12 +1289,13 @@ tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径
     points = drawShapePoints(String(args.shape), Number(args.x), Number(args.y), Number(args.width), Number(args.height))
     args.close = true
   }
+  const sample = verify ? thinPoints(points, 32) : []
+  const before = sample.length ? await canvasSums(tabRef, sample) : undefined
   const drawn = await drawPath(tabRef, gestureVia(args.via), points, Boolean(args.close), Boolean(args.smooth))
-  if (args.fill) {
-    const filled = await drawPath(tabRef, gestureVia(args.via), fillSerpentine(points, Math.max(3, Number(args.spacing ?? 5))))
-    return { tabId: tabRef.id, ...drawn, fillPoints: filled.points }
-  }
-  return { tabId: tabRef.id, ...drawn }
+  const fills = args.fill ? fillSerpentine(points, Math.max(3, Number(args.spacing ?? 5))) : []
+  const filled = fills.length ? await drawPath(tabRef, gestureVia(args.via), fills) : undefined
+  const check = before ? await checkStroke(tabRef, sample, before) : undefined
+  return { tabId: tabRef.id, ...drawn, ...(filled ? { fillPoints: filled.points } : {}), ...(check ? { check } : {}) }
 })
 
 tool('page_canvas', '画布绘画（海龟命令）（和 Python turtle 一样）：script 每行一条命令，fd/bk N 前进后退、lt/rt 角度、setheading 角度、goto X Y、penup/pendown 抬笔落笔、circle 半径 [角度]、beginfill/endfill 圈一块区域上色（蛇形连笔涂满，spacing 行距）。起点默认视口中心朝右（heading 0），可用 x、y、heading 改。任何画布都能画，换颜色用 page_click 点画板色板后再继续。', z.object({

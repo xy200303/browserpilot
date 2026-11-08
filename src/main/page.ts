@@ -1206,7 +1206,7 @@ function keySpec(ch: string): { key: string; code: string; vk: number; modifiers
   return undefined
 }
 
-function viewport(tab: TabRuntime): [number, number] {
+export function viewport(tab: TabRuntime): [number, number] {
   const bounds = tab.view?.getBounds()
   return [bounds?.width || 800, bounds?.height || 600]
 }
@@ -1311,7 +1311,7 @@ export async function scrollPage(
   await wheelAt(tab, via, point?.x ?? Math.round(width / 2), point?.y ?? Math.round(height / 2), direction === 'down' ? 240 : -240)
 }
 
-type TrackPoint = { x: number; y: number; delay: number }
+type TrackPoint = { x: number; y: number; delay: number; pressure?: number; tiltX?: number; tiltY?: number; twist?: number }
 
 function humanTrack(sx: number, sy: number, ex: number, ey: number): TrackPoint[] {
   const dist = Math.hypot(ex - sx, ey - sy)
@@ -1361,7 +1361,7 @@ async function runTrack(tab: TabRuntime, via: GestureVia, sx: number, sy: number
     return
   }
   if (via === 'pointer') {
-    const points = track.map((point) => ({ x: point.x, y: point.y }))
+    const points = track.map((point) => ({ x: point.x, y: point.y, pressure: point.pressure, tiltX: point.tiltX, tiltY: point.tiltY, twist: point.twist }))
     const lastPoint = points[points.length - 1]
     const source = `(async () => {
       const points = ${JSON.stringify(points)}
@@ -1369,15 +1369,18 @@ async function runTrack(tab: TabRuntime, via: GestureVia, sx: number, sy: number
       const last = points[points.length - 1] || first
       const el = document.elementFromPoint(${sx}, ${sy})
       if (!(el instanceof Element)) return false
-      const base = { bubbles: true, cancelable: true, composed: true, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0 }
-      el.dispatchEvent(new PointerEvent('pointerdown', { ...base, clientX: ${sx}, clientY: ${sy}, buttons: 1 }))
+      const base = { bubbles: true, cancelable: true, composed: true, pointerId: 1, isPrimary: true, button: 0 }
+      const ink = (point) => (point && point.pressure !== undefined
+        ? { pointerType: 'pen', pressure: point.pressure, tiltX: point.tiltX || 0, tiltY: point.tiltY || 0, twist: point.twist || 0 }
+        : { pointerType: 'mouse', pressure: 0.5 })
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...base, ...ink(points[0]), clientX: ${sx}, clientY: ${sy}, buttons: 1 }))
       el.dispatchEvent(new MouseEvent('mousedown', { ...base, clientX: ${sx}, clientY: ${sy}, buttons: 1 }))
       for (const point of points) {
-        el.dispatchEvent(new PointerEvent('pointermove', { ...base, clientX: point.x, clientY: point.y, buttons: 1 }))
+        el.dispatchEvent(new PointerEvent('pointermove', { ...base, ...ink(point), clientX: point.x, clientY: point.y, buttons: 1 }))
         el.dispatchEvent(new MouseEvent('mousemove', { ...base, clientX: point.x, clientY: point.y, buttons: 1 }))
         await new Promise((resolve) => requestAnimationFrame(resolve))
       }
-      el.dispatchEvent(new PointerEvent('pointerup', { ...base, clientX: last.x, clientY: last.y, buttons: 0 }))
+      el.dispatchEvent(new PointerEvent('pointerup', { ...base, ...ink(last), clientX: last.x, clientY: last.y, buttons: 0 }))
       el.dispatchEvent(new MouseEvent('mouseup', { ...base, clientX: last.x, clientY: last.y, buttons: 0 }))
       return true
     })()`
@@ -1385,13 +1388,25 @@ async function runTrack(tab: TabRuntime, via: GestureVia, sx: number, sy: number
     if (moved !== true) throw new Error('拖拽起点上没有元素')
     return
   }
+  const ink = (point: TrackPoint): Record<string, unknown> => (point.pressure === undefined ? {} : {
+    pointerType: 'pen',
+    force: Math.max(0, Math.min(1, point.pressure)),
+    tiltX: point.tiltX ?? 0,
+    tiltY: point.tiltY ?? 0,
+    twist: point.twist ?? 0
+  })
   await withDebugger(wc, async (dbg) => {
-    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: sx, y: sy, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' })
+    // 不逐条等回执：窗口在后台时 Chromium 要等到下一次出帧才确认一个鼠标事件，
+    // 逐条 await 会变成一秒多一个点。CDP 同一会话内保证顺序，松手那条再等回执即可。
+    const fire = (params: Record<string, unknown>): void => {
+      void dbg.sendCommand('Input.dispatchMouseEvent', params).catch(() => undefined)
+    }
+    fire({ type: 'mousePressed', x: sx, y: sy, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse', ...ink(track[0]) })
     for (const point of track) {
-      await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y, button: 'left', buttons: 1, pointerType: 'mouse' })
+      fire({ type: 'mouseMoved', x: point.x, y: point.y, button: 'left', buttons: 1, pointerType: 'mouse', ...ink(point) })
       await sleep(point.delay)
     }
-    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: last.x, y: last.y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' })
+    await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: last.x, y: last.y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse', ...ink(last) })
   })
 }
 
@@ -2119,7 +2134,78 @@ function smoothPath(points: Array<{ x: number; y: number }>, close: boolean): Ar
   return out
 }
 
-export async function drawPath(tab: TabRuntime, via: GestureVia, points: Array<{ x: number; y: number }>, close = false, smooth = false): Promise<{ points: number }> {
+export type InkPoint = { x: number; y: number; pressure?: number; tiltX?: number; tiltY?: number; twist?: number }
+
+export type CanvasSums = { supported: boolean; reason?: string; sums: number[] }
+
+export type DrawCheck = { supported: boolean; reason?: string; painted: number; kept: number; wiped: boolean; empty: boolean }
+
+const PATCH_RADIUS = 3
+const PATCH_CHANGED = 240
+
+function probeSumsSource(points: InkPoint[], radius: number): string {
+  return `(() => {
+    const points = ${JSON.stringify(points.map((p) => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 })))}
+    const P = ${radius}
+    const first = points[0]
+    const el = document.elementFromPoint(first.x, first.y)
+    if (!(el instanceof HTMLCanvasElement)) return { supported: false, reason: '起点上不是 canvas', sums: [] }
+    let ctx = null
+    try { ctx = el.getContext('2d') } catch (e) { ctx = null }
+    if (!ctx) return { supported: false, reason: '这个 canvas 没有 2D 上下文，读不到像素', sums: [] }
+    const rect = el.getBoundingClientRect()
+    const sx = el.width / Math.max(1, rect.width)
+    const sy = el.height / Math.max(1, rect.height)
+    const sums = []
+    for (const point of points) {
+      const cx = Math.round((point.x - rect.left) * sx)
+      const cy = Math.round((point.y - rect.top) * sy)
+      if (cx < 0 || cy < 0 || cx >= el.width || cy >= el.height) { sums.push(-1); continue }
+      const x0 = Math.max(0, cx - P)
+      const y0 = Math.max(0, cy - P)
+      const w = Math.min(el.width - x0, P * 2 + 1)
+      const h = Math.min(el.height - y0, P * 2 + 1)
+      let data
+      try { data = ctx.getImageData(x0, y0, w, h).data } catch (e) { return { supported: false, reason: '画布像素被跨域保护', sums: [] } }
+      let sum = 0
+      for (let i = 0; i < data.length; i += 4) sum += data[i] + data[i + 1] + data[i + 2] + data[i + 3]
+      sums.push(sum)
+    }
+    return { supported: true, sums }
+  })()`
+}
+
+export async function canvasSums(tab: TabRuntime, points: InkPoint[], radius = PATCH_RADIUS): Promise<CanvasSums> {
+  const value = await evalSource(tab, probeSumsSource(points, radius)) as CanvasSums | undefined
+  return value && typeof value === 'object' ? value : { supported: false, reason: '读不到画布', sums: [] }
+}
+
+export function thinPoints<T extends { x: number; y: number }>(points: T[], max = 36): T[] {
+  if (points.length <= max) return points
+  const out: T[] = []
+  const step = (points.length - 1) / (max - 1)
+  for (let i = 0; i < max; i += 1) out.push(points[Math.round(i * step)])
+  return out
+}
+
+/**
+ * 画完再读两次：先看有没有新像素，再等半秒看还在不在。
+ * 站点把画布按自己的文档重绘时，这一笔会被抹掉，这里就能看出来。
+ */
+export async function checkStroke(tab: TabRuntime, points: InkPoint[], before: CanvasSums, radius = PATCH_RADIUS): Promise<DrawCheck> {
+  if (!before.supported) return { supported: false, reason: before.reason, painted: 0, kept: 0, wiped: false, empty: false }
+  await sleep(140)
+  const after = await canvasSums(tab, points, radius)
+  await sleep(520)
+  const later = await canvasSums(tab, points, radius)
+  if (!after.supported || !later.supported) return { supported: false, reason: after.reason || later.reason, painted: 0, kept: 0, wiped: false, empty: false }
+  const changed = (base: number[], next: number[]): number => base.reduce((count, value, index) => count + (Math.abs(value - (next[index] ?? value)) > PATCH_CHANGED ? 1 : 0), 0)
+  const painted = changed(before.sums, after.sums)
+  const kept = changed(before.sums, later.sums)
+  return { supported: true, painted, kept, wiped: painted > 0 && kept === 0, empty: painted === 0 }
+}
+
+export async function drawPath(tab: TabRuntime, via: GestureVia, points: InkPoint[], close = false, smooth = false): Promise<{ points: number }> {
   if (smooth && points.length >= 3) points = smoothPath(points, close)
   if (points.length < 2) throw new Error('路径至少要两个点')
   const [width, height] = viewport(tab)
@@ -2135,7 +2221,11 @@ export async function drawPath(tab: TabRuntime, via: GestureVia, points: Array<{
       track.push({
         x: prev.x + ((p.x - prev.x) * i) / steps + (Math.random() - 0.5) * 1.2,
         y: prev.y + ((p.y - prev.y) * i) / steps + (Math.random() - 0.5) * 1.2,
-        delay: 8 + Math.random() * 12
+        delay: 8 + Math.random() * 12,
+        pressure: p.pressure,
+        tiltX: p.tiltX,
+        tiltY: p.tiltY,
+        twist: p.twist
       })
     }
     prev = p
