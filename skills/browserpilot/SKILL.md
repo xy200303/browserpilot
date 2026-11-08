@@ -54,6 +54,10 @@ browserpilot call workflow_run --json-file args.json
 
 `page_swipe` 只对响应指针拖拽的组件（轮播、滑块、拖拽排序）有效；原生滚动容器（overflow）用 `page_scroll`，横向滚动用 `page_script` 设 `scrollLeft`。
 
+在线 PS、画板、Canvas 编辑器这类页面：鼠标拖拽如果没反应，给 `page_click` / `page_drag` / `page_draw` / `page_canvas` 传 `via: "pointer"`，会派发完整的 PointerEvent 序列（pointerId、pointerType、buttons）。
+坐标用 `canvasX` / `canvasY` 配 `selector` 指向画布元素，按元素左上角自动换算，不用自己加 canvas 偏移。
+被广告 iframe 或全屏遮罩挡住时，先 `page_overlay`（action=list 看，dismiss 隐藏广告并点常见关闭按钮）。
+
 元素被固定顶栏之类的东西盖住时，`page_click` 会明确报「被挡住」，不会盲点；先 `page_scroll` 把它滚到中间再点。
 
 需要读页面上的链接、编号、订单号这类文字时，用 `page_script` 读 DOM，不要从截图里认字——大小写和形近字很容易看错。

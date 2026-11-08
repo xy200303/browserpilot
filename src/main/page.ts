@@ -761,8 +761,35 @@ export async function clickPoint(tab: TabRuntime, x: number, y: number, via: Act
     if (clicked !== true) throw new Error('这个坐标上没有元素')
     return
   }
+  if (via === 'pointer') {
+    await clickAtPointer(tab, point.x, point.y, button, count)
+    return
+  }
   if (via === 'cdp') await clickAtCdp(tab, point.x, point.y, button, count)
   else await clickAt(tab, point.x, point.y, button, count)
+}
+
+async function clickAtPointer(tab: TabRuntime, x: number, y: number, button: 'left' | 'right', count: number): Promise<void> {
+  const source = `(() => {
+    const x = ${JSON.stringify(x)}
+    const y = ${JSON.stringify(y)}
+    const el = document.elementFromPoint(x, y)
+    if (!(el instanceof Element)) return false
+    const base = {
+      bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y,
+      button: ${button === 'right' ? 2 : 0}, pointerId: 1, pointerType: 'mouse', isPrimary: true
+    }
+    for (let i = 1; i <= ${Math.max(1, count)}; i += 1) {
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...base, buttons: 1 }))
+      el.dispatchEvent(new MouseEvent('mousedown', { ...base, buttons: 1 }))
+      el.dispatchEvent(new PointerEvent('pointerup', { ...base, buttons: 0 }))
+      el.dispatchEvent(new MouseEvent('mouseup', { ...base, buttons: 0 }))
+      el.dispatchEvent(new MouseEvent('${button === 'right' ? 'contextmenu' : 'click'}', { ...base, buttons: 0 }))
+    }
+    return true
+  })()`
+  const clicked = await evalSource(tab, source)
+  if (clicked !== true) throw new Error('这个坐标上没有元素')
 }
 
 export async function clickAt(tab: TabRuntime, x: number, y: number, button: 'left' | 'right' = 'left', count = 1): Promise<void> {
@@ -1331,6 +1358,31 @@ async function runTrack(tab: TabRuntime, via: GestureVia, sx: number, sy: number
       await sleep(point.delay)
     }
     wc.sendInputEvent({ type: 'mouseUp', x: Math.round(last.x), y: Math.round(last.y), button: 'left', clickCount: 1 })
+    return
+  }
+  if (via === 'pointer') {
+    const points = track.map((point) => ({ x: point.x, y: point.y }))
+    const lastPoint = points[points.length - 1]
+    const source = `(async () => {
+      const points = ${JSON.stringify(points)}
+      const first = points[0] || { x: ${sx}, y: ${sy} }
+      const last = points[points.length - 1] || first
+      const el = document.elementFromPoint(${sx}, ${sy})
+      if (!(el instanceof Element)) return false
+      const base = { bubbles: true, cancelable: true, composed: true, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0 }
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...base, clientX: ${sx}, clientY: ${sy}, buttons: 1 }))
+      el.dispatchEvent(new MouseEvent('mousedown', { ...base, clientX: ${sx}, clientY: ${sy}, buttons: 1 }))
+      for (const point of points) {
+        el.dispatchEvent(new PointerEvent('pointermove', { ...base, clientX: point.x, clientY: point.y, buttons: 1 }))
+        el.dispatchEvent(new MouseEvent('mousemove', { ...base, clientX: point.x, clientY: point.y, buttons: 1 }))
+        await new Promise((resolve) => requestAnimationFrame(resolve))
+      }
+      el.dispatchEvent(new PointerEvent('pointerup', { ...base, clientX: last.x, clientY: last.y, buttons: 0 }))
+      el.dispatchEvent(new MouseEvent('mouseup', { ...base, clientX: last.x, clientY: last.y, buttons: 0 }))
+      return true
+    })()`
+    const moved = await evalSource(tab, source)
+    if (moved !== true) throw new Error('拖拽起点上没有元素')
     return
   }
   await withDebugger(wc, async (dbg) => {
@@ -3021,4 +3073,82 @@ export async function typeRef(tab: TabRuntime, ref: string, text: string): Promi
   await focusResolved(tab, target)
   await typeByCdp(tab, text)
   return { role: target.role, name: target.name }
+}
+
+export async function elementBox(tab: TabRuntime, locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
+  const source = `(() => {
+    let el = null
+    const selector = ${JSON.stringify(locator.selector || '')}
+    const xpath = ${JSON.stringify(locator.xpath || '')}
+    if (selector) { try { el = document.querySelector(selector) } catch (e) { el = null } }
+    else if (xpath) {
+      try { el = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue } catch (e) { el = null }
+    }
+    if (!el) return null
+    const rect = el.getBoundingClientRect()
+    return { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
+  })()`
+  const box = (await evalSource(tab, source)) as { x: number; y: number; width: number; height: number } | null
+  if (!box) throw new Error(`没有 ${locatorLabel(locator)}`)
+  return box
+}
+
+export type OverlayInfo = { kind: string; tag: string; id: string; cls: string; rect: { x: number; y: number; width: number; height: number }; src?: string }
+
+export async function listOverlays(tab: TabRuntime): Promise<OverlayInfo[]> {
+  const source = `(() => {
+    const vw = innerWidth
+    const vh = innerHeight
+    const out = []
+    const add = (kind, el, extra) => {
+      const rect = el.getBoundingClientRect()
+      out.push({
+        kind,
+        tag: el.tagName.toLowerCase(),
+        id: el.id || '',
+        cls: String(el.className || '').slice(0, 80),
+        rect: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) },
+        ...(extra || {})
+      })
+    }
+    for (const frame of document.querySelectorAll('iframe')) {
+      const rect = frame.getBoundingClientRect()
+      if (rect.width < 40 || rect.height < 40) continue
+      if (rect.width * rect.height < vw * vh * 0.05) continue
+      add('iframe', frame, { src: String(frame.src || '').slice(0, 120) })
+    }
+    for (const el of document.querySelectorAll('body *')) {
+      const style = getComputedStyle(el)
+      if (style.position !== 'fixed' && style.position !== 'sticky') continue
+      const z = Number(style.zIndex)
+      if (!(z >= 100)) continue
+      if (style.pointerEvents === 'none' || style.visibility === 'hidden') continue
+      const rect = el.getBoundingClientRect()
+      if (rect.width * rect.height < vw * vh * 0.2) continue
+      add('overlay', el, { z })
+    }
+    return out.slice(0, 20)
+  })()`
+  return (await evalSource(tab, source)) as OverlayInfo[]
+}
+
+export async function dismissOverlays(tab: TabRuntime): Promise<{ hidden: number; clicked: number }> {
+  const source = `(() => {
+    let hidden = 0
+    let clicked = 0
+    const hide = (el) => {
+      if (!el) return
+      el.style.setProperty('display', 'none', 'important')
+      hidden += 1
+    }
+    for (const el of document.querySelectorAll('#aswift_0, #aswift_1, #aswift_2, #aswift_3, ins.adsbygoogle, [id^="aswift_"], [id^="google_ads"]')) hide(el)
+    for (const el of document.querySelectorAll('.layui-layer-close, .modal .close, [aria-label="Close"], [aria-label="关闭"]')) {
+      try {
+        el.click()
+        clicked += 1
+      } catch (e) { /* 点不到就算了 */ }
+    }
+    return { hidden, clicked }
+  })()`
+  return (await evalSource(tab, source)) as { hidden: number; clicked: number }
 }

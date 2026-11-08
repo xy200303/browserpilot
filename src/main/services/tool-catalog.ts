@@ -46,6 +46,9 @@ import {
   crossQuery,
   deepQuery,
   dragPage,
+  elementBox,
+  dismissOverlays,
+  listOverlays,
   drawPath,
   drawPaths,
   drawShapePoints,
@@ -149,7 +152,7 @@ const tools: Tool[] = []
 const shapes = new Map<string, z.ZodRawShape>()
 
 function viaOf(value: unknown): ActVia {
-  if (value === 'inject' || value === 'native' || value === 'cdp') return value
+  if (value === 'inject' || value === 'native' || value === 'cdp' || value === 'pointer') return value
   return 'cdp'
 }
 
@@ -205,8 +208,10 @@ function pointArgs(args: { x?: unknown; y?: unknown; shotId?: unknown; shotWidth
   return { x, y, shot: { width, height } }
 }
 
-function gestureVia(value: unknown): 'cdp' | 'native' {
-  return value === 'native' ? 'native' : 'cdp'
+function gestureVia(value: unknown): 'cdp' | 'native' | 'pointer' {
+  if (value === 'native') return 'native'
+  if (value === 'pointer') return 'pointer'
+  return 'cdp'
 }
 
 function locatorFrom(args: { xpath?: unknown; selector?: unknown; pierce?: unknown }): Locator | undefined {
@@ -284,6 +289,7 @@ const TOOL_KEYWORDS: Record<string, string> = {
   page_snapshot: '快照 无障碍树 snapshot a11y ref 编号',
   page_dialog: '弹窗 对话框 确认框 alert confirm prompt',
   page_console: '控制台 console 报错 js错误 日志',
+  page_overlay: '广告 遮罩 浮层 弹窗 挡住 overlay iframe 关闭广告',
   page_find: '页内查找 查找文字 ctrl+f find',
   page_hover: '悬停 悬浮 移上去 hover 按文字 text role name within index frame iframe',
   page_click: '点击 双击 右键 click dblclick 按文字 文本 text role name 角色 名称 within index 第几个 ref 快照编号 offset 偏移 frame iframe',
@@ -827,6 +833,8 @@ tool('page_click', '点击元素。优先用 text 按可见文字点（可选 te
   index: z.number().optional(),
   offsetX: z.number().optional(),
   offsetY: z.number().optional(),
+  canvasX: z.number().optional(),
+  canvasY: z.number().optional(),
   ref: z.string().optional(),
   frame: z.string().optional(),
   x: z.union([z.number(), z.string()]).optional(),
@@ -840,12 +848,22 @@ tool('page_click', '点击元素。优先用 text 按可见文字点（可选 te
   button: z.enum(['left', 'right']).optional(),
   untilXpath: z.string().optional(),
   untilSelector: z.string().optional(),
-  via: z.enum(['inject', 'native', 'cdp']).optional(),
+  via: z.enum(['inject', 'native', 'cdp', 'pointer']).optional(),
   count: z.number().optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
   const button = args.button === 'right' ? 'right' as const : 'left' as const
   const count = Math.max(1, Math.min(3, Number(args.count ?? 1))) 
+  if (args.canvasX !== undefined || args.canvasY !== undefined) {
+    if (args.canvasX === undefined || args.canvasY === undefined) throw new Error('canvasX 和 canvasY 要一起写')
+    const located = locatorFrom(args)
+    if (!located) throw new Error('canvasX/canvasY 需要配 selector 或 xpath（画布元素）')
+    const box = await elementBox(tabRef, located)
+    const x = box.x + Number(args.canvasX)
+    const y = box.y + Number(args.canvasY)
+    await clickPoint(tabRef, x, y, viaOf(args.via), undefined, button, count)
+    return { tabId: tabRef.id, x: Math.round(x), y: Math.round(y) }
+  }
   const frame = typeof args.frame === 'string' && args.frame ? String(args.frame) : ''
   const text = typeof args.text === 'string' && args.text.trim() ? String(args.text) : ''
   const textMatch = args.textMatch === 'exact' ? 'exact' as const : 'contains' as const
@@ -1031,7 +1049,7 @@ tool('page_swipe', '按住拖拽，用来拖滑块或横滑一块区域。翻长
   ...locateFields,
   untilXpath: z.string().optional(),
   untilSelector: z.string().optional(),
-  via: z.enum(['cdp', 'native']).optional()
+  via: z.enum(['cdp', 'native', 'pointer']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
   const until = locatorFrom({ xpath: args.untilXpath, selector: args.untilSelector })
@@ -1050,16 +1068,27 @@ tool('page_drag', '按住一个点或元素，按 dx、dy 精确拖拽，轨迹�
   shotY: z.union([z.number(), z.string()]).optional(),
   shotScale: z.union([z.number(), z.string()]).optional(),
   shotId: z.string().optional(),
+  canvasX: z.number().optional(),
+  canvasY: z.number().optional(),
   dx: z.number().optional(),
   dy: z.number().optional(),
   toSelector: z.string().optional(),
   toText: z.string().optional(),
-  via: z.enum(['cdp', 'native']).optional()
+  via: z.enum(['cdp', 'native', 'pointer']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
   let start: { x: number; y: number } | undefined
-  const point = pointArgs(args)
-  if (point) {
+  if (args.canvasX !== undefined || args.canvasY !== undefined) {
+    if (args.canvasX === undefined || args.canvasY === undefined) throw new Error('canvasX 和 canvasY 要一起写')
+    const located = locatorFrom(args)
+    if (!located) throw new Error('canvasX/canvasY 需要配 selector 或 xpath（画布元素）')
+    const box = await elementBox(tabRef, located)
+    start = { x: box.x + Number(args.canvasX), y: box.y + Number(args.canvasY) }
+  }
+  const point = start ? undefined : pointArgs(args)
+  if (start) {
+    // 起点已经由画布坐标确定
+  } else if (point) {
     start = mapPoint(tabRef, point.x, point.y, point.shot)
   } else {
     const located = locatorFrom(args)
@@ -1234,7 +1263,7 @@ tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径
   close: z.boolean().optional(),
   fill: z.boolean().optional(),
   spacing: z.number().optional(),
-  via: z.enum(['cdp', 'native']).optional()
+  via: z.enum(['cdp', 'native', 'pointer']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
   if (typeof args.path === 'string' && args.path) {
@@ -1266,7 +1295,7 @@ tool('page_canvas', '画布绘画（海龟命令）（和 Python turtle 一样�
   x: z.number().optional(),
   y: z.number().optional(),
   heading: z.number().optional(),
-  via: z.enum(['cdp', 'native']).optional()
+  via: z.enum(['cdp', 'native', 'pointer']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
   const result = await turtleRun(tabRef, gestureVia(args.via), String(args.script), {
@@ -1360,7 +1389,7 @@ tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单
   shotY: z.union([z.number(), z.string()]).optional(),
   shotScale: z.union([z.number(), z.string()]).optional(),
   shotId: z.string().optional(),
-  via: z.enum(['inject', 'native', 'cdp']).optional()
+  via: z.enum(['inject', 'native', 'cdp', 'pointer']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
   const frame = typeof args.frame === 'string' && args.frame ? String(args.frame) : ''
@@ -1461,6 +1490,15 @@ tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这�
     bytes: statSync(shot.path).size,
     image: imageOf(shot.path)
   }
+})
+
+tool('page_overlay', '列出挡住页面的浮层（广告 iframe、全屏遮罩、弹窗）和它们的位置。action=dismiss 会隐藏常见广告 iframe，并点击常见关闭按钮。不会删除页面业务内容；操作前可以先 list 看一眼。', z.object({
+  ...pageArgs,
+  action: z.enum(['list', 'dismiss']).optional()
+}), async (args) => {
+  const tabRef = await pageTab(args, false)
+  if (args.action === 'dismiss') return { tabId: tabRef.id, ...(await dismissOverlays(tabRef)) }
+  return { tabId: tabRef.id, overlays: await listOverlays(tabRef) }
 })
 
 tool('page_console', '读取这个标签的控制台输出和 JS 错误（最近 300 条，新的在前）。未捕获异常和 Promise 拒绝会带 stack，页面点不动、按钮报错、脚本没反应时先看这里。action=clear 清空。', z.object({
@@ -1709,7 +1747,7 @@ tool('captcha_solve', '识别并拖动滑块完成验证码，一次调用里做
   type: z.string().default('auto'),
   engine: z.enum(['auto', 'ddddocr', 'onnx', 'cv']).default('auto'),
   retries: z.number().optional(),
-  via: z.enum(['cdp', 'native']).optional()
+  via: z.enum(['cdp', 'native', 'pointer']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
   const result = await solveCaptcha(tabRef, String(args.type || 'auto'), gestureVia(args.via), Math.max(0, Math.min(5, Number(args.retries ?? 2))), args.engine as 'auto' | 'ddddocr' | 'onnx' | 'cv')

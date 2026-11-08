@@ -243,8 +243,8 @@ export type LayerPayload =
 
 export type Locator = { selector?: string; xpath?: string; pierce?: boolean }
 
-export type ActVia = 'inject' | 'native' | 'cdp'
-export type GestureVia = 'cdp' | 'native'
+export type ActVia = 'inject' | 'native' | 'cdp' | 'pointer'
+export type GestureVia = 'cdp' | 'native' | 'pointer'
 
 export type WorkflowApp = {
   id: string
