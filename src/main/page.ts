@@ -1599,7 +1599,7 @@ export async function screenshot(
   dir: string,
   grid = 100,
   edgeOnly = false
-): Promise<{ path: string; width: number; height: number; origin: { x: number; y: number }; coordinateSpace: 'viewport' }> {
+): Promise<{ path: string; width: number; height: number; origin: { x: number; y: number }; coordinateSpace: 'viewport'; shot: ShotRef }> {
   await ensureActive(tab)
   return captureFull(tab, dir, grid, edgeOnly)
 }
@@ -1609,7 +1609,7 @@ async function captureFull(
   dir: string,
   grid = 0,
   edgeOnly = false
-): Promise<{ path: string; width: number; height: number; origin: { x: number; y: number }; coordinateSpace: 'viewport' }> {
+): Promise<{ path: string; width: number; height: number; origin: { x: number; y: number }; coordinateSpace: 'viewport'; shot: ShotRef }> {
   const wc = wcOf(tab)
   const reveal = (): void => {
     const runtime = windows.get(tab.envId)
@@ -1664,7 +1664,7 @@ async function captureFull(
   mkdirSync(dir, { recursive: true })
   const path = join(dir, `shot-${Date.now()}.png`)
   writeFileSync(path, output.toPNG())
-  return { path, width: size.width, height: size.height, origin: { x: 0, y: 0 }, coordinateSpace: 'viewport' }
+  return { path, width: size.width, height: size.height, origin: { x: 0, y: 0 }, coordinateSpace: 'viewport', shot: { width: size.width, height: size.height } }
 }
 
 export async function pageSource(tab: TabRuntime, kind: 'dom' | 'response'): Promise<string> {
@@ -2457,6 +2457,7 @@ export async function screenshotRegion(
   full: boolean
   origin: { x: number; y: number }
   coordinateSpace: 'viewport'
+  shot: ShotRef
 }> {
   await ensureActive(tab)
   const wc = wcOf(tab)
@@ -2502,6 +2503,7 @@ export async function screenshotRegion(
     full: boolean
     origin: { x: number; y: number }
     coordinateSpace: 'viewport'
+    shot: ShotRef
   }> => {
     const reveal = (): void => {
       const runtime = windows.get(tab.envId)
@@ -2543,7 +2545,8 @@ export async function screenshotRegion(
       y,
       full: false,
       origin: { x, y },
-      coordinateSpace: 'viewport'
+      coordinateSpace: 'viewport',
+      shot: { width: output.getSize().width, height: output.getSize().height, originX: x, originY: y, scale: output.getSize().width / width }
     }
   }
   return capture()

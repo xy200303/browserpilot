@@ -152,13 +152,31 @@ function numArg(value: unknown): number | undefined {
   return undefined
 }
 
-function pointArgs(args: { x?: unknown; y?: unknown; shotWidth?: unknown; shotHeight?: unknown; shotX?: unknown; shotY?: unknown; shotScale?: unknown }): { x: number; y: number; shot?: { width: number; height: number; originX?: number; originY?: number; scale?: number } } | undefined {
+const shotRefs = new Map<string, { shot: { width: number; height: number; originX?: number; originY?: number; scale?: number }; at: number }>()
+
+function rememberShot(shot: { width: number; height: number; originX?: number; originY?: number; scale?: number }): string {
+  const id = createId('shot')
+  shotRefs.set(id, { shot, at: Date.now() })
+  if (shotRefs.size > 32) {
+    const oldest = [...shotRefs.entries()].sort((a, b) => a[1].at - b[1].at)[0]
+    if (oldest) shotRefs.delete(oldest[0])
+  }
+  return id
+}
+
+function pointArgs(args: { x?: unknown; y?: unknown; shotId?: unknown; shotWidth?: unknown; shotHeight?: unknown; shotX?: unknown; shotY?: unknown; shotScale?: unknown }): { x: number; y: number; shot?: { width: number; height: number; originX?: number; originY?: number; scale?: number } } | undefined {
   const hasX = args.x != null && args.x !== ''
   const hasY = args.y != null && args.y !== ''
   if (!hasX && !hasY) return undefined
   const x = numArg(args.x)
   const y = numArg(args.y)
   if (x === undefined || y === undefined) throw new Error('画布坐标要同时写 x 和 y')
+  const shotId = typeof args.shotId === 'string' && args.shotId ? args.shotId : ''
+  if (shotId) {
+    const stored = shotRefs.get(shotId)
+    if (!stored) throw new Error(`截图编号已失效：${shotId}，重新截一张再点`)
+    return { x, y, shot: stored.shot }
+  }
   const hasW = args.shotWidth != null && args.shotWidth !== ''
   const hasH = args.shotHeight != null && args.shotHeight !== ''
   if (hasW !== hasH) throw new Error('截图宽高要一起写')
@@ -788,7 +806,7 @@ tool('page_query', '按同一种定位取出所有匹配，返回数组。每一
   return { tabId: tabRef.id, total: found.total, matches: found.matches }
 })
 
-tool('page_click', '点击元素。优先用 text 按可见文字点（可选 textMatch: exact，默认包含），不用自己算坐标；也可以用 xpath 或 selector，必须恰好匹配一个。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。button 传 right 是右键。画布这种没有稳定节点的目标改用 x 和 y：不带 shotWidth、shotHeight 时是当前视口的 CSS 像素；带上截图返回的宽高时，x 和 y 是这张图上的像素，会先换算到视口再点。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。inject 在该点的元素上派发指针事件。untilXpath 或 untilSelector 只在按元素点击时使用，表示点完后要出现的元素；没出现会在同一个定位上再点，最多 3 次。失败时带上匹配个数、文字和当时能不能点到。count 传 2 是双击（最多 3 连击）。', z.object({
+tool('page_click', '点击元素。优先用 text 按可见文字点（可选 textMatch: exact，默认包含），不用自己算坐标；也可以用 xpath 或 selector，必须恰好匹配一个。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。button 传 right 是右键。画布这种没有稳定节点的目标改用 x 和 y：不带截图信息时是当前视口的 CSS 像素；把 page_screenshot 返回的 shotId 原样传进来，x 和 y 就用图片上的像素，工具会自动换算到视口（也可以继续用 shotWidth、shotHeight、shotX、shotY、shotScale 手动换算）。via 默认 cdp：Input.dispatchMouseEvent。native 用 sendInputEvent。inject 在该点的元素上派发指针事件。untilXpath 或 untilSelector 只在按元素点击时使用，表示点完后要出现的元素；没出现会在同一个定位上再点，最多 3 次。失败时带上匹配个数、文字和当时能不能点到。count 传 2 是双击（最多 3 连击）。', z.object({
   ...pageArgs,
   ...locateFields,
   text: z.string().optional(),
@@ -801,6 +819,7 @@ tool('page_click', '点击元素。优先用 text 按可见文字点（可选 te
   shotX: z.union([z.number(), z.string()]).optional(),
   shotY: z.union([z.number(), z.string()]).optional(),
   shotScale: z.union([z.number(), z.string()]).optional(),
+  shotId: z.string().optional(),
   button: z.enum(['left', 'right']).optional(),
   untilXpath: z.string().optional(),
   untilSelector: z.string().optional(),
@@ -869,7 +888,7 @@ tool('page_wait', '等元素出现或消失。state 默认 appear（出现），
   return { tabId: tabRef.id, state: args.state }
 })
 
-tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 xpath 或 selector 指定目标，pierce 为 true 穿透 Shadow DOM 和同源 iframe；跨域 iframe 里的输入框传 frame（src 包含的一段）+ xpath/selector；也可以用 x、y 坐标（先点击该点聚焦再输入）。多行文本、整段文档用 page_paste，逐键输入会被部分页面改写。native 先真实点击再逐键输入。inject 直接写入。', z.object({
+tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 xpath 或 selector 指定目标，pierce 为 true 穿透 Shadow DOM 和同源 iframe；跨域 iframe 里的输入框传 frame（src 包含的一段）+ xpath/selector；也可以用 x、y 坐标（先点击该点聚焦再输入；带 page_screenshot 的 shotId 时 x、y 用图片像素）。多行文本、整段文档用 page_paste，逐键输入会被部分页面改写。native 先真实点击再逐键输入。inject 直接写入。', z.object({
   ...pageArgs, text: z.string(), ...locateFields,
   frame: z.string().optional(),
   x: z.union([z.number(), z.string()]).optional(),
@@ -879,6 +898,7 @@ tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，�
   shotX: z.union([z.number(), z.string()]).optional(),
   shotY: z.union([z.number(), z.string()]).optional(),
   shotScale: z.union([z.number(), z.string()]).optional(),
+  shotId: z.string().optional(),
   via: z.enum(['inject', 'native', 'cdp']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
@@ -970,6 +990,7 @@ tool('page_drag', '按住一个点或元素，按 dx、dy 精确拖拽，轨迹�
   shotX: z.union([z.number(), z.string()]).optional(),
   shotY: z.union([z.number(), z.string()]).optional(),
   shotScale: z.union([z.number(), z.string()]).optional(),
+  shotId: z.string().optional(),
   dx: z.number(),
   dy: z.number().default(0),
   via: z.enum(['cdp', 'native']).optional()
@@ -1017,6 +1038,7 @@ tool('page_save_media', '把元素上的图片、视频、音频或画布保存�
   shotX: z.union([z.number(), z.string()]).optional(),
   shotY: z.union([z.number(), z.string()]).optional(),
   shotScale: z.union([z.number(), z.string()]).optional(),
+  shotId: z.string().optional(),
   savePath: z.string().optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
@@ -1242,7 +1264,7 @@ tool('page_dialog', '页面弹窗（alert / confirm / prompt）会自动按策�
   }
 })
 
-tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单、悬浮提示这类悬停交互。优先用 text 按可见文字找目标（可选 textMatch: exact）；也可以用 xpath / selector，或坐标 x、y（支持截图坐标换算）。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。via 默认 cdp，native 用 sendInputEvent，inject 在元素上派发 mouseover/mouseenter。', z.object({
+tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单、悬浮提示这类悬停交互。优先用 text 按可见文字找目标（可选 textMatch: exact）；也可以用 xpath / selector，或坐标 x、y；带 page_screenshot 的 shotId 时 x、y 直接用图片像素。跨域 iframe 里的元素传 frame（src 包含的一段）配 selector/xpath 或 text。via 默认 cdp，native 用 sendInputEvent，inject 在元素上派发 mouseover/mouseenter。', z.object({
   ...pageArgs,
   ...locateFields,
   text: z.string().optional(),
@@ -1255,6 +1277,7 @@ tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单
   shotX: z.union([z.number(), z.string()]).optional(),
   shotY: z.union([z.number(), z.string()]).optional(),
   shotScale: z.union([z.number(), z.string()]).optional(),
+  shotId: z.string().optional(),
   via: z.enum(['inject', 'native', 'cdp']).optional()
 }), async (args) => {
   const tabRef = await pageTab(args)
@@ -1286,7 +1309,7 @@ tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单
   return { tabId: tabRef.id }
 })
 
-tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这个元素（会先滚进视口）；传 x、y、width、height 时截这块区域；都不传截整个视口。默认叠加 100px 坐标网格。坐标原点始终是「视口左上角」，不是图片左上角：整页刻度从 0 起；元素/区域截图的刻度仍是视口里的绝对坐标，左上角角标写着裁剪起点坐标（例如 (424, 261)），看到刻度直接当 page_click 的 x/y 用，不要自己再加偏移。网格颜色按每 32px 小块的背景自动计算：亮底用深线、暗底用浅线，色相跟随背景并压低彩度，按 APCA 对比度保证每段都看得清。grid 传 false 或 0 关闭，传数字改间距（10–500）；网格越密数字标注自动抽稀，不会盖住内容。内容密集的局部截图传 edgeOnly: true，只画四边刻度、不铺满整张图。网格是截图后合成的，不碰页面。返回图片、路径、像素宽高、origin（图片左上角对应的视口坐标）、coordinateSpace；宽高只用于坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object({
+tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这个元素（会先滚进视口）；传 x、y、width、height 时截这块区域；都不传截整个视口。默认叠加 100px 坐标网格。坐标原点始终是「视口左上角」，不是图片左上角：整页刻度从 0 起；元素/区域截图的刻度仍是视口里的绝对坐标，左上角角标写着裁剪起点坐标（例如 (424, 261)），看到刻度直接当 page_click 的 x/y 用，不要自己再加偏移。网格颜色按每 32px 小块的背景自动计算：亮底用深线、暗底用浅线，色相跟随背景并压低彩度，按 APCA 对比度保证每段都看得清。grid 传 false 或 0 关闭，传数字改间距（10–500）；网格越密数字标注自动抽稀，不会盖住内容。内容密集的局部截图传 edgeOnly: true，只画四边刻度、不铺满整张图。网格是截图后合成的，不碰页面。返回图片、路径、像素宽高、origin（图片左上角对应的视口坐标）、coordinateSpace、shotId；点图上的位置时把 shotId 原样传给 page_click / page_hover / page_type 的 shotId，x、y 直接用图片像素，工具自动换算，不要自己除 DPR；宽高只用于坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -1320,6 +1343,7 @@ tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这�
       origin: shot.origin,
       coordinateSpace: shot.coordinateSpace,
       full: shot.full,
+      shotId: rememberShot(shot.shot),
       bytes: statSync(shot.path).size,
       image: imageOf(shot.path)
     }
@@ -1332,6 +1356,7 @@ tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这�
     height: shot.height,
     origin: shot.origin,
     coordinateSpace: shot.coordinateSpace,
+    shotId: rememberShot(shot.shot),
     bytes: statSync(shot.path).size,
     image: imageOf(shot.path)
   }
