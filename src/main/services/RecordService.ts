@@ -430,6 +430,12 @@ async function strokeBox(tab: TabRuntime, data: Data, pool: Pool): Promise<{ x: 
   return { x: box.x, y: box.y, width: box.w, height: box.h }
 }
 
+const KNOWN_NODE_TYPES = new Set([
+  'start', 'end', 'goto', 'click', 'fill', 'select', 'press', 'scroll', 'swipe', 'stroke', 'upload',
+  'handoff', 'captcha', 'wait', 'download', 'script', 'code', 'cdp', 'http-request', 'extract',
+  'export', 'if-else', 'loop'
+])
+
 function assertGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]): void {
   if (!nodes.length) throw new Error('工作流至少要有一个节点')
   const starts = nodes.filter((node) => node.data.type === 'start')
@@ -437,6 +443,7 @@ function assertGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]): void {
   const ids = new Set<string>()
   for (const node of nodes) {
     if (!node.id) throw new Error('节点缺少编号')
+    if (!KNOWN_NODE_TYPES.has(node.data.type)) throw new Error(`不认识的节点类型 ${node.data.type}（${node.id}）`)
     if (ids.has(node.id)) throw new Error(`节点编号重复 ${node.id}`)
     ids.add(node.id)
     if (!node.data?.type) throw new Error(`节点 ${node.id} 缺少类型`)

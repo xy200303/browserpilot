@@ -673,6 +673,40 @@ export async function waitForLocator(tab: TabRuntime, locator: Locator, timeoutM
   await failWithScene(tab, locator, `超时还没出现 ${locatorLabel(locator)}`)
 }
 
+/**
+ * 等到页面不再动：滚动高度、滚动位置和前 400 个元素的位置签名连续一段时间不变。
+ * 广告位撑开、图片加载、字体替换都会让版面在几百毫秒里跳一下，写死 sleep 不好使。
+ */
+export async function waitForStable(tab: TabRuntime, stableMs: number, timeoutMs: number): Promise<{ waited: number }> {
+  const started = Date.now()
+  const signature = `(() => {
+    const all = document.querySelectorAll('*')
+    let sum = 0
+    const limit = Math.min(all.length, 400)
+    for (let i = 0; i < limit; i += 1) {
+      const r = all[i].getBoundingClientRect()
+      sum += r.top + r.left + r.width + r.height
+    }
+    const d = document.documentElement
+    return [d.scrollHeight, d.scrollWidth, window.scrollY, window.scrollX, Math.round(sum), limit].join(':')
+  })()`
+  let last = ''
+  let steadySince = 0
+  for (;;) {
+    const now = String(await evalSource(tab, signature))
+    if (now !== last) {
+      last = now
+      steadySince = Date.now()
+    } else if (Date.now() - steadySince >= stableMs) {
+      return { waited: Date.now() - started }
+    }
+    if (Date.now() - started >= timeoutMs) {
+      throw new Error(`页面在 ${Math.round(timeoutMs / 1000)} 秒内没有稳定下来（还在加载、或者元素一直在动）`)
+    }
+    await sleep(100)
+  }
+}
+
 export async function waitForGone(tab: TabRuntime, locator: Locator, timeoutMs = 10_000): Promise<void> {
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {

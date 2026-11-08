@@ -78,7 +78,7 @@ browserpilot call workflow_run --json-file args.json
 
 要录一段操作过程，用 `screen` 的 `action: start`（只对有头窗口生效，默认 300 秒自动停，最长 3600；加 `maxSeconds` 改时长）。中途 `action: status` 查是否在录和已录秒数，结束时 `action: stop` 写成 mp4，返回 `path`、`seconds`、`bytes`。录屏期间不要关窗口。
 
-导航后或触发异步渲染后用 `page_wait` 等元素出现或消失，不要写死 sleep 循环。`page_key` 的快捷键用 `ctrl+a`、`shift+enter` 这种写法，修饰键只认 ctrl、shift、alt、meta。
+导航后或触发异步渲染后用 `page_wait` 等元素出现或消失，也能 `stable: 0.5` 等布局不再变化（广告撑开、图片字体加载之后用），不要写死 sleep 循环。`page_key` 的快捷键用 `ctrl+a`、`shift+enter` 这种写法，修饰键只认 ctrl、shift、alt、meta。
 
 定位器默认只查顶层文档。加 `pierce: true` 可穿透 Shadow DOM、同源 iframe，顶层查不到时还会自动查跨域 iframe（OOPIF）；穿透查到的目标会先滚进视口再点。`page_script` 的 `frame` 参数（填框架 URL 的一段，如 graph.qq.com）可以在跨域 iframe 里跑脚本；脚本报错时会直接带上页面控制台最近的错误，不用再单独调 `page_console`。`page_cdp_batch` 可以直接发 `Target.attachToTarget` 返回的会话里的命令。
 
@@ -100,4 +100,4 @@ browserpilot call workflow_run --json-file args.json
 
 一次任务用已经打开的环境和标签。做完调用 `page_unlock`，遮罩不要留着。需要人接手时用 `page_handoff`。
 
-工作流用 `workflow_list` 查看，用 `workflow_run` 一次跑完。`name` 是工作流名称，`inputs` 的键是开始节点里的参数名。不要把图拆成逐步点击，除非用户明确要改这张图。目录里的工作流要先在「工作流」页安装到本机，之后仍然用 `workflow_run` 按名称执行。
+工作流用 `workflow_list` 查看，用 `workflow_run` 一次跑完。现场试通的步骤想留下来，用 `workflow_record`：`action=start` 开始录、`action=stop` 结束，stop 时给 `name` 就直接存成同名工作流；录不进去的调用（按文字/角色/ref 定位的）会在 `skipped` 里列出原因，不会悄悄少一步。`name` 是工作流名称，`inputs` 的键是开始节点里的参数名。不要把图拆成逐步点击，除非用户明确要改这张图。目录里的工作流要先在「工作流」页安装到本机，之后仍然用 `workflow_run` 按名称执行。

@@ -4,7 +4,7 @@ import { clipboard, session } from 'electron'
 import { mkdirSync } from 'fs'
 import { rm } from 'fs/promises'
 import { isAbsolute, join } from 'path'
-import { DEFAULT_ENV, type ActVia, type Control, type Locator, type WorkflowApp } from '@shared/types'
+import { DEFAULT_ENV, type ActVia, type Control, type Locator, type WorkflowApp, type WorkflowNode } from '@shared/types'
 import { searchEngines } from '@shared/types'
 import { createId } from '../ids'
 import { bridge, publicControl, windows, type TabRuntime } from '../runtime'
@@ -100,7 +100,8 @@ import {
   uploadFiles,
   waitForGone,
   waitForLoad,
-  waitForLocator
+  waitForLocator,
+  waitForStable
 } from '../page'
 import { captchaPanelShot, captchaRead, detectCaptcha, solveCaptcha } from '../captcha'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate, workflowWrite } from './RecordService'
@@ -147,6 +148,79 @@ function imageOf(path: string): { mimeType: string; data: string; bytes: number 
   const data = readFileSync(path)
   if (!data.length || data.length > MAX_IMAGE_BYTES) return undefined
   return { mimeType: 'image/png', data: data.toString('base64'), bytes: data.length }
+}
+
+type RecordedCall = { tool: string; args: Record<string, unknown> }
+
+let recording: { startedAt: number; calls: RecordedCall[] } | null = null
+
+const RECORDABLE = new Set([
+  'page_navigate', 'page_click', 'page_type', 'page_key', 'page_scroll', 'page_select', 'page_upload', 'page_draw', 'page_wait'
+])
+
+const NODE_TYPE: Record<string, string> = {
+  page_navigate: 'goto',
+  page_click: 'click',
+  page_type: 'fill',
+  page_key: 'press',
+  page_scroll: 'scroll',
+  page_select: 'select',
+  page_upload: 'upload',
+  page_draw: 'stroke',
+  page_wait: 'wait'
+}
+
+/**
+ * 把一个工具调用翻成工作流节点。定位只认 xpath / selector：按文字、角色、标签点的调用没法写成节点，
+ * 返回 skip 说明原因，让录制结果诚实，而不是悄悄少一步。
+ */
+function recordedNode(call: RecordedCall, index: number): { node?: WorkflowNode; skip?: string } {
+  const args = call.args
+  const selector = typeof args.selector === 'string' && args.selector ? args.selector : ''
+  const xpath = typeof args.xpath === 'string' && args.xpath ? args.xpath : ''
+  const locator = selector || xpath ? { ...(selector ? { selector } : {}), ...(xpath ? { xpath } : {}) } : undefined
+  const id = `step-${index + 1}`
+  const base = (title: string, extra: Record<string, unknown>): { node: WorkflowNode } => ({ node: { id, data: { type: NODE_TYPE[call.tool] || 'wait', title, ...extra } } })
+
+  if (call.tool === 'page_navigate') {
+    const url = typeof args.url === 'string' ? args.url : ''
+    if (!url) return { skip: '打开网页缺 url' }
+    return { node: { id, data: { type: 'goto', title: '打开', url } } }
+  }
+  if (call.tool === 'page_click') {
+    if (!locator) {
+      if (args.x === undefined || args.y === undefined) {
+        return { skip: '按文字/角色/坐标之外的定位点击录不进工作流' }
+      }
+      return { node: { id, data: { type: 'click', title: '点击', x: Number(args.x), y: Number(args.y) } } }
+    }
+    return base('点击', { locator })
+  }
+  if (call.tool === 'page_type') {
+    if (!locator) return { skip: '输入用了 label/ref/坐标定位，工作流节点只认 xpath / selector' }
+    return base('填写', { locator, text: String(args.text ?? ''), entry: args.entry === 'paste' ? 'paste' : 'type' })
+  }
+  if (call.tool === 'page_key') return base('按键', { shortcut: String(args.shortcut ?? '') })
+  if (call.tool === 'page_scroll') return base('滚动', { direction: args.direction === 'up' ? 'up' : 'down' })
+  if (call.tool === 'page_select') {
+    if (!locator) return { skip: '选择下拉用了坐标定位' }
+    return base('选择', { locator, option: String(args.option ?? '') })
+  }
+  if (call.tool === 'page_upload') {
+    if (!locator) return { skip: '上传没有 selector' }
+    return base('上传', { locator, paths: Array.isArray(args.paths) ? args.paths : [] })
+  }
+  if (call.tool === 'page_draw') {
+    if (!selector) return { skip: '落笔没给 selector（工作流节点需要画布元素）' }
+    if (typeof args.path !== 'string' || !args.path) return { skip: '只有 SVG 路径能录成落笔节点' }
+    return base('落笔', { locator: { selector }, path: args.path, viewBox: Array.isArray(args.viewBox) ? args.viewBox : undefined })
+  }
+  if (call.tool === 'page_wait') {
+    if (typeof args.stable === 'number') return base('等待页面稳定', { stable: args.stable })
+    if (!locator) return { skip: '等待没有 selector' }
+    return base('等待', { locator, state: args.state === 'gone' ? 'gone' : 'appear', timeout: args.timeout ?? 10 })
+  }
+  return { skip: `${call.tool} 不在可录范围` }
 }
 
 const tools: Tool[] = []
@@ -925,14 +999,20 @@ tool('page_click', '点击元素。优先用 text 按可见文字点（可选 te
   return { tabId: tabRef.id }
 })
 
-tool('page_wait', '等元素出现或消失。state 默认 appear（出现），gone 是消失。timeout 是秒，默认 10，最长 60。导航后、点按钮触发异步渲染后用它等，不要写死 sleep 循环。pierce 为 true 时穿透 Shadow DOM 和同源 iframe 查找。', z.object({
+tool('page_wait', '等待。两种用法：等元素出现或消失（state 默认 appear，gone 是消失，配 xpath/selector）；等页面不再动（stable 传秒数，指布局连续这么久没变化，广告撑开、图片加载、字体替换之后用它）。两者都给就先等元素再等稳定。timeout 是秒，默认 10，最长 60。导航后、点按钮触发异步渲染后用它，不要写死 sleep。pierce 为 true 时穿透 Shadow DOM 和同源 iframe 查找。', z.object({
   ...pageArgs, ...locateFields,
   state: z.enum(['appear', 'gone']).default('appear'),
+  stable: z.number().optional(),
   timeout: z.number().optional()
 }), async (args) => {
   const located = locatorFrom(args)
-  if (!located) throw new Error(NEED_LOCATOR)
   const tabRef = await pageTab(args)
+  const stableSeconds = typeof args.stable === 'number' ? Math.max(0.1, Math.min(10, args.stable)) : 0
+  if (!located) {
+    if (!stableSeconds) throw new Error('需要 xpath 或 selector，或者给 stable（等页面稳定几秒）')
+    const settle = await waitForStable(tabRef, stableSeconds * 1000, Math.max(1, Math.min(60, Number(args.timeout ?? 10))) * 1000)
+    return { tabId: tabRef.id, stable: stableSeconds, waited: settle.waited }
+  }
   const timeout = Math.max(1, Math.min(60, Number(args.timeout ?? 10))) * 1000
   if (located.pierce) {
     const started = Date.now()
@@ -948,7 +1028,8 @@ tool('page_wait', '等元素出现或消失。state 默认 appear（出现），
   }
   if (args.state === 'gone') await waitForGone(tabRef, located, timeout)
   else await waitForLocator(tabRef, located, timeout)
-  return { tabId: tabRef.id, state: args.state }
+  if (stableSeconds) await waitForStable(tabRef, stableSeconds * 1000, timeout)
+  return { tabId: tabRef.id, state: args.state, ...(stableSeconds ? { stable: stableSeconds } : {}) }
 })
 
 tool('page_type', '输入文字。via 默认 cdp：先聚焦再逐键输入，非拉丁字符用 Input.insertText。用 label 按关联标签/占位符找输入框（最省事），或用 page_snapshot 的 ref；也可以用 xpath 或 selector，pierce 为 true 穿透 Shadow DOM 和同源 iframe；跨域 iframe 里的输入框传 frame（src 包含的一段）+ xpath/selector；也可以用 x、y 坐标（先点击该点聚焦再输入；带 page_screenshot 的 shotId 时 x、y 用图片像素）。多行文本、整段文档传 entry: "paste"（整段插入，不逐键），逐键输入会被部分页面改写。native 先真实点击再逐键输入。inject 直接写入。', z.object({
@@ -1124,7 +1205,7 @@ tool('page_inspect', '识别一个元素是什么类型：video、image、canvas
   return { tabId: tabRef.id, ...info }
 })
 
-tool('page_save_media', '把元素上的图片、视频、音频或画布保存成本机文件，走这套环境的登录态（Cookie 都在）。直链直接下；B站(__playinfo__)、抖音(media-video/media-audio)、YouTube(ytInitialPlayerResponse)这类流媒体自动抓 DASH 音视频轨合并 mp4；m3u8/mpd 清单（央视、AcFun、优酷等）用 ffmpeg 拉流转 mp4；搜狐这类分段 mp4 按已加载的分段顺序合并（长视频只下到自己播到的部分，要完整就配合 page_record_video）；播放器在 Web Worker 里拉流（腾讯等）时用 CDP 网络嗅探兜底，必要时自动重载页面从头抓清单。目标用 xpath、selector，或坐标 x、y。savePath 传文件路径就存成那个文件，传已存在的目录就存进目录（文件名自动取），不给就存进下载目录（默认系统下载目录，可用 download 的 action=dir 改）。返回本机路径、类型和字节数。m3u8 清单和抓不到轨的流媒体会说明，那种用 page_record_video 录渲染画面。', z.object({
+tool('page_save_media', '把元素上的图片、视频、音频或画布存成本机文件，走这套环境的登录态。直链直接下；B站、抖音、YouTube 的 DASH 轨自动合并 mp4；m3u8/mpd 用 ffmpeg 拉流转 mp4；抓不到轨的流媒体改用 page_record_video 录画面。目标用 xpath、selector，或坐标 x、y。', z.object({
   ...pageArgs,
   ...locateFields,
   x: z.union([z.number(), z.string()]).optional(),
@@ -1135,7 +1216,7 @@ tool('page_save_media', '把元素上的图片、视频、音频或画布保存�
   shotY: z.union([z.number(), z.string()]).optional(),
   shotScale: z.union([z.number(), z.string()]).optional(),
   shotId: z.string().optional(),
-  savePath: z.string().optional()
+  savePath: z.string().optional().describe('文件路径就存成那个文件；已存在的目录就存进目录（文件名自动取）；不给就存进下载目录（默认系统下载目录，可用 download 的 action=dir 改）')
 }), async (args) => {
   const tabRef = await pageTab(args)
   const point = pointArgs(args)
@@ -1447,15 +1528,15 @@ tool('page_hover', '把鼠标移到元素或坐标上，用来触发下拉菜单
   return { tabId: tabRef.id }
 })
 
-tool('page_screenshot', '截取网页视口。传 xpath / selector 时只截这个元素（会先滚进视口）；传 x、y、width、height 时截这块区域；都不传截整个视口。默认叠加 100px 坐标网格。坐标原点始终是「视口左上角」，不是图片左上角：整页刻度从 0 起；元素/区域截图的刻度仍是视口里的绝对坐标，左上角角标写着裁剪起点坐标（例如 (424, 261)），看到刻度直接当 page_click 的 x/y 用，不要自己再加偏移。网格颜色按每 32px 小块的背景自动计算：亮底用深线、暗底用浅线，色相跟随背景并压低彩度，按 APCA 对比度保证每段都看得清。grid 传 false 或 0 关闭，传数字改间距（10–500）；网格越密数字标注自动抽稀，不会盖住内容。内容密集的局部截图传 edgeOnly: true，只画四边刻度、不铺满整张图。网格是截图后合成的，不碰页面。返回图片、路径、像素宽高、origin（图片左上角对应的视口坐标）、coordinateSpace、shotId；点图上的位置时把 shotId 原样传给 page_click / page_hover / page_type 的 shotId，x、y 直接用图片像素，工具自动换算，不要自己除 DPR；宽高只用于坐标换算，不是窗口尺寸。不改变当前是谁在操作。', z.object({
+tool('page_screenshot', '看页面。截视口、某个元素、或视口里的一块区域，默认带坐标网格，看完直接按图上的刻度点。不改变当前是谁在操作。', z.object({
   ...pageArgs,
   ...locateFields,
-  x: z.union([z.number(), z.string()]).optional(),
-  y: z.union([z.number(), z.string()]).optional(),
-  width: z.union([z.number(), z.string()]).optional(),
-  height: z.union([z.number(), z.string()]).optional(),
-  grid: z.union([z.boolean(), z.number()]).optional(),
-  edgeOnly: z.boolean().optional()
+  x: z.union([z.number(), z.string()]).optional().describe('区域左上角横坐标（视口 CSS 像素）'),
+  y: z.union([z.number(), z.string()]).optional().describe('区域左上角纵坐标（视口 CSS 像素）'),
+  width: z.union([z.number(), z.string()]).optional().describe('区域宽（视口 CSS 像素）'),
+  height: z.union([z.number(), z.string()]).optional().describe('区域高（视口 CSS 像素）'),
+  grid: z.union([z.boolean(), z.number()]).optional().describe('坐标网格间距，默认 100；false 或 0 关闭。刻度是视口绝对坐标，元素截图的左上角角标写着裁剪起点（如 (424, 261)），看到刻度直接当 page_click 的 x/y 用，不要自己加偏移。线条颜色按每 32px 小块的背景自动选（亮底深线、暗底浅线）'),
+  edgeOnly: z.boolean().optional().describe('只画四边刻度，不铺满整张图，内容密集时用')
 }), async (args) => {
   const tabRef = await pageTab(args, false)
   const step = args.grid === false || args.grid === 0 ? 0 : args.grid === undefined || args.grid === true ? 100 : Math.max(10, Math.min(500, Math.round(Number(args.grid) || 0)))
@@ -1619,14 +1700,14 @@ tool('screen', '窗口录屏，action 三选一。start：把这扇有头窗口�
   return { env: envId, maxSeconds: seconds }
 })
 
-tool('window_preview', '把主界面、网页、遮罩和弹层合成一张应用截图。默认是整窗；传 x、y、width、height 时只截这块局部（应用内容区 CSS 像素）。坐标原点始终是「应用内容区左上角」，不含系统标题栏：整窗刻度从 0 起；局部截图的刻度仍是内容区里的绝对坐标，左上角角标写着裁剪起点。默认叠加 100px 坐标网格（grid: false 或 0 关闭，数字改间距 10–500，数字标注会随密度自动抽稀），网格颜色按每 32px 小块的背景自动计算（亮底深线、暗底浅线，色相跟随背景，APCA 保证对比度）；内容密集时传 edgeOnly: true，只画四边刻度。给 GUI 自动化用；点网页仍然用 page_screenshot 的视口坐标。返回图片、路径、像素宽高、origin（图片左上角对应的内容区坐标）和 coordinateSpace。这是合成预览，不是系统级窗口截图。', z.object({
+tool('window_preview', '把主界面、网页、遮罩和弹层合成一张应用截图，给 GUI 自动化用。默认整窗，传 x、y、width、height 只截局部（应用内容区 CSS 像素）；点网页仍然用 page_screenshot 的视口坐标。', z.object({
   env: env,
-  grid: z.union([z.boolean(), z.number()]).optional(),
-  x: z.union([z.number(), z.string()]).optional(),
-  y: z.union([z.number(), z.string()]).optional(),
+  grid: z.union([z.boolean(), z.number()]).optional().describe('坐标网格间距，默认 100，false 或 0 关闭。原点是应用内容区左上角，不含系统标题栏；局部截图的刻度仍是内容区里的绝对坐标'),
+  x: z.union([z.number(), z.string()]).optional().describe('局部截图起点 x（应用内容区 CSS 像素）'),
+  y: z.union([z.number(), z.string()]).optional().describe('局部截图起点 y（应用内容区 CSS 像素）'),
   width: z.union([z.number(), z.string()]).optional(),
   height: z.union([z.number(), z.string()]).optional(),
-  edgeOnly: z.boolean().optional()
+  edgeOnly: z.boolean().optional().describe('只画四边刻度，不铺满整张图')
 }), async (args) => {
   const envId = String(args.env || DEFAULT_ENV)
   const step = args.grid === false || args.grid === 0 ? 0 : args.grid === undefined || args.grid === true ? 100 : Math.max(10, Math.min(500, Math.round(Number(args.grid) || 0)))
@@ -1793,6 +1874,41 @@ const workflowBody = z.object({
     conversation_variables: z.array(z.unknown()).optional(),
     graph: graphSchema
   })
+})
+
+const recordingCall = z.object({
+  action: z.enum(['start', 'stop']),
+  name: z.string().optional(),
+  description: z.string().optional()
+})
+
+tool('workflow_record', '把接下来的一串工具调用录成工作流。action=start 开始录，action=stop 结束；stop 时给了 name 就直接保存成同名工作流（同名覆盖），不给 name 只返回图和录制结果。能录的：打开网页、点击（xpath/selector 或 x/y）、输入（xpath/selector）、按键、滚动、选择下拉、上传、画布落笔（selector + SVG path）、等待。按文字/角色/ref/坐标之外的定位录不进去，会在 skipped 里列出原因，不会悄悄少一步。', recordingCall, async (args) => {
+  if (String(args.action) === 'start') {
+    recording = { startedAt: Date.now(), calls: [] }
+    return { recording: true, startedAt: recording.startedAt }
+  }
+  if (!recording) throw new Error('现在没有在录，先 action=start')
+  const calls = recording.calls
+  recording = null
+  const nodes: WorkflowNode[] = [{ id: 'start', data: { type: 'start', title: '开始', variables: [] } }]
+  const skipped: Array<{ tool: string; reason: string }> = []
+  for (const call of calls) {
+    const mapped = recordedNode(call, nodes.length - 1)
+    if (mapped.node) nodes.push(mapped.node)
+    else skipped.push({ tool: call.tool, reason: mapped.skip || '无法转换' })
+  }
+  nodes.push({ id: 'end', data: { type: 'end', title: '结束', outputs: [] } })
+  const edges = nodes.slice(0, -1).map((node, index) => ({ id: `edge-${index + 1}`, source: node.id, target: nodes[index + 1].id }))
+  const name = typeof args.name === 'string' ? args.name.trim() : ''
+  let saved: { workflow: string; name: string } | undefined
+  if (name) {
+    const app = workflowWrite({
+      app: { name, description: args.description ? String(args.description) : `录制的操作：${nodes.length - 2} 步`, icon: '' },
+      workflow: { environment_variables: [], conversation_variables: [], graph: { nodes, edges } }
+    })
+    saved = { workflow: app.id, name: app.app.name }
+  }
+  return { calls: calls.length, steps: nodes.length - 2, skipped, ...(saved ? { workflow: saved.workflow, name: saved.name } : { graph: { nodes, edges } }) }
 })
 
 tool('workflow_write', '新建或整份覆盖一份工作流。图用 nodes 和 edges。script 在当前网页里跑，code 在主进程里独立跑。填写用 fill，entry 为 type 或 paste。循环用 loop。同名再次写入覆盖整张图，编号不变。只改其中几个节点用 workflow_update。', workflowBody, async (args) => {
@@ -2383,6 +2499,7 @@ export async function callTool(name: string, raw: unknown): Promise<ToolResult> 
   try {
     const timeoutMs = toolTimeouts.get(name) ?? DEFAULT_TOOL_TIMEOUT
     const data = await withTimeout(item.run(args), timeoutMs, `工具 ${name} 超时（${Math.round(timeoutMs / 1000)} 秒没返回）。页面可能被弹窗挡住或脚本卡住，先看 page_dialog，必要时 page_navigate`)
+    if (recording && name !== 'workflow_record' && RECORDABLE.has(name)) recording.calls.push({ tool: name, args })
     const tabId = typeof data.tabId === 'string' ? data.tabId : typeof args.tabId === 'string' ? args.tabId : undefined
     const envId = typeof args.env === 'string' ? args.env : undefined
     return finish({ tabId, env: envId }, data)
