@@ -42,7 +42,9 @@ export const zhSettings = {
         port: '端口',
         endpoint: '端点',
         concurrency: '批量并发上限',
-        headlessLimit: '无头窗口上限'
+        headlessLimit: '无头窗口上限',
+        hibernateMinutes: '标签休眠（分钟，0 关闭）',
+        closeIdleMinutes: '最小化关窗（分钟，0 关闭）'
       }
     },
     env: {

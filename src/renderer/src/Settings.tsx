@@ -581,6 +581,24 @@ function General({ state }: { state: UiState }) {
                 onChange={(event) => void window.browser.updateSettings({ headlessLimit: Math.max(1, Number(event.target.value) || 1) })}
               />
             </Field>
+            <Field label={i18n.t('settings.general.field.hibernateMinutes')}>
+              <Input
+                type="number"
+                min={0}
+                max={240}
+                value={settings.tabHibernateMinutes}
+                onChange={(event) => void window.browser.updateSettings({ tabHibernateMinutes: Math.min(240, Math.max(0, Number(event.target.value) || 0)) })}
+              />
+            </Field>
+            <Field label={i18n.t('settings.general.field.closeIdleMinutes')}>
+              <Input
+                type="number"
+                min={0}
+                max={1440}
+                value={settings.closeIdleMinutes}
+                onChange={(event) => void window.browser.updateSettings({ closeIdleMinutes: Math.min(1440, Math.max(0, Number(event.target.value) || 0)) })}
+              />
+            </Field>
           </div>
         </div>
       </Card>

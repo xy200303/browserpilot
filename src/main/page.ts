@@ -41,11 +41,14 @@ function wcOf(tab: TabRuntime): WebContents {
   if (!current || current.isDestroyed()) {
     if (bridge.restoreTabView(tab) && tab.view?.webContents && !tab.view.webContents.isDestroyed()) {
       tab.hibernated = false
+      tab.lastActiveAt = Date.now()
       return tab.view.webContents
     }
     throw new Error(tab.view || !tab.hibernated ? mt('main.page.crashed') : mt('main.page.noPage'))
   }
   if (tab.hibernated) tab.hibernated = false
+  // 任何走 CDP 的工具调用都算「刚用过」，闲时回收不会把正在跑的标签睡掉
+  tab.lastActiveAt = Date.now()
   return current
 }
 

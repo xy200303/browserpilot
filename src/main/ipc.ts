@@ -419,6 +419,12 @@ export function wireIpc(): void {
     if (patch.searchEngine !== undefined && !searchEngines.some((item) => item.id === patch.searchEngine)) {
       delete patch.searchEngine
     }
+    if (patch.tabHibernateMinutes !== undefined) {
+      patch.tabHibernateMinutes = Math.min(240, Math.max(0, Math.round(Number(patch.tabHibernateMinutes) || 0)))
+    }
+    if (patch.closeIdleMinutes !== undefined) {
+      patch.closeIdleMinutes = Math.min(1440, Math.max(0, Math.round(Number(patch.closeIdleMinutes) || 0)))
+    }
     storage.settings = { ...storage.settings, ...patch }
     storage.saveSettings()
     if (patch.language !== undefined) applyMainLanguage(storage.settings.language)

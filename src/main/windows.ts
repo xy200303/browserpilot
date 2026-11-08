@@ -316,6 +316,7 @@ function addHibernatedTab(runtime: WindowRuntime, item: { url: string; title: st
     userTookOver: false,
     refs: new Map(),
     documentHtml: '',
+    lastActiveAt: Date.now(),
     hibernated: true
   }
   runtime.tabs.push(tab)
@@ -394,6 +395,36 @@ export function hibernateOtherTabs(runtime: WindowRuntime): number {
   return count
 }
 
+/**
+ * 闲时回收：非活动标签休眠，最小化的窗口关掉。
+ * 只用「最后一次被碰过的时间」判断，不监听真实输入；
+ * 录屏、有声、被 Agent 锁定的标签，以及无头窗口，一律跳过。
+ */
+export function reapIdle(): void {
+  const { tabHibernateMinutes, closeIdleMinutes } = storage.settings
+  const now = Date.now()
+  for (const runtime of windows.values()) {
+    if (runtime.screenRecording || runtime.win.isDestroyed()) continue
+    if (tabHibernateMinutes > 0) {
+      for (const tab of runtime.tabs) {
+        if (tab.kind !== 'page' || tab.hibernated || tab.id === runtime.activeTabId) continue
+        if (tab.control === 'agent' || tab.audible) continue
+        if (now - (tab.lastActiveAt ?? now) < tabHibernateMinutes * 60_000) continue
+        if (hibernateTab(runtime, tab.id)) console.log('[idle] hibernate', tab.url)
+      }
+    }
+    // 无头窗口本来就靠 Agent 驱动，关掉会打断后台任务
+    if (closeIdleMinutes > 0 && !runtime.headless && runtime.win.isMinimized()) {
+      if (runtime.tabs.some((tab) => tab.control === 'agent')) continue
+      const newest = runtime.tabs.reduce((latest, tab) => Math.max(latest, tab.lastActiveAt ?? 0), 0)
+      if (now - newest >= closeIdleMinutes * 60_000) {
+        console.log('[idle] close window', runtime.envId)
+        runtime.win.close()
+      }
+    }
+  }
+}
+
 export function openEnvironment(envId: string, headless: boolean): WindowRuntime {
   if (headless && !windows.has(envId) && headlessCount() >= storage.settings.headlessLimit) {
     throw new Error(mt('main.err.headlessLimit', { limit: storage.settings.headlessLimit }))
@@ -422,7 +453,8 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
     handoffMessage: '',
     userTookOver: false,
     refs: new Map(),
-    documentHtml: ''
+    documentHtml: '',
+    lastActiveAt: Date.now()
   }
   const ses = session.fromPartition(`persist:${runtime.envId}`)
   ses.setUserAgent(chromeUserAgent())
@@ -699,7 +731,10 @@ export function openWorkflowPage(runtime: WindowRuntime, workflowId: string): Ta
 export function activateTab(runtime: WindowRuntime, tabId: string, focus = true): void {
   const tab = runtime.tabs.find((item) => item.id === tabId)
   if (!tab) throw new Error(mt('main.err.noTab', { id: tabId }))
+  const previous = runtime.tabs.find((item) => item.id === runtime.activeTabId)
+  if (previous && previous.id !== tabId) previous.lastActiveAt = Date.now()
   runtime.activeTabId = tabId
+  tab.lastActiveAt = Date.now()
   if (tab.kind === 'page' && tab.hibernated) {
     tab.hibernated = false
     restoreTabView(tab)

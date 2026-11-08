@@ -44,7 +44,9 @@ export const enSettings: MessageShape<typeof zhSettings> = {
         port: 'Port',
         endpoint: 'Endpoint',
         concurrency: 'Batch concurrency',
-        headlessLimit: 'Headless window limit'
+        headlessLimit: 'Headless window limit',
+        hibernateMinutes: 'Idle tab sleep (min, 0 off)',
+        closeIdleMinutes: 'Close minimized (min, 0 off)'
       }
     },
     env: {

@@ -30,6 +30,8 @@ export type TabRuntime = {
   userTookOver: boolean
   refs: Map<string, AxRef>
   documentHtml: string
+  // 最后一次被切换、导航或被工具触碰的时间，闲时回收用它判断
+  lastActiveAt?: number
   view?: WebContentsView
 }
 

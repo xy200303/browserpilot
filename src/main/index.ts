@@ -3,7 +3,7 @@ import { join } from 'path'
 import { applyUserAgentFallback } from './ua'
 import { storage } from './services/store'
 import { wireIpc, broadcast } from './ipc'
-import { bootDefaultWindow } from './windows'
+import { bootDefaultWindow, reapIdle } from './windows'
 import { startMcp } from './services/McpService'
 import { windows } from './runtime'
 import { applyMainLanguage } from './i18n'
@@ -55,6 +55,8 @@ if (!gotLock) {
     })
     wireIpc()
     bootDefaultWindow()
+    // 一分钟看一次空闲：非活动标签休眠、最小化的窗口关掉
+    setInterval(reapIdle, 60_000).unref()
     await startMcp()
     broadcast()
   })

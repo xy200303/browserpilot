@@ -28,6 +28,10 @@ export type Settings = {
   port: number
   batchConcurrency: number
   headlessLimit: number
+  // 非活动标签空闲多少分钟后休眠（0 关闭）
+  tabHibernateMinutes: number
+  // 最小化或隐藏的窗口空闲多少分钟后关窗（0 关闭）
+  closeIdleMinutes: number
   downloadDir: string
   passwordSave: boolean
   passwordAutofill: boolean
@@ -285,6 +289,8 @@ export const defaultSettings = (): Settings => ({
   port: 39221,
   batchConcurrency: 3,
   headlessLimit: 3,
+  tabHibernateMinutes: 15,
+  closeIdleMinutes: 0,
   downloadDir: '',
   passwordSave: true,
   passwordAutofill: true,
