@@ -8,6 +8,7 @@ import type { GestureVia } from '@shared/types'
 import { dragPage, clickPoint, evalSource, screenshot, sleep } from './page'
 import type { TabRuntime } from './runtime'
 import { storage } from './services/store'
+import { mt } from './i18n'
 
 export type CaptchaEngine = 'ddddocr' | 'onnx' | 'cv'
 
@@ -92,7 +93,7 @@ function ddddocrGapX(bgBuf: Buffer, sliceBuf: Buffer): Promise<number | null> {
 export async function captchaRead(tab: TabRuntime): Promise<{ text: string; path: string }> {
   const shot = await captchaPanelShot(tab)
   const result = await runBridge<{ text?: string }>(['ocr', shot.path])
-  if (!result) throw new Error('ddddocr 不可用：需要本机 Python 并 pip install ddddocr')
+  if (!result) throw new Error(mt('main.captcha.ddddocrMissing'))
   return { text: result.text ?? '', path: shot.path }
 }
 
@@ -181,7 +182,7 @@ export async function captchaPanelShot(tab: TabRuntime): Promise<CaptchaPanelSho
   )
   await sleep(400)
   const probe = (await evalSource(tab, PANEL_PROBE)) as { rect?: [number, number, number, number]; vw: number; vh: number }
-  if (!probe.rect) throw new Error('页面上没有验证码面板，先把验证码点出来再截图')
+  if (!probe.rect) throw new Error(mt('main.captcha.panelMissing'))
   const shot = await screenshot(tab, storage.dir('screenshots'), 0)
   const image = nativeImage.createFromPath(shot.path)
   const scaleX = shot.width / probe.vw
@@ -202,20 +203,20 @@ export async function captchaPanelShot(tab: TabRuntime): Promise<CaptchaPanelSho
     height: size.height,
     rect,
     scale: scaleX,
-    mapping: '图片上像素 (px, py) 直接用 page_click 或 page_drag 的 x、y，并带上 shotWidth、shotHeight（本图的 width、height）和 shotX、shotY（rect 的前两个值）、shotScale（scale），工具会自己换算成视口坐标'
+    mapping: mt('main.captcha.mapping')
   }
 }
 
 function decodePng(buf: Buffer): Pixels {
   const image = nativeImage.createFromBuffer(buf)
   const size = image.getSize()
-  if (!size.width || !size.height) throw new Error('验证码图片解不出来')
+  if (!size.width || !size.height) throw new Error(mt('main.captcha.imageBroken'))
   return { width: size.width, height: size.height, data: image.toBitmap() }
 }
 
 async function download(url: string): Promise<Buffer> {
   const res = await fetch(url)
-  if (!res.ok) throw new Error(`验证码图片拉不下来 ${res.status}`)
+  if (!res.ok) throw new Error(mt('main.captcha.imageFetch', { status: res.status }))
   return Buffer.from(await res.arrayBuffer())
 }
 
@@ -257,7 +258,7 @@ function pieceMask(slice: Pixels): Mask {
       }
     }
   }
-  if (px1 <= px0 || py1 <= py0) throw new Error('拼图片里没有不透明区域')
+  if (px1 <= px0 || py1 <= py0) throw new Error(mt('main.captcha.alphaMissing'))
   const w = px1 - px0 + 1
   const h = py1 - py0 + 1
   const at = (x: number, y: number): boolean => data[((py0 + y) * width + px0 + x) * 4 + 3] > 128
@@ -320,7 +321,7 @@ function cvGapX(bg: Pixels, slice: Pixels, expectedY: number): { x: number; edge
     }
   }
   candidates.sort((a, b) => b.edge - a.edge)
-  if (!candidates.length || candidates[0].edge < 8) throw new Error('背景图上找不到缺口边缘')
+  if (!candidates.length || candidates[0].edge < 8) throw new Error(mt('main.captcha.gapMissing'))
   const top = candidates.slice(0, 15)
   let best: { x: number; y: number; edge: number; s: number; mse: number } | undefined
   for (const cand of top) {
@@ -440,7 +441,7 @@ async function detectGeetestSlide(tab: TabRuntime, mark: boolean, engineHint: Ca
     probe = (await evalSource(tab, SLIDE_PROBE)) as SlideProbe
   }
   if (!probe.bg || !probe.slice || !probe.bgRect || !probe.sliceRect || !probe.btn) {
-    throw new Error('页面上没有极验滑块验证码，先点出验证面板再识别')
+    throw new Error(mt('main.captcha.noSlider'))
   }
   // 面板动画可能晚于第一次滚动，读坐标前再滚一次并重新量
   await evalSource(
@@ -450,7 +451,7 @@ async function detectGeetestSlide(tab: TabRuntime, mark: boolean, engineHint: Ca
   await sleep(300)
   probe = (await evalSource(tab, SLIDE_PROBE)) as SlideProbe
   if (!probe.bg || !probe.slice || !probe.bgRect || !probe.sliceRect || !probe.btn) {
-    throw new Error('验证码面板状态变了，再来一次')
+    throw new Error(mt('main.captcha.panelChanged'))
   }
   const [bgBuf, sliceBuf] = await Promise.all([download(probe.bg), download(probe.slice)])
   const bg = decodePng(bgBuf)
@@ -499,8 +500,8 @@ async function detectGeetestSlide(tab: TabRuntime, mark: boolean, engineHint: Ca
   }
   if (gapX === undefined) {
     throw new Error(engineHint === 'auto'
-      ? `三个识别引擎都不可用：${lastError instanceof Error ? lastError.message : '识别失败'}`
-      : `识别引擎 ${engineHint} 不可用，试试 engine 传 auto`)
+      ? mt('main.captcha.allEnginesDown', { error: lastError instanceof Error ? lastError.message : String(lastError) })
+      : mt('main.captcha.engineDown', { engine: engineHint }))
   }
 
   const gapCssLeft = probe.bgRect[0] + gapX / scaleX
@@ -605,7 +606,7 @@ async function detectGeetestIcon(tab: TabRuntime, mark: boolean): Promise<IconTa
     probe = (await evalSource(tab, ICON_PROBE)) as typeof probe
   }
   if (!probe.icons?.length || !probe.bg || !probe.bgRect || !probe.okRect) {
-    throw new Error('页面上没有极验图标点选验证码，先点出验证面板再识别')
+    throw new Error(mt('main.captcha.noIcon'))
   }
   await evalSource(
     tab,
@@ -614,7 +615,7 @@ async function detectGeetestIcon(tab: TabRuntime, mark: boolean): Promise<IconTa
   await sleep(300)
   probe = (await evalSource(tab, ICON_PROBE)) as typeof probe
   if (!probe.icons?.length || !probe.bg || !probe.bgRect || !probe.okRect) {
-    throw new Error('验证码面板状态变了，再来一次')
+    throw new Error(mt('main.captcha.panelChanged'))
   }
   const [bgBuf, ...iconBufs] = await Promise.all([download(probe.bg), ...probe.icons.map(download)])
   const bg = decodePng(bgBuf)
@@ -631,7 +632,7 @@ async function detectGeetestIcon(tab: TabRuntime, mark: boolean): Promise<IconTa
       const hit = nccMatchIcon(bg, resized)
       if (hit.score > best.score) best = { x: hit.x, y: hit.y, w: resized.width, h: resized.height, score: hit.score }
     }
-    if (best.score < 0.45) throw new Error(`有一个指令图标在背景图里找不到（最高相似度 ${best.score.toFixed(2)}），改用 captcha_panel 截图自己识别`)
+    if (best.score < 0.45) throw new Error(mt('main.captcha.iconMissing', { score: best.score.toFixed(2) }))
     found.push(best)
   }
   const points = found.map((f) => ({
@@ -695,13 +696,13 @@ async function detectType(tab: TabRuntime): Promise<string> {
     })()`
   )) as string
   if (kind) return kind
-  throw new Error('认不出页面上的验证码类型，目前支持：geetest-slide、geetest-icon')
+  throw new Error(mt('main.captcha.kindUnknown'))
 }
 
 export async function detectCaptcha(tab: TabRuntime, type = 'auto', mark = false, engineHint: CaptchaEngine | 'auto' = 'auto'): Promise<AnyTarget> {
   const kind = type === 'auto' ? await detectType(tab) : type
   const detector = detectors[kind]
-  if (!detector) throw new Error(`不支持的验证码类型 ${kind}，目前支持：${Object.keys(detectors).join('、')}`)
+  if (!detector) throw new Error(mt('main.captcha.kindUnsupported', { kind, list: Object.keys(detectors).join(', ') }))
   return detector(tab, mark, engineHint)
 }
 

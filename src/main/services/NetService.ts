@@ -5,6 +5,7 @@ import type { CaptureInfo } from '@shared/types'
 import { createId } from '../ids'
 import { findTab } from '../runtime'
 import { holdDebugger, onDebuggerMessage, releaseDebugger } from './debugger'
+import { mt } from '../i18n'
 
 export type Capture = CaptureInfo & {
   requestHeaders: Record<string, string>
@@ -31,7 +32,7 @@ export function isWatching(tabId: string): boolean {
 
 export async function netStart(tabId: string): Promise<void> {
   const found = findTab(tabId)
-  if (!found?.tab.view) throw new Error(`没有这个标签 ${tabId}`)
+  if (!found?.tab.view) throw new Error(mt('main.err.noTab', { id: tabId }))
   if (watching.has(tabId)) return
   const wc = found.tab.view.webContents
   const dbg = holdDebugger(wc)
@@ -132,7 +133,7 @@ const mockRules = new Map<string, MockRule[]>()
 
 export async function netMock(tabId: string, rules: MockRule[]): Promise<void> {
   const found = findTab(tabId)
-  if (!found?.tab.view) throw new Error(`没有这个标签 ${tabId}`)
+  if (!found?.tab.view) throw new Error(mt('main.err.noTab', { id: tabId }))
   const wc = found.tab.view.webContents
   const dbg = holdDebugger(wc)
   await dbg.sendCommand('Fetch.enable', { patterns: [{ urlPattern: '*' }] })

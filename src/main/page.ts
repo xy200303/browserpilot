@@ -10,6 +10,7 @@ export { saveMedia, saveMediaInfo } from './media'
 import type { AxRef, TabRuntime } from './runtime'
 import { bridge, windows } from './runtime'
 import { renderGrid } from './grid'
+import { mt } from './i18n'
 
 type AxNode = {
   nodeId: string
@@ -42,7 +43,7 @@ function wcOf(tab: TabRuntime): WebContents {
       tab.hibernated = false
       return tab.view.webContents
     }
-    throw new Error(tab.view || !tab.hibernated ? '这个标签的页面崩溃了，重试一下' : '这个标签没有网页')
+    throw new Error(tab.view || !tab.hibernated ? mt('main.page.crashed') : mt('main.page.noPage'))
   }
   if (tab.hibernated) tab.hibernated = false
   return current
@@ -92,10 +93,10 @@ async function quadBox(tab: TabRuntime, target: AxRef): Promise<{ left: number; 
   return withDebugger(wc, async (dbg) => {
     await dbg.sendCommand('DOM.getDocument', { depth: 0 })
     const backendNodeId = target.backendNodeId
-    if (!backendNodeId) throw new Error(`页面上还没有「${target.name || target.role}」`)
+    if (!backendNodeId) throw new Error(mt('main.page.notOnPage', { name: target.name || target.role }))
     const quads = await viewportQuads(dbg, backendNodeId)
     const quad = quads[0]
-    if (!quad) throw new Error(`页面上还没有「${target.name || target.role}」`)
+    if (!quad) throw new Error(mt('main.page.notOnPage', { name: target.name || target.role }))
     return quadBounds(quad)
   })
 }
@@ -110,8 +111,8 @@ export function locatorLabel(locator: Locator): string {
   if (locator.selector) return locator.selector
   if (locator.role && locator.name) return `${locator.role}「${locator.name}」`
   if (locator.role) return locator.role
-  if (locator.text) return `文字「${locator.text}」`
-  return '未写定位'
+  if (locator.text) return mt('main.page.textLabel', { text: locator.text })
+  return mt('main.page.noLocatorLabel')
 }
 
 export function isQueryLocator(locator: Locator): boolean {
@@ -214,7 +215,7 @@ async function collectMatches(dbg: Electron.Debugger, locator: Locator): Promise
     const nodeIds = found.nodeIds ?? []
     return { total: nodeIds.length, backendNodeIds: await backendIdsOf(dbg, nodeIds.slice(0, MATCH_CAP)) }
   }
-  throw new Error('需要 xpath 或 selector')
+  throw new Error(mt('main.page.needLocator'))
 }
 
 function axOf(locator: Locator, backendNodeId: number): AxRef {
@@ -224,11 +225,19 @@ function axOf(locator: Locator, backendNodeId: number): AxRef {
   return { role: 'text', name: locator.text ?? '', backendNodeId }
 }
 
+
+/** 多个匹配时的错误带上错误码，调用方不用靠文案判断。 */
+function ambiguousError(count: number, label: string): Error {
+  const error = new Error(mt('main.page.ambiguous', { count, label }))
+  ;(error as { code?: string }).code = 'AMBIGUOUS'
+  return error
+}
+
 export async function resolveLocator(tab: TabRuntime, locator: Locator): Promise<AxRef> {
   return withDebugger(wcOf(tab), async (dbg) => {
     const found = await collectMatches(dbg, locator)
-    if (found.total === 0 || !found.backendNodeIds[0]) throw new Error(`页面上还没有 ${locatorLabel(locator)}`)
-    if (found.total !== 1) throw new Error(`匹配到 ${found.total} 个 ${locatorLabel(locator)}，这一步只能对应一个`)
+    if (found.total === 0 || !found.backendNodeIds[0]) throw new Error(mt('main.page.notFoundLabel', { label: locatorLabel(locator) }))
+    if (found.total !== 1) throw ambiguousError(found.total, locatorLabel(locator))
     return axOf(locator, found.backendNodeIds[0])
   })
 }
@@ -356,8 +365,8 @@ async function deepOne(tab: TabRuntime, locator: Locator, doScroll = false): Pro
     const cross = await crossQuery(tab, locator).catch(() => ({ total: 0, matches: [] as DeepMatch[] }))
     found = cross
   }
-  if (found.total === 0) throw new Error(`穿透查找也没找到 ${locatorLabel(locator)}`)
-  if (found.total !== 1) throw new Error(`穿透查找到 ${found.total} 个 ${locatorLabel(locator)}，这一步只能对应一个。前 3 个：${found.matches.slice(0, 3).map((m) => `「${m.text}」`).join('、')}`)
+  if (found.total === 0) throw new Error(mt('main.page.pierceNotFound', { label: locatorLabel(locator) }))
+  if (found.total !== 1) throw new Error(mt('main.page.pierceAmbiguous', { count: found.total, label: locatorLabel(locator), sample: found.matches.slice(0, 3).map((m) => `"${m.text}"`).join(', ') }))
   return found.matches[0]
 }
 
@@ -399,10 +408,10 @@ export async function evalInFrame(tab: TabRuntime, source: string, frameMatch: s
   const wc = wcOf(tab)
   const frames = wc.mainFrame.frames ?? []
   const target = frames.find((f) => f.url.includes(frameMatch))
-  if (!target) throw new Error(`没有 URL 包含「${frameMatch}」的框架，现有框架：${frames.map((f) => f.url.slice(0, 60)).join('、') || '（无子框架）'}`)
+  if (!target) throw new Error(mt('main.page.noFrame', { frame: frameMatch, list: frames.map((f) => f.url.slice(0, 60)).join(', ') || mt('main.page.noFrames') }))
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error('页面脚本超时')), 120_000)
+    timer = setTimeout(() => reject(new Error(mt('main.page.scriptTimeout'))), 120_000)
   })
   try {
     return await Promise.race([target.executeJavaScript(source, true), timeout])
@@ -559,14 +568,14 @@ async function viewportQuads(dbg: Electron.Debugger, backendNodeId: number): Pro
 
 async function sceneOf(tab: TabRuntime, locator: Locator): Promise<string> {
   const found = await queryLocator(tab, locator)
-  const shown = found.matches.slice(0, 3).map((item) => `「${item.text || '空'}」${item.hittable ? '能点到' : '点不到'}`)
-  const count = found.total > shown.length ? `匹配 ${found.total} 个，前 ${shown.length} 个` : `匹配 ${found.total} 个`
-  return shown.length ? `${count}：${shown.join('、')}` : count
+  const shown = found.matches.slice(0, 3).map((item) => `"${item.text || mt('main.page.emptyText')}" ${item.hittable ? mt('main.page.hittable') : mt('main.page.notHittable')}`)
+  const count = found.total > shown.length ? mt('main.page.matchPrefix', { count: found.total, shown: shown.length }) : mt('main.page.matchMany', { count: found.total })
+  return shown.length ? `${count}${mt('main.page.sceneSep')}${shown.join(mt('main.page.sceneJoin'))}` : count
 }
 
 async function failWithScene(tab: TabRuntime, locator: Locator, message: string): Promise<never> {
   const scene = await sceneOf(tab, locator).catch(() => '')
-  throw new Error(scene ? `${message}。${scene}` : message)
+  throw new Error(scene ? `${message}${mt('main.page.sceneDot')}${scene}` : message)
 }
 
 export async function clickLocator(tab: TabRuntime, locator: Locator, via: ActVia = 'cdp', until?: Locator, button: 'left' | 'right' = 'left', count = 1): Promise<void> {
@@ -592,12 +601,12 @@ export async function clickLocator(tab: TabRuntime, locator: Locator, via: ActVi
   await failWithScene(
     tab,
     locator,
-    `点了 ${locatorLabel(locator)} 之后仍没有 ${until ? locatorLabel(until) : ''}${waited ? `。等待的目标 ${waited}` : ''}`
+    mt('main.page.clickNotAppeared', { label: locatorLabel(locator), until: until ? locatorLabel(until) : '' }) + (waited ? mt('main.page.waitedSuffix', { waited }) : '')
   )
 }
 
 async function focusResolved(tab: TabRuntime, target: AxRef): Promise<void> {
-  if (!target.backendNodeId) throw new Error(`页面上还没有「${target.name || target.role}」`)
+  if (!target.backendNodeId) throw new Error(mt('main.page.notOnPage', { name: target.name || target.role }))
   await withDebugger(wcOf(tab), async (dbg) => {
     await dbg.sendCommand('DOM.focus', { backendNodeId: target.backendNodeId })
   })
@@ -608,7 +617,7 @@ export async function typeLocator(tab: TabRuntime, locator: Locator, text: strin
   const target = await resolveLocator(tab, locator)
   if (via === 'inject') {
     const wrote = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, target.backendNodeId ?? 0, INJECT_TEXT, [text]))
-    if (wrote !== true) throw new Error(`写不进 ${locatorLabel(locator)}`)
+    if (wrote !== true) throw new Error(mt('main.page.cannotWrite', { label: locatorLabel(locator) }))
     return
   }
   if (via === 'cdp') {
@@ -641,7 +650,7 @@ export async function pasteLocator(tab: TabRuntime, locator: Locator, text: stri
   const target = await resolveLocator(tab, locator)
   if (via === 'inject') {
     const wrote = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, target.backendNodeId ?? 0, INJECT_TEXT, [text]))
-    if (wrote !== true) throw new Error(`写不进 ${locatorLabel(locator)}`)
+    if (wrote !== true) throw new Error(mt('main.page.cannotWrite', { label: locatorLabel(locator) }))
     return
   }
   if (via === 'cdp') {
@@ -673,22 +682,22 @@ export async function selectLocator(tab: TabRuntime, locator: Locator, option: s
     })()`
     const result = (await evalSource(tab, source).catch(() => 'missing-el')) as string
     if (result === 'selected') return
-    if (result === 'missing') throw new Error(`没有可选项「${option}」`)
-    if (result === 'not-select') throw new Error('穿透找到的不是原生 select，自定义下拉框请用坐标点开后再点选项')
-    throw new Error('穿透没找到这个下拉框（跨域 iframe 里的控件请用坐标操作）')
+    if (result === 'missing') throw new Error(mt('main.page.optionMissing', { option }))
+    if (result === 'not-select') throw new Error(mt('main.page.pierceNotSelect'))
+    throw new Error(mt('main.page.pierceNoSelect'))
   }
   const target = await resolveLocator(tab, locator)
   if (via === 'inject') {
     const picked = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, target.backendNodeId ?? 0, INJECT_SELECT, [option]))
     if (picked === 'selected') return
-    if (picked === 'missing') throw new Error(`没有可选项「${option}」`)
+    if (picked === 'missing') throw new Error(mt('main.page.optionMissing', { option }))
   }
   await clickKnown(tab, target, via === 'inject' ? 'cdp' : via)
   await sleep(300)
   const { nodes } = await readTree(tab)
   const node = nodes.find((item) => ['option', 'menuitem', 'listitem', 'treeitem'].includes(item.role) && item.name === option)
     ?? nodes.find((item) => item.name === option)
-  if (!node) throw new Error(`没有可选项「${option}」`)
+  if (!node) throw new Error(mt('main.page.optionMissing', { option }))
   await clickKnown(tab, { role: node.role, name: node.name, backendNodeId: node.backendNodeId }, via === 'inject' ? 'cdp' : via)
 }
 
@@ -725,7 +734,7 @@ export async function waitForLocator(tab: TabRuntime, locator: Locator, timeoutM
     }
     await sleep(250)
   }
-  await failWithScene(tab, locator, `超时还没出现 ${locatorLabel(locator)}`)
+  await failWithScene(tab, locator, mt('main.page.appearTimeout', { label: locatorLabel(locator) }))
 }
 
 /**
@@ -756,7 +765,7 @@ export async function waitForStable(tab: TabRuntime, stableMs: number, timeoutMs
       return { waited: Date.now() - started }
     }
     if (Date.now() - started >= timeoutMs) {
-      throw new Error(`页面在 ${Math.round(timeoutMs / 1000)} 秒内没有稳定下来（还在加载、或者元素一直在动）`)
+      throw new Error(mt('main.page.unstable', { seconds: Math.round(timeoutMs / 1000) }))
     }
     await sleep(100)
   }
@@ -772,7 +781,7 @@ export async function waitForGone(tab: TabRuntime, locator: Locator, timeoutMs =
     }
     await sleep(250)
   }
-  throw new Error(`超时还没消失 ${locatorLabel(locator)}`)
+  throw new Error(mt('main.page.goneTimeout', { label: locatorLabel(locator) }))
 }
 
 export type ShotRef = { width: number; height: number; originX?: number; originY?: number; scale?: number }
@@ -783,16 +792,16 @@ export function mapPoint(tab: TabRuntime, x: number, y: number, shot?: ShotRef):
   let py = y
   if (shot) {
     if (shot.scale !== undefined && shot.originX !== undefined && shot.originY !== undefined) {
-      if (!(shot.scale > 0)) throw new Error('截图比例要是正数')
+      if (!(shot.scale > 0)) throw new Error(mt('main.page.shotScale'))
       px = shot.originX + x / shot.scale
       py = shot.originY + y / shot.scale
     } else {
-      if (!(shot.width > 0) || !(shot.height > 0)) throw new Error('截图宽高要是正数')
+      if (!(shot.width > 0) || !(shot.height > 0)) throw new Error(mt('main.page.shotSize'))
       px = x * viewW / shot.width
       py = y * viewH / shot.height
     }
   }
-  if (px < 0 || py < 0 || px >= viewW || py >= viewH) throw new Error('这个坐标不在当前画面里')
+  if (px < 0 || py < 0 || px >= viewW || py >= viewH) throw new Error(mt('main.page.outsideViewport'))
   return { x: px, y: py }
 }
 
@@ -829,7 +838,7 @@ export async function clickPoint(tab: TabRuntime, x: number, y: number, via: Act
       return true
     })()`
     const clicked = await evalSource(tab, source)
-    if (clicked !== true) throw new Error('这个坐标上没有元素')
+    if (clicked !== true) throw new Error(mt('main.page.noElementAtPoint'))
     return
   }
   if (via === 'pointer') {
@@ -860,7 +869,7 @@ async function clickAtPointer(tab: TabRuntime, x: number, y: number, button: 'le
     return true
   })()`
   const clicked = await evalSource(tab, source)
-  if (clicked !== true) throw new Error('这个坐标上没有元素')
+  if (clicked !== true) throw new Error(mt('main.page.noElementAtPoint'))
 }
 
 export async function clickAt(tab: TabRuntime, x: number, y: number, button: 'left' | 'right' = 'left', count = 1): Promise<void> {
@@ -969,21 +978,21 @@ async function clickKnown(tab: TabRuntime, target: AxRef, via: ActVia, button: '
       if (button === 'right') return callOnBackend(dbg, backendNodeId, INJECT_CONTEXT_MENU)
       return callOnBackend(dbg, backendNodeId, INJECT_CLICK)
     })
-    if (clicked !== true) throw new Error(`点不到「${target.name || target.role}」`)
+    if (clicked !== true) throw new Error(mt('main.page.notClickable', { name: target.name || target.role }))
     return
   }
   const point = await withDebugger(wc, async (dbg) => {
     const backendNodeId = await backendFor(dbg, target)
     return pointForClick(dbg, tab, backendNodeId)
   })
-  if (!point) throw new Error(`点不到「${target.name || target.role}」，这个位置被挡住了`)
+  if (!point) throw new Error(mt('main.page.blockedPoint', { name: target.name || target.role }))
   if (via === 'cdp') await clickAtCdp(tab, point.x, point.y, button, count)
   else await clickAt(tab, point.x, point.y, button, count)
 }
 
 async function backendFor(dbg: Electron.Debugger, target: AxRef): Promise<number> {
   await dbg.sendCommand('DOM.getDocument', { depth: 0 })
-  if (!target.backendNodeId) throw new Error(`页面上还没有「${target.name || target.role}」`)
+  if (!target.backendNodeId) throw new Error(mt('main.page.notOnPage', { name: target.name || target.role }))
   return target.backendNodeId
 }
 
@@ -1125,9 +1134,9 @@ export function parseShortcut(shortcut: string): { key: string; modifiers: Array
     else if (lower === 'shift') modifiers.push('shift')
     else if (lower === 'alt') modifiers.push('alt')
     else if (lower === 'meta' || lower === 'cmd' || lower === 'command') modifiers.push('meta')
-    else throw new Error(`不认识修饰键 ${part}，支持 ctrl、shift、alt、meta，快捷键用 + 连接，比如 ctrl+a`)
+    else throw new Error(mt('main.page.badModifier', { key: part }))
   }
-  if (!key) throw new Error('快捷键要有主键，比如 ctrl+a 里的 a')
+  if (!key) throw new Error(mt('main.page.needKey'))
   const named: Record<string, string> = {
     enter: 'Return',
     esc: 'Escape',
@@ -1329,7 +1338,7 @@ async function scrollUntil(tab: TabRuntime, direction: 'up' | 'down', via: Gestu
       if (await locatorInView(tab, until)) return
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      if (message.startsWith('匹配到')) await failWithScene(tab, until, message)
+      if ((error as { code?: string }).code === 'AMBIGUOUS') await failWithScene(tab, until, message)
       throw error
     }
     let target: AxRef | undefined
@@ -1337,7 +1346,7 @@ async function scrollUntil(tab: TabRuntime, direction: 'up' | 'down', via: Gestu
       target = await resolveLocator(tab, until)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      if (message.startsWith('匹配到')) await failWithScene(tab, until, message)
+      if ((error as { code?: string }).code === 'AMBIGUOUS') await failWithScene(tab, until, message)
       target = undefined
     }
     if (!target?.backendNodeId) {
@@ -1363,7 +1372,7 @@ async function scrollUntil(tab: TabRuntime, direction: 'up' | 'down', via: Gestu
     await sleep(180)
   }
   if (await locatorInView(tab, until)) return
-  await failWithScene(tab, until, `滚动后仍点不到 ${locatorLabel(until)}`)
+  await failWithScene(tab, until, mt('main.page.scrollNotReached', { label: locatorLabel(until) }))
 }
 
 export async function scrollPage(
@@ -1464,7 +1473,7 @@ async function runTrack(tab: TabRuntime, via: GestureVia, sx: number, sy: number
       return true
     })()`
     const moved = await evalSource(tab, source)
-    if (moved !== true) throw new Error('拖拽起点上没有元素')
+    if (moved !== true) throw new Error(mt('main.page.dragNoElement'))
     return
   }
   const ink = (point: TrackPoint): Record<string, unknown> => (point.pressure === undefined ? {} : {
@@ -1511,7 +1520,7 @@ export async function dragPage(
   await ensureActive(tab)
   const [width, height] = viewport(tab)
   if (start.x < 0 || start.y < 0 || start.x > width || start.y > height) {
-    throw new Error(`起点 (${Math.round(start.x)}, ${Math.round(start.y)}) 不在视口 ${width}x${height} 里，先把目标滚进视口再拖`)
+    throw new Error(mt('main.page.dragOutside', { x: Math.round(start.x), y: Math.round(start.y), width, height }))
   }
   const clamp = (value: number, max: number): number => Math.max(1, Math.min(max - 1, Math.round(value)))
   const sx = Math.round(start.x)
@@ -1539,7 +1548,7 @@ export async function locatorGesturePoint(tab: TabRuntime, locator: Locator): Pr
     await callOnBackend(dbg, backendNodeId, "function () { this.scrollIntoView({ block: 'center', inline: 'nearest' }) }").catch(() => undefined)
     await sleep(120)
     const point = await pointOnNode(dbg, tab, backendNodeId)
-    if (!point) throw new Error(`拖拽起点被挡住了：${locatorLabel(locator)}`)
+    if (!point) throw new Error(mt('main.page.dragBlocked', { label: locatorLabel(locator) }))
     return point
   })
 }
@@ -1603,7 +1612,7 @@ export async function swipePage(
     await sleep(200)
   }
   if (await locatorInView(tab, until)) return
-  await failWithScene(tab, until, `滑动后仍没有 ${locatorLabel(until)}。翻长列表用滚动`)
+  await failWithScene(tab, until, mt('main.page.swipeNotReached', { label: locatorLabel(until) }))
 }
 
 async function locatorInView(tab: TabRuntime, locator: Locator): Promise<boolean> {
@@ -1612,7 +1621,7 @@ async function locatorInView(tab: TabRuntime, locator: Locator): Promise<boolean
     if (!target.backendNodeId) return false
     return await withDebugger(wcOf(tab), async (dbg) => Boolean(await pointOnNode(dbg, tab, target.backendNodeId ?? 0)))
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('匹配到')) throw error
+    if ((error as { code?: string }).code === 'AMBIGUOUS') throw error
     return false
   }
 }
@@ -1627,7 +1636,7 @@ export async function uploadFiles(tab: TabRuntime, paths: string[], knownBackend
         nodeId: doc.root.nodeId,
         selector: 'input[type="file"]'
       })) as { nodeId: number }
-      if (!queried.nodeId) throw new Error('页面上没有文件控件')
+      if (!queried.nodeId) throw new Error(mt('main.page.noFileInput'))
       const described = (await dbg.sendCommand('DOM.describeNode', { nodeId: queried.nodeId })) as {
         node: { backendNodeId: number }
       }
@@ -1646,7 +1655,7 @@ export function waitForLoad(wc: WebContents, timeoutMs = 30_000): Promise<void> 
     }
     const timer = setTimeout(() => {
       cleanup()
-      reject(new Error('加载超时'))
+      reject(new Error(mt('main.page.loadTimeout')))
     }, timeoutMs)
     const done = (): void => {
       cleanup()
@@ -1655,7 +1664,7 @@ export function waitForLoad(wc: WebContents, timeoutMs = 30_000): Promise<void> 
     const fail = (_event: unknown, code: number, desc: string, _url: string, isMainFrame: boolean): void => {
       if (!isMainFrame || code === -3) return
       cleanup()
-      reject(new Error(desc || '加载失败'))
+      reject(new Error(desc || mt('main.page.loadFailed')))
     }
     const cleanup = (): void => {
       clearTimeout(timer)
@@ -1672,7 +1681,7 @@ function waitForNextLoad(wc: WebContents, timeoutMs = 30_000): Promise<void> {
     let started = wc.isLoading()
     const timer = setTimeout(() => {
       cleanup()
-      reject(new Error('加载超时'))
+      reject(new Error(mt('main.page.loadTimeout')))
     }, timeoutMs)
     const onStart = (): void => {
       started = true
@@ -1695,7 +1704,7 @@ function waitForNextLoad(wc: WebContents, timeoutMs = 30_000): Promise<void> {
       if (!isMainFrame || code === -3) return
       if (!started) return
       cleanup()
-      reject(new Error(desc || '加载失败'))
+      reject(new Error(desc || mt('main.page.loadFailed')))
     }
     const cleanup = (): void => {
       clearTimeout(timer)
@@ -1799,7 +1808,7 @@ async function captureFull(
       image = undefined
     }
   }
-  if (!image) throw new Error(lastError instanceof Error ? lastError.message : '截不到当前网页')
+  if (!image) throw new Error(lastError instanceof Error ? lastError.message : mt('main.page.noScreenshot'))
   let output = image
   if (grid > 0) {
     const runtime = windows.get(tab.envId)
@@ -1823,7 +1832,7 @@ async function captureFull(
 
 export async function pageSource(tab: TabRuntime, kind: 'dom' | 'response'): Promise<string> {
   if (kind === 'response') {
-    if (!tab.documentHtml) throw new Error('这次导航没有留下原始 HTML')
+    if (!tab.documentHtml) throw new Error(mt('main.page.noHtml'))
     return tab.documentHtml
   }
   const wc = wcOf(tab)
@@ -1883,13 +1892,13 @@ async function captureDocumentFinish(wc: WebContents, onHtml: (html: string) => 
 export async function evalSource(tab: TabRuntime, source: string): Promise<unknown> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error('页面脚本超时')), 120_000)
+    timer = setTimeout(() => reject(new Error(mt('main.page.scriptTimeout'))), 120_000)
   })
   try {
     return await Promise.race([wcOf(tab).executeJavaScript(source, true), timeout])
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    if (message.includes('Script failed to execute')) throw new Error(message + ' 具体错误看 page_console')
+    if (message.includes('Script failed to execute')) throw new Error(message + mt('main.page.scriptConsole'))
     throw error
   } finally {
     if (timer) clearTimeout(timer)
@@ -1977,13 +1986,13 @@ export async function inspectElement(tab: TabRuntime, target: { locator?: Locato
       return (${CLASSIFY_JS}).call(el)
     })()`
     const info = await evalSource(tab, source)
-    if (!info) throw new Error(`穿透没找到 ${locatorLabel(target.locator)}`)
+    if (!info) throw new Error(mt('main.page.pierceInspect', { label: locatorLabel(target.locator) }))
     return info as ElementInfo
   }
   if (target.locator) {
     const resolved = await resolveLocator(tab, target.locator)
     const info = await withDebugger(wcOf(tab), (dbg) => callOnBackend(dbg, resolved.backendNodeId ?? 0, CLASSIFY_JS))
-    if (!info) throw new Error(`识别不了 ${locatorLabel(target.locator)}`)
+    if (!info) throw new Error(mt('main.page.inspectFail', { label: locatorLabel(target.locator) }))
     return info as ElementInfo
   }
   if (target.point) {
@@ -2011,10 +2020,10 @@ export async function inspectElement(tab: TabRuntime, target: { locator?: Locato
       return best || fallback
     })()`
     const info = await evalSource(tab, source)
-    if (!info) throw new Error(`(${target.point.x}, ${target.point.y}) 上没有元素`)
+    if (!info) throw new Error(mt('main.page.pointEmpty', { x: target.point.x, y: target.point.y }))
     return info as ElementInfo
   }
-  throw new Error('需要定位或坐标')
+  throw new Error(mt('main.page.needTarget'))
 }
 
 export async function downloadUrl(wc: WebContents, url: string, referer?: string, onProgress?: (received: number, total: number) => void): Promise<{ buf: Buffer; contentType: string }> {
@@ -2030,7 +2039,7 @@ export async function downloadUrl(wc: WebContents, url: string, referer?: string
     req.on('response', (res) => {
       contentType = String(res.headers['content-type'] || '')
       if ((res.statusCode ?? 500) >= 400) {
-        reject(new Error(`下载失败 HTTP ${res.statusCode}`))
+        reject(new Error(mt('main.page.downloadFailed', { status: res.statusCode })))
         return
       }
       const total = Number(res.headers['content-length'] || 0)
@@ -2094,10 +2103,10 @@ export async function recordVideo(tab: TabRuntime, seconds: number, dir: string,
     setTimeout(() => { try { rec.stop() } catch (e) {} }, ${ms})
     return 'recording'
   })()`)
-  if (armed !== 'recording') throw new Error(armed === 'no video' ? '页面上没有 video 元素' : '这个环境录不了（captureStream 或编码器不可用）')
+  if (armed !== 'recording') throw new Error(armed === 'no video' ? mt('main.page.recordNoVideo') : mt('main.page.recordUnsupported'))
   const path = savePath || join(dir, `record-${Date.now()}.webm`)
   writeFileSync(path, Buffer.alloc(0))
-  const dlId = downloadBegin(`录制 ${tab.title || '视频'}`, tab.url, '', 0, undefined, undefined, tab.envId)
+  const dlId = downloadBegin(mt('main.page.recordTitle', { title: tab.title || mt('main.page.emptyText') }), tab.url, '', 0, undefined, undefined, tab.envId)
   let bytes = 0
   try {
     bytes = await pullChunks(tab, '__bpRec', path, Date.now() + ms + 15_000, (received) => downloadProgress(dlId, received))
@@ -2108,7 +2117,7 @@ export async function recordVideo(tab: TabRuntime, seconds: number, dir: string,
     if (runtime && !runtime.headless) runtime.win.setAlwaysOnTop(false)
   }
   downloadDone(dlId, path)
-  if (bytes === 0) throw new Error('录出来是空的：视频可能没播起来')
+  if (bytes === 0) throw new Error(mt('main.page.recordEmpty'))
   return { path, bytes: statSync(path).size, seconds: Math.round(ms / 1000) }
 }
 
@@ -2119,7 +2128,7 @@ async function pullChunks(tab: TabRuntime, key: string, path: string, deadlineMs
     const pulled = (await evalSource(
       tab,
       `(() => { const r = window.${key} || { chunks: [], done: true }; const chunks = r.chunks; r.chunks = []; return { chunks, done: r.done, error: r.error || '' } })()`
-    ).catch(() => ({ chunks: [] as string[], done: true, error: '页面连接断开' }))) as { chunks: string[]; done: boolean; error: string }
+    ).catch(() => ({ chunks: [] as string[], done: true, error: mt('main.page.pageDisconnected') }))) as { chunks: string[]; done: boolean; error: string }
     for (const chunk of pulled.chunks) {
       const buf = Buffer.from(chunk, 'base64')
       appendFileSync(path, buf)
@@ -2130,7 +2139,7 @@ async function pullChunks(tab: TabRuntime, key: string, path: string, deadlineMs
       if (pulled.error) throw new Error(pulled.error)
       return bytes
     }
-    if (Date.now() > deadlineMs) throw new Error('拉取超时，页面可能被关了')
+    if (Date.now() > deadlineMs) throw new Error(mt('main.page.fetchTimeout'))
   }
 }
 
@@ -2154,7 +2163,7 @@ export async function fetchToFile(tab: TabRuntime, url: string, path: string, on
     }
     return 'started'
   })()`)
-  if (armed !== 'started') throw new Error('页面下载起不来')
+  if (armed !== 'started') throw new Error(mt('main.page.downloadStartFailed'))
   return pullChunks(tab, '__bpDl', path, Date.now() + 10 * 60_000, onProgress)
 }
 
@@ -2196,7 +2205,7 @@ function shapePoints(shape: string, x: number, y: number, w: number, h: number, 
     }
     return points
   }
-  throw new Error(`不认识图形 ${shape}，支持 circle、rect、triangle、heart、star`)
+  throw new Error(mt('main.page.unknownShape', { shape }))
 }
 
 function smoothPath(points: Array<{ x: number; y: number }>, close: boolean): Array<{ x: number; y: number }> {
@@ -2238,10 +2247,10 @@ function probeSumsSource(points: InkPoint[], radius: number): string {
     const P = ${radius}
     const first = points[0]
     const el = document.elementFromPoint(first.x, first.y)
-    if (!(el instanceof HTMLCanvasElement)) return { supported: false, reason: '起点上不是 canvas', sums: [] }
+    if (!(el instanceof HTMLCanvasElement)) return { supported: false, reason: mt('main.page.probeNotCanvas'), sums: [] }
     let ctx = null
     try { ctx = el.getContext('2d') } catch (e) { ctx = null }
-    if (!ctx) return { supported: false, reason: '这个 canvas 没有 2D 上下文，读不到像素', sums: [] }
+    if (!ctx) return { supported: false, reason: mt('main.page.probeNoContext'), sums: [] }
     const rect = el.getBoundingClientRect()
     const sx = el.width / Math.max(1, rect.width)
     const sy = el.height / Math.max(1, rect.height)
@@ -2255,7 +2264,7 @@ function probeSumsSource(points: InkPoint[], radius: number): string {
       const w = Math.min(el.width - x0, P * 2 + 1)
       const h = Math.min(el.height - y0, P * 2 + 1)
       let data
-      try { data = ctx.getImageData(x0, y0, w, h).data } catch (e) { return { supported: false, reason: '画布像素被跨域保护', sums: [] } }
+      try { data = ctx.getImageData(x0, y0, w, h).data } catch (e) { return { supported: false, reason: mt('main.page.probeTainted'), sums: [] } }
       let sum = 0
       for (let i = 0; i < data.length; i += 4) sum += data[i] + data[i + 1] + data[i + 2] + data[i + 3]
       sums.push(sum)
@@ -2266,7 +2275,7 @@ function probeSumsSource(points: InkPoint[], radius: number): string {
 
 export async function canvasSums(tab: TabRuntime, points: InkPoint[], radius = PATCH_RADIUS): Promise<CanvasSums> {
   const value = await evalSource(tab, probeSumsSource(points, radius)) as CanvasSums | undefined
-  return value && typeof value === 'object' ? value : { supported: false, reason: '读不到画布', sums: [] }
+  return value && typeof value === 'object' ? value : { supported: false, reason: mt('main.page.probeUnreadable'), sums: [] }
 }
 
 export function thinPoints<T extends { x: number; y: number }>(points: T[], max = 36): T[] {
@@ -2296,10 +2305,10 @@ export async function checkStroke(tab: TabRuntime, points: InkPoint[], before: C
 
 export async function drawPath(tab: TabRuntime, via: GestureVia, points: InkPoint[], close = false, smooth = false, guard?: () => Promise<void>): Promise<{ points: number }> {
   if (smooth && points.length >= 3) points = smoothPath(points, close)
-  if (points.length < 2) throw new Error('路径至少要两个点')
+  if (points.length < 2) throw new Error(mt('main.page.pathTooShort'))
   const [width, height] = viewport(tab)
   for (const p of points) {
-    if (p.x < 0 || p.y < 0 || p.x > width || p.y > height) throw new Error(`点 (${Math.round(p.x)}, ${Math.round(p.y)}) 不在视口 ${width}x${height} 里`)
+    if (p.x < 0 || p.y < 0 || p.x > width || p.y > height) throw new Error(mt('main.page.pointOutside', { x: Math.round(p.x), y: Math.round(p.y), width, height }))
   }
   const track: TrackPoint[] = []
   let prev = points[0]
@@ -2357,7 +2366,7 @@ export function parseSvgPath(d: string): SvgPoint[][] {
   const flush = (): void => { if (cur.length) { subpaths.push(cur); cur = [] } }
   while (i < tokens.length) {
     const t = tokens[i]
-    if (/^[A-Za-z]$/.test(t)) { cmd = t; i += 1 } else if (cmd === '') { throw new Error('路径数据要以命令开头') }
+    if (/^[A-Za-z]$/.test(t)) { cmd = t; i += 1 } else if (cmd === '') { throw new Error(mt('main.page.pathMustStart')) }
     const rel = cmd !== cmd.toUpperCase()
     const at = (): SvgPoint => (rel ? { x: pos.x, y: pos.y } : { x: 0, y: 0 })
     if (cmd === 'M' || cmd === 'm') {
@@ -2544,7 +2553,7 @@ export async function turtleRun(tab: TabRuntime, via: GestureVia, script: string
     current = []
   }
   const move = (nx: number, ny: number): void => {
-    if (nx < 0 || ny < 0 || nx > viewW || ny > viewH) throw new Error(`移动到了视口外 (${Math.round(nx)}, ${Math.round(ny)})`)
+    if (nx < 0 || ny < 0 || nx > viewW || ny > viewH) throw new Error(mt('main.page.trackOutside', { x: Math.round(nx), y: Math.round(ny) }))
     if (state.down) current.push({ x: nx, y: ny })
     state.x = nx
     state.y = ny
@@ -2602,7 +2611,7 @@ export async function turtleRun(tab: TabRuntime, via: GestureVia, script: string
     } else if (cmd === 'spacing') {
       spacing = Math.max(3, arg || 5)
     } else {
-      throw new Error(`不认识的海龟命令 ${cmd}，支持 fd bk lt rt setheading goto penup pendown circle beginfill endfill spacing`)
+      throw new Error(mt('main.page.unknownTurtle', { cmd }))
     }
   }
   await flush()
@@ -2643,14 +2652,14 @@ async function hoverKnown(tab: TabRuntime, target: AxRef, via: ActVia): Promise<
       await scrollNodeIntoView(dbg, backendNodeId)
       return callOnBackend(dbg, backendNodeId, INJECT_HOVER)
     })
-    if (hovered !== true) throw new Error(`悬停不到「${target.name || target.role}」`)
+    if (hovered !== true) throw new Error(mt('main.page.hoverFail', { name: target.name || target.role }))
     return
   }
   const point = await withDebugger(wc, async (dbg) => {
     const backendNodeId = await backendFor(dbg, target)
     return pointForClick(dbg, tab, backendNodeId)
   })
-  if (!point) throw new Error(`悬停不到「${target.name || target.role}」，这个位置被挡住了`)
+  if (!point) throw new Error(mt('main.page.hoverBlocked', { name: target.name || target.role }))
   if (via === 'cdp') await hoverAtCdp(tab, point.x, point.y)
   else wc.sendInputEvent({ type: 'mouseMove', x: Math.round(point.x), y: Math.round(point.y) })
 }
@@ -2716,7 +2725,7 @@ export async function screenshotRegion(
     })
   }
   if (!rect) {
-    if (target.locator) throw new Error('这个元素没有可见区域（可能被隐藏或尺寸为 0）')
+    if (target.locator) throw new Error(mt('main.page.regionInvisible'))
     const shot = await screenshot(tab, dir, grid, edgeOnly)
     return { ...shot, x: 0, y: 0, full: true }
   }
@@ -2749,7 +2758,7 @@ export async function screenshotRegion(
       await sleep(250)
       image = await wc.capturePage({ x, y, width, height }).catch(() => undefined)
     }
-    if (!image || image.isEmpty()) throw new Error('这块区域截不到：窗口被遮挡或元素滚出了视口。先 page_query 确认 rect 还在视口里，必要时用 env_front 把窗口带到前台再截')
+    if (!image || image.isEmpty()) throw new Error(mt('main.page.regionCapture'))
     let output = image
     if (grid > 0) {
       const runtime = windows.get(tab.envId)
@@ -2844,7 +2853,7 @@ export async function findInPage(
       return { matches: hits.length, active: state.index + 1 }
     })()`
   )) as { matches: number; active: number } | undefined
-  if (!found) throw new Error('页面里找不到可搜索的内容')
+  if (!found) throw new Error(mt('main.page.findNothing'))
   return found
 }
 
@@ -2944,15 +2953,15 @@ async function frameOffset(tab: TabRuntime, frameMatch: string): Promise<{ x: nu
     const rect = found.getBoundingClientRect()
     return { x: rect.left, y: rect.top }
   })()`)) as { x: number; y: number } | null
-  if (!offset) throw new Error(`没有 src 包含「${frameMatch}」的 iframe`)
+  if (!offset) throw new Error(mt('main.page.noIframe', { frame: frameMatch }))
   return offset
 }
 
 export async function clickText(tab: TabRuntime, text: string, match: 'exact' | 'contains' = 'contains', via: ActVia = 'cdp'): Promise<TextHit> {
   await ensureActive(tab)
   const hit = (await evalSource(tab, `(${TEXT_HIT_SOURCE})(${JSON.stringify(text)}, ${JSON.stringify(match)})`)) as TextHit | null
-  if (!hit) throw new Error(`页面上没有${match === 'exact' ? '文字等于' : '文字包含'}「${text}」的可点击元素`)
-  if (hit.blocked) throw new Error(`「${text}」被 ${hit.blocked} 挡住，先关掉弹层再点`)
+  if (!hit) throw new Error(mt('main.page.textNotFound', { mode: match === 'exact' ? mt('main.page.modeExact') : mt('main.page.modeContains'), text }))
+  if (hit.blocked) throw new Error(mt('main.page.textBlocked', { text, blocked: hit.blocked }))
   if (!hit.dom) await clickPoint(tab, hit.x + hit.w / 2, hit.y + hit.h / 2, via)
   return hit
 }
@@ -2960,7 +2969,7 @@ export async function clickText(tab: TabRuntime, text: string, match: 'exact' | 
 export async function hoverText(tab: TabRuntime, text: string, match: 'exact' | 'contains' = 'contains', via: ActVia = 'cdp'): Promise<TextHit> {
   await ensureActive(tab)
   const hit = (await evalSource(tab, `(${TEXT_HIT_SOURCE})(${JSON.stringify(text)}, ${JSON.stringify(match)})`)) as TextHit | null
-  if (!hit) throw new Error(`页面上没有${match === 'exact' ? '文字等于' : '文字包含'}「${text}」的元素`)
+  if (!hit) throw new Error(mt('main.page.textNoElement', { mode: match === 'exact' ? mt('main.page.modeExact') : mt('main.page.modeContains'), text }))
   await hoverPoint(tab, hit.x + hit.w / 2, hit.y + hit.h / 2, undefined, via)
   return hit
 }
@@ -2968,8 +2977,8 @@ export async function hoverText(tab: TabRuntime, text: string, match: 'exact' | 
 export async function clickTextInFrame(tab: TabRuntime, frame: string, text: string, match: 'exact' | 'contains' = 'contains', via: ActVia = 'cdp'): Promise<TextHit> {
   await ensureActive(tab)
   const hit = (await evalInFrame(tab, `(${TEXT_HIT_SOURCE})(${JSON.stringify(text)}, ${JSON.stringify(match)})`, frame)) as TextHit | null
-  if (!hit) throw new Error(`iframe 里没有${match === 'exact' ? '文字等于' : '文字包含'}「${text}」的元素`)
-  if (hit.blocked) throw new Error(`iframe 里的「${text}」被 ${hit.blocked} 挡住`)
+  if (!hit) throw new Error(mt('main.page.frameTextNoElement', { mode: match === 'exact' ? mt('main.page.modeExact') : mt('main.page.modeContains'), text }))
+  if (hit.blocked) throw new Error(mt('main.page.frameTextBlocked', { text, blocked: hit.blocked }))
   if (!hit.dom) {
     const offset = await frameOffset(tab, frame)
     await clickPoint(tab, offset.x + hit.x + hit.w / 2, offset.y + hit.y + hit.h / 2, via)
@@ -2980,7 +2989,7 @@ export async function clickTextInFrame(tab: TabRuntime, frame: string, text: str
 export async function clickLocatorInFrame(tab: TabRuntime, frame: string, locator: Locator, via: ActVia = 'cdp'): Promise<TextHit> {
   await ensureActive(tab)
   const hit = (await evalInFrame(tab, frameLocatorSource(locator), frame)) as TextHit | null
-  if (!hit) throw new Error(`iframe 里没有 ${locatorLabel(locator)}`)
+  if (!hit) throw new Error(mt('main.page.frameNoLabel', { label: locatorLabel(locator) }))
   const offset = await frameOffset(tab, frame)
   await clickPoint(tab, offset.x + hit.x + hit.w / 2, offset.y + hit.y + hit.h / 2, via)
   return hit
@@ -2989,14 +2998,14 @@ export async function clickLocatorInFrame(tab: TabRuntime, frame: string, locato
 export async function typeLocatorInFrame(tab: TabRuntime, frame: string, locator: Locator, text: string): Promise<void> {
   await ensureActive(tab)
   const focused = await evalInFrame(tab, `(${FRAME_FOCUS_SOURCE})(${JSON.stringify(locator.selector || '')}, ${JSON.stringify(locator.xpath || '')})`, frame)
-  if (focused !== true) throw new Error(`iframe 里没有 ${locatorLabel(locator)}`)
+  if (focused !== true) throw new Error(mt('main.page.frameNoLabel', { label: locatorLabel(locator) }))
   await typeByCdp(tab, text)
 }
 
 export async function hoverLocatorInFrame(tab: TabRuntime, frame: string, locator: Locator, via: ActVia = 'cdp'): Promise<TextHit> {
   await ensureActive(tab)
   const hit = (await evalInFrame(tab, frameLocatorSource(locator), frame)) as TextHit | null
-  if (!hit) throw new Error(`iframe 里没有 ${locatorLabel(locator)}`)
+  if (!hit) throw new Error(mt('main.page.frameNoLabel', { label: locatorLabel(locator) }))
   const offset = await frameOffset(tab, frame)
   await hoverPoint(tab, offset.x + hit.x + hit.w / 2, offset.y + hit.y + hit.h / 2, undefined, via)
   return hit
@@ -3005,7 +3014,7 @@ export async function hoverLocatorInFrame(tab: TabRuntime, frame: string, locato
 export async function hoverTextInFrame(tab: TabRuntime, frame: string, text: string, match: 'exact' | 'contains' = 'contains', via: ActVia = 'cdp'): Promise<TextHit> {
   await ensureActive(tab)
   const hit = (await evalInFrame(tab, `(${TEXT_HIT_SOURCE})(${JSON.stringify(text)}, ${JSON.stringify(match)})`, frame)) as TextHit | null
-  if (!hit) throw new Error(`iframe 里没有文字包含「${text}」的元素`)
+  if (!hit) throw new Error(mt('main.page.frameNoText', { text }))
   const offset = await frameOffset(tab, frame)
   await hoverPoint(tab, offset.x + hit.x + hit.w / 2, offset.y + hit.y + hit.h / 2, undefined, via)
   return hit
@@ -3204,7 +3213,7 @@ export async function resolveHit(tab: TabRuntime, query: HitQuery, frame?: strin
   const source = `(${HIT_SOURCE})(${JSON.stringify(query)})`
   const hit = (frame ? await evalInFrame(tab, source, frame) : await evalSource(tab, source)) as (TextHit & { total?: number; missing?: boolean }) | null
   if (!hit) return null
-  if (hit.missing) throw new Error(`只匹配到 ${hit.total ?? 0} 个，没有第 ${(query.index ?? 0) + 1} 个（index 从 0 开始）`)
+  if (hit.missing) throw new Error(mt('main.page.indexMissing', { total: hit.total ?? 0, index: (query.index ?? 0) + 1 }))
   if (frame && !hit.dom) {
     const offset = await frameOffset(tab, frame)
     hit.x += offset.x
@@ -3214,7 +3223,7 @@ export async function resolveHit(tab: TabRuntime, query: HitQuery, frame?: strin
 }
 
 export async function clickHit(tab: TabRuntime, hit: TextHit, via: ActVia = 'cdp', offsetX = 0, offsetY = 0): Promise<void> {
-  if (hit.blocked) throw new Error(`目标被 ${hit.blocked} 挡住，先关掉弹层再点`)
+  if (hit.blocked) throw new Error(mt('main.page.targetBlocked', { blocked: hit.blocked }))
   if (!hit.dom) await clickPoint(tab, hit.x + hit.w / 2 + offsetX, hit.y + hit.h / 2 + offsetY, via)
 }
 
@@ -3225,14 +3234,14 @@ export async function hoverHit(tab: TabRuntime, hit: TextHit, via: ActVia = 'cdp
 export async function typeByLabel(tab: TabRuntime, label: string, text: string): Promise<void> {
   await ensureActive(tab)
   const focused = await evalSource(tab, `(${LABEL_FOCUS_SOURCE})(${JSON.stringify(label)})`)
-  if (focused !== true) throw new Error(`找不到标签或占位符包含「${label}」的输入框`)
+  if (focused !== true) throw new Error(mt('main.page.labelMissing', { label }))
   await typeByCdp(tab, text)
 }
 
 export async function clickRef(tab: TabRuntime, ref: string, via: ActVia = 'cdp'): Promise<{ role: string; name: string }> {
   await ensureActive(tab)
   const target = tab.refs.get(ref)
-  if (!target || !target.backendNodeId) throw new Error(`快照编号 ${ref} 已失效，重新 page_snapshot`)
+  if (!target || !target.backendNodeId) throw new Error(mt('main.page.refStale', { ref }))
   await clickKnown(tab, target, via)
   return { role: target.role, name: target.name }
 }
@@ -3240,7 +3249,7 @@ export async function clickRef(tab: TabRuntime, ref: string, via: ActVia = 'cdp'
 export async function hoverRef(tab: TabRuntime, ref: string, via: ActVia = 'cdp'): Promise<{ role: string; name: string }> {
   await ensureActive(tab)
   const target = tab.refs.get(ref)
-  if (!target || !target.backendNodeId) throw new Error(`快照编号 ${ref} 已失效，重新 page_snapshot`)
+  if (!target || !target.backendNodeId) throw new Error(mt('main.page.refStale', { ref }))
   await hoverKnown(tab, target, via)
   return { role: target.role, name: target.name }
 }
@@ -3248,7 +3257,7 @@ export async function hoverRef(tab: TabRuntime, ref: string, via: ActVia = 'cdp'
 export async function typeRef(tab: TabRuntime, ref: string, text: string): Promise<{ role: string; name: string }> {
   await ensureActive(tab)
   const target = tab.refs.get(ref)
-  if (!target || !target.backendNodeId) throw new Error(`快照编号 ${ref} 已失效，重新 page_snapshot`)
+  if (!target || !target.backendNodeId) throw new Error(mt('main.page.refStale', { ref }))
   await focusResolved(tab, target)
   await typeByCdp(tab, text)
   return { role: target.role, name: target.name }
@@ -3268,7 +3277,7 @@ export async function elementBox(tab: TabRuntime, locator: Locator): Promise<{ x
     return { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
   })()`
   const box = (await evalSource(tab, source)) as { x: number; y: number; width: number; height: number } | null
-  if (!box) throw new Error(`没有 ${locatorLabel(locator)}`)
+  if (!box) throw new Error(mt('main.page.noLabelBox', { label: locatorLabel(locator) }))
   return box
 }
 

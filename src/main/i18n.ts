@@ -2,14 +2,15 @@ import i18next from 'i18next'
 import { app } from 'electron'
 import { resources, resolveLanguage } from '@shared/i18n'
 import type { LanguageSetting } from '@shared/types'
-import { storage } from './services/store'
 
 // 主进程单独一个实例：渲染进程那个是 React 用的，这里只出字符串。
-// initImmediate: false 让初始化同步完成，启动阶段调用 t() 不会拿到未翻译的 key。
+// 不在这里读 storage：store 会间接引到本模块，读它就成了循环初始化。
+// 先用系统语言启动，storage.load() 之后由 applyMainLanguage 校正成设置里的值。
+// initAsync: false 让初始化同步完成，启动阶段调用 mt() 不会拿到未翻译的 key。
 const instance = i18next.createInstance()
 void instance.init({
   resources,
-  lng: resolveLanguage(storage.settings.language, app.getLocale()),
+  lng: resolveLanguage(undefined, app.getLocale()),
   fallbackLng: 'zh-CN',
   initAsync: false,
   interpolation: { escapeValue: false },

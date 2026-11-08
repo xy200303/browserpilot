@@ -8,6 +8,7 @@ import { sleep } from '../page'
 import { renderGrid } from '../grid'
 import { withDebugger } from './debugger'
 import { storage } from './store'
+import { mt } from '../i18n'
 
 type Layer = { name: string; image: NativeImage; rect: Bounds }
 
@@ -24,7 +25,7 @@ async function cdpShot(wc: WebContents): Promise<NativeImage> {
     })
   )) as { data: string }
   const image = nativeImage.createFromBuffer(Buffer.from(shot.data, 'base64'))
-  if (isEmpty(image)) throw new Error('截不到这个图层')
+  if (isEmpty(image)) throw new Error(mt('main.preview.layerCapture'))
   return image
 }
 
@@ -52,7 +53,7 @@ function blend(canvas: Buffer, canvasWidth: number, canvasHeight: number, layer:
   const source = layer.image.toBitmap()
   const sourceWidth = size.width
   const sourceHeight = size.height
-  if (source.length !== sourceWidth * sourceHeight * 4) throw new Error(`图层 ${layer.name} 的像素数据不完整`)
+  if (source.length !== sourceWidth * sourceHeight * 4) throw new Error(mt('main.preview.layerPixels', { name: layer.name }))
 
   const left = Math.round(layer.rect.x * scaleX)
   const top = Math.round(layer.rect.y * scaleY)
@@ -143,8 +144,8 @@ export async function windowPreview(
   coordinateSpace: 'window-content'
 }> {
   const runtime = windows.get(envId)
-  if (!runtime) throw new Error('这扇窗口没有打开')
-  if (runtime.headless) throw new Error('无头窗口没有画面，先有头打开再预览')
+  if (!runtime) throw new Error(mt('main.preview.windowClosed'))
+  if (runtime.headless) throw new Error(mt('main.preview.headless'))
 
   if (runtime.win.isMinimized()) runtime.win.restore()
   runtime.win.show()
@@ -162,7 +163,7 @@ export async function windowPreview(
   for (const layer of layers) blend(canvas, baseSize.width, baseSize.height, layer, scaleX, scaleY)
 
   let image = nativeImage.createFromBitmap(canvas, { width: baseSize.width, height: baseSize.height, scaleFactor: 1 })
-  if (isEmpty(image)) throw new Error('合成预览失败')
+  if (isEmpty(image)) throw new Error(mt('main.preview.compose'))
 
   const origin = { x: 0, y: 0 }
   let spanWidth = contentWidth

@@ -6,6 +6,7 @@ import { executeMediaPlan } from './download'
 import { attachedVideoUrl, NUDGE_PLAY, performanceStreams, planFromSniff } from './generic'
 import { sniffNetworkStreams } from './network'
 import { siteProviders } from './providers'
+import { mt } from '../../i18n'
 
 /**
  * 给 blob/空 src 的流媒体视频解析出下载计划。
@@ -47,7 +48,7 @@ export const videoHandler: MediaHandler = {
     let src = info.src || ''
     if (!src || src.startsWith('blob:')) {
       const plan = await resolveMediaPlan(tab)
-      if (!plan) throw new Error('流媒体视频没有直链也没探到音视频轨或清单（m3u8/mpd）。用 page_record_video 录下正在播放的画面')
+      if (!plan) throw new Error(mt('main.media.streamNoPlan'))
       if (plan.kind === 'direct') src = plan.url
       else return executeMediaPlan(tab, plan, dir, savePath, onProgress)
     }

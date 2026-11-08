@@ -4,6 +4,7 @@ import { join } from 'path'
 import { createGunzip } from 'zlib'
 import { pipeline } from 'stream/promises'
 import { storage } from './store'
+import { mt } from '../i18n'
 
 const MIRROR = 'https://registry.npmmirror.com/-/binary/ffmpeg-static/b6.0'
 
@@ -33,7 +34,7 @@ async function downloadFfmpeg(target: string, asset: string): Promise<void> {
   mkdirSync(join(storage.userData(), 'tools'), { recursive: true })
   const tmp = `${target}.download`
   const res = await fetch(`${MIRROR}/${asset}`)
-  if (!res.ok || !res.body) throw new Error(`ffmpeg 下载失败 HTTP ${res.status}`)
+  if (!res.ok || !res.body) throw new Error(mt('main.ffmpeg.download', { status: res.status }))
   await pipeline(res.body as unknown as NodeJS.ReadableStream, createGunzip(), createWriteStream(tmp))
   renameSync(tmp, target)
   if (process.platform !== 'win32') chmodSync(target, 0o755)
@@ -69,7 +70,7 @@ export async function ensureFfmpeg(): Promise<string | null> {
 
 export async function runFfmpeg(args: string[], timeoutMs = 600_000): Promise<void> {
   const bin = await ensureFfmpeg()
-  if (!bin) throw new Error('没有 ffmpeg，自动下载也失败了')
+  if (!bin) throw new Error(mt('main.ffmpeg.missing'))
   return new Promise((resolve, reject) => {
     execFile(bin, args, { timeout: timeoutMs }, (error) => (error ? reject(error) : resolve()))
   })

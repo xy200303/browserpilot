@@ -3,6 +3,7 @@ import { mkdirSync } from 'fs'
 import { createId } from '../ids'
 import { bridge } from '../runtime'
 import { storage } from './store'
+import { mt } from '../i18n'
 
 export type DownloadItem = {
   id: string
@@ -182,7 +183,7 @@ export function registerSessionDownload(item: ElectronDownloadItem, savePath: st
     } catch {
       /* 不是合法 URL */
     }
-    return '下载文件'
+    return mt('main.downloads.fileName')
   })()
   const raw = item.getFilename() || ''
   const id = downloadBegin(raw.includes('?') || !raw ? fallbackName : raw, item.getURL(), savePath, 0, undefined, item, envId)
@@ -190,7 +191,7 @@ export function registerSessionDownload(item: ElectronDownloadItem, savePath: st
   item.on('updated', (_event, state) => {
     if (!entry) return
     if (state === 'interrupted') {
-      downloadFail(id, '下载中断')
+      downloadFail(id, mt('main.downloads.interrupted'))
       return
     }
     if (entry.item.state === 'paused') return
@@ -200,7 +201,7 @@ export function registerSessionDownload(item: ElectronDownloadItem, savePath: st
     if (state === 'completed') downloadDone(id, item.getSavePath())
     else if (state === 'cancelled') {
       const e = entryOf(id)
-      if (e && e.item.state !== 'cancelled') downloadFail(id, '已取消')
-    } else downloadFail(id, '下载中断')
+      if (e && e.item.state !== 'cancelled') downloadFail(id, mt('main.downloads.cancelled'))
+    } else downloadFail(id, mt('main.downloads.interrupted'))
   })
 }

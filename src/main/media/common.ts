@@ -4,9 +4,10 @@ import { join } from 'path'
 import type { TabRuntime } from '../runtime'
 import { downloadUrl, evalSource, fetchToFile } from '../page'
 import type { MediaProgress, MediaSaved } from './types'
+import { mt } from '../i18n'
 
 export function wcOf(tab: TabRuntime): WebContents {
-  if (!tab.view) throw new Error('这个标签没有网页')
+  if (!tab.view) throw new Error(mt('main.media.noPage'))
   return tab.view.webContents
 }
 
@@ -59,7 +60,7 @@ export async function downloadDirect(tab: TabRuntime, src: string, kind: string,
     const payload = src.slice(comma + 1)
     buf = /;base64/i.test(meta) ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'utf8')
   } else if (/^https?:/.test(src)) {
-    if (/\.(m3u8|mpd)(\?|$)/i.test(src)) throw new Error('这是流媒体清单（m3u8/mpd），不是单个文件，下不了')
+    if (/\.(m3u8|mpd)(\?|$)/i.test(src)) throw new Error(mt('main.media.manifest'))
     try {
       const got = await downloadUrl(wcOf(tab), src, undefined, onProgress)
       buf = got.buf
@@ -71,7 +72,7 @@ export async function downloadDirect(tab: TabRuntime, src: string, kind: string,
       unlinkSync(tmpPath)
     }
   } else {
-    throw new Error(`不认识这种地址：${src.slice(0, 60)}`)
+    throw new Error(mt('main.media.unknownUrl', { url: src.slice(0, 60) }))
   }
   const ext = sniffExt(buf) || extOf(src, contentType)
   const path = savePath || join(dir, `${kind}-${Date.now()}.${ext}`)

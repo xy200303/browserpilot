@@ -7,6 +7,7 @@ import { workflowParams } from '../services/RecordService'
 import { listDownloads } from '../services/DownloadService'
 import { netList } from '../services/NetService'
 import { windows, type WindowRuntime } from '../runtime'
+import { mt } from '../i18n'
 
 async function cookieDomains(envId: string): Promise<Set<string>> {
   const cookies = await session.fromPartition(`persist:${envId}`).cookies.get({})
@@ -44,16 +45,16 @@ export async function buildState(runtime: WindowRuntime): Promise<UiState> {
       kind: tab.kind,
       title:
         tab.kind === 'settings'
-          ? '设置'
+          ? mt('address.kind.settings')
           : tab.kind === 'market'
-            ? '工作流'
+            ? mt('address.kind.market')
             : tab.kind === 'history'
-              ? '历史记录'
+              ? mt('address.kind.history')
               : tab.kind === 'bookmarks'
-                ? '书签'
+                ? mt('address.kind.bookmarks')
                 : tab.kind === 'workflow'
                   ? (storage.workflows.find((item) => tab.url === workflowPage(item.id))?.app.name ?? tab.title)
-                  : tab.title || '新标签页',
+                  : tab.title || mt('shell.tabs.untitled'),
       url: tab.url,
       favicon: tab.favicon || '',
       loading: tab.loading,

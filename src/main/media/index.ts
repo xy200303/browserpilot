@@ -9,6 +9,7 @@ import { videoHandler } from './video'
 import type { ElementInfo } from '../page'
 import type { Locator } from '@shared/types'
 import type { MediaHandler, MediaProgress, MediaSaved } from './types'
+import { mt } from '../i18n'
 
 export * from './types'
 export { executeMediaPlan } from './video/download'
@@ -37,7 +38,7 @@ export async function saveMediaInfo(tab: TabRuntime, info: ElementInfo, dir: str
   mkdirSync(dir, { recursive: true })
   const handler = handlers[info.kind]
   if (!handler) {
-    throw new Error(info.kind === 'link' ? `这是链接不是媒体：${info.href}` : `这个元素是 ${info.kind}，没有可保存的媒体`)
+    throw new Error(info.kind === 'link' ? mt('main.media.linkNotMedia', { href: info.href }) : mt('main.media.noMedia', { kind: info.kind }))
   }
   return handler.save(tab, info, dir, savePath, onProgress)
 }

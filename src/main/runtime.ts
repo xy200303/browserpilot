@@ -1,5 +1,6 @@
 import type { BrowserWindow, WebContentsView } from 'electron'
 import type { Control, LayerPayload, TabError, SuggestPayload } from '@shared/types'
+import { mt } from './i18n'
 
 export type InternalControl = 'free' | 'agent' | 'shared' | 'handoff'
 
@@ -102,10 +103,10 @@ export const bridge = {
   layout(_envId: string): void {},
   activateTab(_tabId: string): void {},
   openTab(_envId: string, _url?: string): TabRuntime {
-    throw new Error('窗口还没准备好')
+    throw new Error(mt('main.misc.windowNotReady'))
   },
   ensureWindow(_envId: string, _headless = false): WindowRuntime {
-    throw new Error('窗口还没准备好')
+    throw new Error(mt('main.misc.windowNotReady'))
   },
   restoreTabView(_tab: TabRuntime): boolean {
     return false

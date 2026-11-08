@@ -5,6 +5,7 @@ import { downloadMedia } from '../../page'
 import { runFfmpeg } from '../../services/ffmpeg'
 import { wcOf } from '../common'
 import type { MediaPlan, MediaProgress, MediaSaved } from '../types'
+import { mt } from '../../i18n'
 
 function mergeTracks(videoPath: string, audioPath: string, outPath: string): Promise<void> {
   const args = ['-y', '-i', videoPath]
@@ -31,7 +32,7 @@ async function downloadDashPair(tab: TabRuntime, video: string, audio: string, d
     if (audioPath) unlinkSync(audioPath)
     return { path: outPath, kind: 'video', bytes: statSync(outPath).size }
   } catch {
-    throw new Error(`没有 ffmpeg 合并音视频轨，两条轨已分别保存：${videoPath}${audioPath ? `、${audioPath}` : ''}`)
+    throw new Error(mt('main.media.noFfmpegMerge', { video: videoPath, audio: audioPath ? `, ${audioPath}` : '' }))
   }
 }
 
@@ -58,7 +59,7 @@ async function concatMp4Segments(tab: TabRuntime, urls: string[], dir: string, s
     unlinkSync(listPath)
     return { path: outPath, kind: 'video', bytes: statSync(outPath).size }
   } catch {
-    throw new Error(`分段视频合并失败，${segs.length} 个分段已保存在 ${dir}（segs-${stamp}-*.mp4）`)
+    throw new Error(mt('main.media.segments', { count: segs.length, dir, stamp }))
   }
 }
 

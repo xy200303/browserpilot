@@ -14,6 +14,7 @@ import {
   type Settings
 } from '@shared/types'
 import { createId, rememberId } from '../ids'
+import { mt } from '../i18n'
 
 export type StoredEnv = {
   id: string
@@ -91,7 +92,7 @@ export class StorageService {
     mkdirSync(this.dir('exports'), { recursive: true })
     this.envs = readJson<StoredEnv[]>('envs.json', [])
     if (!this.envs.some((e) => e.id === DEFAULT_ENV)) {
-      this.envs.unshift({ id: DEFAULT_ENV, name: '默认', remark: '', sites: [] })
+      this.envs.unshift({ id: DEFAULT_ENV, name: mt('main.misc.defaultEnv'), remark: '', sites: [] })
     }
     this.groups = readJson<StoredGroup[]>('groups.json', [])
     this.workflows = readJson<WorkflowApp[]>('workflows.json', []).filter(
