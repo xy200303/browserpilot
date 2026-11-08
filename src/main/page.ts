@@ -80,7 +80,7 @@ export async function readTree(tab: TabRuntime): Promise<{ text: string; nodes: 
   flat.forEach((node, index) => {
     const ref = `e${index + 1}`
     tab.refs.set(ref, { role: node.role, name: node.name, backendNodeId: node.backendNodeId })
-    const bits = [`- ${node.role}`]
+    const bits = [`[${ref}] ${node.role}`]
     if (node.name) bits.push(JSON.stringify(node.name))
     if (node.value) bits.push(`value=${JSON.stringify(node.value)}`)
     lines.push(bits.join(' '))
@@ -845,7 +845,7 @@ async function ensureActive(tab: TabRuntime): Promise<void> {
   if (runtime.activeTabId !== tab.id) {
     bridge.activateTab(tab.id)
     // 刚切到前台的 view 要等一帧再收输入，否则第一次点击会被丢掉
-    await sleep(120)
+    await sleep(200)
   }
   if (!warmedTabs.has(tab.id)) {
     warmedTabs.add(tab.id)
@@ -2783,6 +2783,8 @@ export async function hoverTextInFrame(tab: TabRuntime, frame: string, text: str
 export type HitQuery = {
   selector?: string
   xpath?: string
+  testId?: string
+  alt?: string
   text?: string
   textMatch?: 'exact' | 'contains'
   role?: string
@@ -2834,13 +2836,30 @@ const HIT_SOURCE = `(function (query) {
     if (wrap) return norm(wrap.innerText)
     return norm(el.innerText || el.value || el.getAttribute('alt') || el.getAttribute('title') || el.getAttribute('placeholder') || '')
   }
-  const roots = query.within ? [...document.querySelectorAll(query.within)] : [document]
+  let withinSelector = query.within || ''
+  let withinText = ''
+  const marker = ':has-text('
+  const markerAt = withinSelector.indexOf(marker)
+  if (markerAt >= 0) {
+    const markerEnd = withinSelector.indexOf(')', markerAt)
+    const raw = withinSelector.slice(markerAt + marker.length, markerEnd).trim()
+    withinText = norm(raw.replace(/^["']|["']$/g, ''))
+    withinSelector = (withinSelector.slice(0, markerAt) + withinSelector.slice(markerEnd + 1)).trim()
+  }
+  let roots = withinSelector ? [...document.querySelectorAll(withinSelector)] : [document]
+  if (withinText) roots = roots.filter((el) => norm(el.innerText).includes(withinText))
   if (!roots.length) return null
   const seen = new Set()
   const items = []
   const collect = (root) => {
     let found = []
-    if (query.selector) {
+    if (query.testId) {
+      found = [...root.querySelectorAll('[data-testid], [data-test], [data-test-id]')]
+        .filter((el) => ['data-testid', 'data-test', 'data-test-id'].some((name) => el.getAttribute(name) === query.testId))
+    } else if (query.alt) {
+      found = [...root.querySelectorAll('img[alt], input[type=image][alt]')]
+        .filter((el) => norm(el.getAttribute('alt')).includes(norm(query.alt)))
+    } else if (query.selector) {
       try { found = [...root.querySelectorAll(query.selector)] } catch (e) { found = [] }
     } else if (query.xpath) {
       try {
@@ -2963,9 +2982,9 @@ export async function resolveHit(tab: TabRuntime, query: HitQuery, frame?: strin
   return hit
 }
 
-export async function clickHit(tab: TabRuntime, hit: TextHit, via: ActVia = 'cdp'): Promise<void> {
+export async function clickHit(tab: TabRuntime, hit: TextHit, via: ActVia = 'cdp', offsetX = 0, offsetY = 0): Promise<void> {
   if (hit.blocked) throw new Error(`目标被 ${hit.blocked} 挡住，先关掉弹层再点`)
-  if (!hit.dom) await clickPoint(tab, hit.x + hit.w / 2, hit.y + hit.h / 2, via)
+  if (!hit.dom) await clickPoint(tab, hit.x + hit.w / 2 + offsetX, hit.y + hit.h / 2 + offsetY, via)
 }
 
 export async function hoverHit(tab: TabRuntime, hit: TextHit, via: ActVia = 'cdp'): Promise<void> {
@@ -2977,4 +2996,29 @@ export async function typeByLabel(tab: TabRuntime, label: string, text: string):
   const focused = await evalSource(tab, `(${LABEL_FOCUS_SOURCE})(${JSON.stringify(label)})`)
   if (focused !== true) throw new Error(`找不到标签或占位符包含「${label}」的输入框`)
   await typeByCdp(tab, text)
+}
+
+export async function clickRef(tab: TabRuntime, ref: string, via: ActVia = 'cdp'): Promise<{ role: string; name: string }> {
+  await ensureActive(tab)
+  const target = tab.refs.get(ref)
+  if (!target || !target.backendNodeId) throw new Error(`快照编号 ${ref} 已失效，重新 page_snapshot`)
+  await clickKnown(tab, target, via)
+  return { role: target.role, name: target.name }
+}
+
+export async function hoverRef(tab: TabRuntime, ref: string, via: ActVia = 'cdp'): Promise<{ role: string; name: string }> {
+  await ensureActive(tab)
+  const target = tab.refs.get(ref)
+  if (!target || !target.backendNodeId) throw new Error(`快照编号 ${ref} 已失效，重新 page_snapshot`)
+  await hoverKnown(tab, target, via)
+  return { role: target.role, name: target.name }
+}
+
+export async function typeRef(tab: TabRuntime, ref: string, text: string): Promise<{ role: string; name: string }> {
+  await ensureActive(tab)
+  const target = tab.refs.get(ref)
+  if (!target || !target.backendNodeId) throw new Error(`快照编号 ${ref} 已失效，重新 page_snapshot`)
+  await focusResolved(tab, target)
+  await typeByCdp(tab, text)
+  return { role: target.role, name: target.name }
 }
