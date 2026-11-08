@@ -2660,7 +2660,7 @@ export async function screenshotRegion(
       await sleep(250)
       image = await wc.capturePage({ x, y, width, height }).catch(() => undefined)
     }
-    if (!image || image.isEmpty()) throw new Error('这块区域截不到（可能被窗口挡住或元素已经滚出视口）')
+    if (!image || image.isEmpty()) throw new Error('这块区域截不到：窗口被遮挡或元素滚出了视口。先 page_query 确认 rect 还在视口里，必要时用 env_front 把窗口带到前台再截')
     let output = image
     if (grid > 0) {
       const runtime = windows.get(tab.envId)

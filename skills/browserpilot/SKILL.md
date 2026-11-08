@@ -80,11 +80,11 @@ browserpilot call workflow_run --json-file args.json
 
 导航后或触发异步渲染后用 `page_wait` 等元素出现或消失，不要写死 sleep 循环。`page_key` 的快捷键用 `ctrl+a`、`shift+enter` 这种写法，修饰键只认 ctrl、shift、alt、meta。
 
-定位器默认只查顶层文档。加 `pierce: true` 可穿透 Shadow DOM、同源 iframe，顶层查不到时还会自动查跨域 iframe（OOPIF）；穿透查到的目标会先滚进视口再点。`page_script` 的 `frame` 参数（填框架 URL 的一段，如 graph.qq.com）可以在跨域 iframe 里跑脚本。`page_cdp_batch` 可以直接发 `Target.attachToTarget` 返回的会话里的命令。
+定位器默认只查顶层文档。加 `pierce: true` 可穿透 Shadow DOM、同源 iframe，顶层查不到时还会自动查跨域 iframe（OOPIF）；穿透查到的目标会先滚进视口再点。`page_script` 的 `frame` 参数（填框架 URL 的一段，如 graph.qq.com）可以在跨域 iframe 里跑脚本；脚本报错时会直接带上页面控制台最近的错误，不用再单独调 `page_console`。`page_cdp_batch` 可以直接发 `Target.attachToTarget` 返回的会话里的命令。
 
 其它好用的新工具：`page_inspect` 带 x、y 反查坐标命中的元素（标签、id、class、类型）；`page_watch` 盯住元素等它变化；`net_mock` / `net_mock_off` 拦截请求返回假数据；`env_export` / `env_import` 导出导入环境登录（Cookie 文件含机密，只在本机用）；`captcha_read` 用 ddddocr 读文字验证码。工具失败时会自动附一张现场截图（errorShot）。
 
-拖拽要精确距离时用 `page_drag`（起点 + `dx`/`dy`，轨迹拟人），不要用 `page_swipe`。 工作流里要沿曲线落笔用 `stroke` 节点（`locator` + `path` + `viewBox`），它发真实指针事件，画进站点的文档而不是只改屏幕像素。画板上作画用 `page_draw`：路径点数组、SVG 路径（path + viewBox + 目标区域，支持贝塞尔和椭圆弧）、平滑曲线（smooth）或标准图形（shape: circle/rect/triangle/heart/star）。点可以带 `pressure`、`tiltX`、`tiltY`、`twist`，走 cdp 时按 pen 笔发。默认画完会读画布像素校验一次，返回 `check`：`empty` 表示一个点都没画上（笔没选中、颜色同背景、坐标在画布外），`wiped` 表示画上又被站点重绘抹掉（说明它只在屏幕空间，没进文档）；读不到 2D 上下文（WebGL、跨域）时 `check.supported` 为 false。不想多等这半秒就传 `verify: false`。 同一个工具给 `script` 就是海龟画图（和 Python turtle 一样）：每行一条命令，fd/bk/lt/rt/goto/penup/pendown/circle/beginfill/endfill，能填色。要连着发一组 CDP（比如按下、移动、松开的输入序列）用 `page_cdp_batch`，中间不断开调试会话。
+拖拽要精确距离时用 `page_drag`（起点 + `dx`/`dy`，轨迹拟人），不要用 `page_swipe`。 工作流里要沿曲线落笔用 `stroke` 节点（`locator` + `path` + `viewBox`），它发真实指针事件，画进站点的文档而不是只改屏幕像素。画板上作画用 `page_draw`：路径点数组、SVG 路径（path + viewBox + 目标区域，支持贝塞尔和椭圆弧）；目标区域优先传 `selector`，工具自己量元素矩形，path 按 viewBox 缩放、points 按元素内部坐标算，不要手抄 x/y/width/height（抄来的坐标会过期）、平滑曲线（smooth）或标准图形（shape: circle/rect/triangle/heart/star）。点可以带 `pressure`、`tiltX`、`tiltY`、`twist`，走 cdp 时按 pen 笔发。默认画完会读画布像素校验一次，返回 `check`：`empty` 表示一个点都没画上（笔没选中、颜色同背景、坐标在画布外），`wiped` 表示画上又被站点重绘抹掉（说明它只在屏幕空间，没进文档）；读不到 2D 上下文（WebGL、跨域）时 `check.supported` 为 false。不想多等这半秒就传 `verify: false`。 同一个工具给 `script` 就是海龟画图（和 Python turtle 一样）：每行一条命令，fd/bk/lt/rt/goto/penup/pendown/circle/beginfill/endfill，能填色。要连着发一组 CDP（比如按下、移动、松开的输入序列）用 `page_cdp_batch`，中间不断开调试会话。
 
 弹窗不会再卡住标签：alert 直接关掉，confirm 默认返回取消、prompt 返回 null；要让某个确认框点「确定」，先调 `page_dialog` 传 `action: "accept"`（`once: true` 只作用于下一个弹窗），再点按钮。最近弹窗和当前策略用 `page_dialog` 的 `action: "list"` 查。
 

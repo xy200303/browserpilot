@@ -1241,10 +1241,25 @@ tool('page_record_video', '把页面里正在播放的视频录下来：用 capt
   return { tabId: tabRef.id, ...result }
 })
 
-tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径点数组按路径画线；加 smooth: true 用样条插值把控制点连成平滑曲线；给 path（SVG 路径字符串，支持 M/L/H/V/C/S/Q/T/A/Z，含贝塞尔曲线）按 viewBox 缩放到 x、y、width、height 的区域画；或给 shape（circle/rect/triangle/heart/star）加 x、y、width、height 画标准图形。close: true 闭合路径。多段路径（多个 M）会逐段抬笔。用来在画板、签名板、Canva 这类画布上作画。点可带 pressure（0~1）和 tiltX/tiltY/twist，走 cdp 时按 pen 笔发。默认画完会校验一次（读画布像素看这一笔还在不在），返回 check：painted 是新增像素的采样点数，kept 是半秒后还在的点数，wiped 表示被站点重绘抹掉了，empty 表示一个像素都没画上；读不到 2D 上下文（WebGL、跨域）时 check.supported 为 false。不要校验时传 verify: false，省六百毫秒左右。via 默认 cdp。', z.object({
+async function canvasBox(tabRef: TabRuntime, args: { selector?: string; x?: number; y?: number; width?: number; height?: number }): Promise<{ x: number; y: number; width: number; height: number }> {
+  if (typeof args.selector === 'string' && args.selector) {
+    const found = await queryLocator(tabRef, { selector: String(args.selector) })
+    if (found.total !== 1) throw new Error(`画布 selector 匹配到 ${found.total} 个，要恰好一个`)
+    const rect = found.matches[0]?.rect
+    if (!rect) throw new Error('这个画布元素没有可见区域')
+    return { x: rect.x, y: rect.y, width: rect.w, height: rect.h }
+  }
+  if (args.x === undefined || args.y === undefined || !args.width || !args.height) {
+    throw new Error('给 selector 指定画布元素，或给 x、y、width、height 指定视口里的区域')
+  }
+  return { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height) }
+}
+
+tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径点数组按路径画线；加 smooth: true 用样条插值把控制点连成平滑曲线；给 path（SVG 路径字符串，支持 M/L/H/V/C/S/Q/T/A/Z，含贝塞尔曲线）按 viewBox 缩放到 x、y、width、height 的区域画；或给 shape（circle/rect/triangle/heart/star）加 x、y、width、height 画标准图形。close: true 闭合路径。多段路径（多个 M）会逐段抬笔。目标区域可以直接给 selector：工具自己量元素矩形，path 按 viewBox 缩放进这块区域、points 按元素内部坐标理解，不必手抄 x/y/width/height（手抄的坐标会过期）。用来在画板、签名板、Canva 这类画布上作画。点可带 pressure（0~1）和 tiltX/tiltY/twist，走 cdp 时按 pen 笔发。默认画完会校验一次（读画布像素看这一笔还在不在），返回 check：painted 是新增像素的采样点数，kept 是半秒后还在的点数，wiped 表示被站点重绘抹掉了，empty 表示一个像素都没画上；读不到 2D 上下文（WebGL、跨域）时 check.supported 为 false。不要校验时传 verify: false，省六百毫秒左右。via 默认 cdp。', z.object({
   ...pageArgs,
   points: z.array(z.object({ x: z.number(), y: z.number(), pressure: z.number().optional(), tiltX: z.number().optional(), tiltY: z.number().optional(), twist: z.number().optional() })).optional(),
   path: z.string().optional(),
+  selector: z.string().optional(),
   viewBox: z.array(z.number()).length(2).optional(),
   shape: z.enum(['circle', 'rect', 'triangle', 'heart', 'star']).optional(),
   x: z.number().optional(),
@@ -1271,8 +1286,7 @@ tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径
     return { tabId: tabRef.id, ...turtle }
   }
   if (typeof args.path === 'string' && args.path) {
-    if (args.x === undefined || args.y === undefined || !args.width || !args.height) throw new Error('path 要配 x、y、width、height 定目标区域')
-    const box = { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height) }
+    const box = await canvasBox(tabRef, args)
     const subpaths = svgPathToPoints(String(args.path), box, Array.isArray(args.viewBox) ? [Number((args.viewBox as number[])[0]), Number((args.viewBox as number[])[1])] : undefined)
     const sample = verify ? thinPoints(subpaths.flat(), 32) : []
     const before = sample.length ? await canvasSums(tabRef, sample) : undefined
@@ -1282,11 +1296,14 @@ tool('page_draw', '在画布上自由绘制。四种给法任选：points 路径
   }
   let points = args.points as Array<{ x: number; y: number }> | undefined
   if (!points) {
-    if (!args.shape || args.x === undefined || args.y === undefined || !args.width || !args.height) {
-      throw new Error('给 points 路径点、path SVG 路径，或 shape + x、y、width、height')
-    }
-    points = drawShapePoints(String(args.shape), Number(args.x), Number(args.y), Number(args.width), Number(args.height))
+    if (!args.shape) throw new Error('给 points 路径点、path SVG 路径加 viewBox，或 shape')
+    const box = await canvasBox(tabRef, args)
+    points = drawShapePoints(String(args.shape), box.x, box.y, box.width, box.height)
     args.close = true
+  } else if (args.selector) {
+    // 传了 selector 时，points 按元素内部坐标理解（左上角是 0,0）
+    const box = await canvasBox(tabRef, args)
+    points = points.map((point) => ({ ...point, x: box.x + point.x, y: box.y + point.y }))
   }
   const sample = verify ? thinPoints(points, 32) : []
   const before = sample.length ? await canvasSums(tabRef, sample) : undefined
@@ -1686,8 +1703,19 @@ tool('page_script', '在当前网页里执行一段 JavaScript，把返回值交
 }), async (args) => {
   const tabRef = await pageTab(args)
   const frame = typeof args.frame === 'string' && args.frame ? args.frame : undefined
-  const value = frame ? await evalInFrame(tabRef, String(args.source), frame) : await evalSource(tabRef, String(args.source))
-  return { tabId: tabRef.id, value }
+  try {
+    const value = frame ? await evalInFrame(tabRef, String(args.source), frame) : await evalSource(tabRef, String(args.source))
+    return { tabId: tabRef.id, value }
+  } catch (error) {
+    // 脚本挂掉时顺手把页面最近的报错带上，省一次 page_console
+    const message = error instanceof Error ? error.message : String(error)
+    const wc = tabRef.view?.webContents
+    const recent = wc ? consoleFor(wc).filter((item) => item.level === 'error').slice(0, 2) : []
+    const extra = recent.length
+      ? `。页面最近的报错：${recent.map((item) => String(item.message).split('\n')[0].slice(0, 160)).join(' | ')}`
+      : ''
+    throw new Error(message + extra)
+  }
 })
 
 tool('page_cdp_batch', '在同一个调试会话里按顺序跑一组 CDP 命令，中间不断开。commands 是数组，每项有 method、params（可选）和 delay（这条跑完后等多少秒，默认 0，上限 5）。只发一条就传长度为 1 的数组。返回每条命令的结果数组。', z.object({
