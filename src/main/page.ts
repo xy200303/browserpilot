@@ -35,18 +35,17 @@ export function normalizeUrl(input: string): string {
 }
 
 function wcOf(tab: TabRuntime): WebContents {
-  if (!tab.view) {
-    if (tab.hibernated && bridge.restoreTabView(tab)) {
+  // view 在但 webContents 没了也会出现：休眠、渲染进程崩溃、视图创建到一半失败
+  const current = tab.view?.webContents
+  if (!current || current.isDestroyed()) {
+    if (bridge.restoreTabView(tab) && tab.view?.webContents && !tab.view.webContents.isDestroyed()) {
       tab.hibernated = false
-      return tab.view!.webContents
+      return tab.view.webContents
     }
-    throw new Error('这个标签没有网页')
+    throw new Error(tab.view || !tab.hibernated ? '这个标签的页面崩溃了，重试一下' : '这个标签没有网页')
   }
-  if (tab.view.webContents.isDestroyed()) {
-    // 渲染进程崩溃后 webContents 会失效，重建视图并恢复页面
-    if (!bridge.restoreTabView(tab) || !tab.view) throw new Error('这个标签的页面崩溃了，重试一下')
-  }
-  return tab.view.webContents
+  if (tab.hibernated) tab.hibernated = false
+  return current
 }
 
 export async function readTree(tab: TabRuntime): Promise<{ text: string; nodes: AxNode[] }> {

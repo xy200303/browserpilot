@@ -740,7 +740,7 @@ export function closeTab(runtime: WindowRuntime, tabId: string): void {
 export function restoreTabView(tab: TabRuntime): boolean {
   const runtime = windows.get(tab.envId)
   if (!runtime || tab.kind !== 'page') return false
-  if (tab.view && !tab.view.webContents.isDestroyed()) return true
+  if (tab.view?.webContents && !tab.view.webContents.isDestroyed()) return true
   tab.hibernated = false
   const old = tab.view
   const ses = session.fromPartition(`persist:${runtime.envId}`)

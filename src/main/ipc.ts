@@ -124,17 +124,17 @@ export function wireIpc(): void {
       restoreTabView(active)
       return
     }
-    await active.view?.webContents.loadURL(target)
+    await active.view?.webContents?.loadURL(target)
   })
 
   ipcMain.handle('chrome:back', (event) => {
-    windowFromSender(event.sender)?.tabs.find((tab) => tab.kind === 'page' && tab.id === windowFromSender(event.sender)?.activeTabId)?.view?.webContents.navigationHistory.goBack()
+    windowFromSender(event.sender)?.tabs.find((tab) => tab.kind === 'page' && tab.id === windowFromSender(event.sender)?.activeTabId)?.view?.webContents?.navigationHistory.goBack()
   })
 
   ipcMain.handle('chrome:forward', (event) => {
     const runtime = windowFromSender(event.sender)
     const tab = runtime?.tabs.find((item) => item.id === runtime.activeTabId)
-    tab?.view?.webContents.navigationHistory.goForward()
+    tab?.view?.webContents?.navigationHistory.goForward()
   })
 
   ipcMain.handle('chrome:reload', (event) => {
@@ -144,7 +144,7 @@ export function wireIpc(): void {
 
   ipcMain.handle('chrome:stop', (event) => {
     const runtime = windowFromSender(event.sender)
-    runtime?.tabs.find((item) => item.id === runtime.activeTabId)?.view?.webContents.stop()
+    runtime?.tabs.find((item) => item.id === runtime.activeTabId)?.view?.webContents?.stop()
   })
 
   ipcMain.handle('tab:new', (event) => {
@@ -190,7 +190,7 @@ export function wireIpc(): void {
 
   ipcMain.handle('tab:devtools', (event, tabId: string) => {
     const runtime = windowFromSender(event.sender)
-    runtime?.tabs.find((item) => item.id === tabId)?.view?.webContents.openDevTools({ mode: 'detach' })
+    runtime?.tabs.find((item) => item.id === tabId)?.view?.webContents?.openDevTools({ mode: 'detach' })
   })
 
   ipcMain.handle('tab:close', (event, tabId: string) => {
@@ -345,7 +345,7 @@ export function wireIpc(): void {
   ipcMain.handle('menu:devtools', (event) => {
     const runtime = windowFromSender(event.sender)
     const tab = runtime?.tabs.find((item) => item.id === runtime.activeTabId && item.kind === 'page')
-    tab?.view?.webContents.openDevTools({ mode: 'detach' })
+    tab?.view?.webContents?.openDevTools({ mode: 'detach' })
   })
 
   ipcMain.handle('menu:screen', async (event) => {
@@ -431,13 +431,13 @@ export function wireIpc(): void {
   ipcMain.handle('find:query', (event, text: string) => {
     const runtime = windowFromSender(event.sender)
     const tab = runtime?.tabs.find((item) => item.id === runtime.activeTabId)
-    tab?.view?.webContents.findInPage(text)
+    tab?.view?.webContents?.findInPage(text)
   })
 
   ipcMain.handle('find:stop', (event) => {
     const runtime = windowFromSender(event.sender)
     const tab = runtime?.tabs.find((item) => item.id === runtime.activeTabId)
-    tab?.view?.webContents.stopFindInPage('clearSelection')
+    tab?.view?.webContents?.stopFindInPage('clearSelection')
   })
 
   ipcMain.on('control:takeover', (event) => {
