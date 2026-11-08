@@ -5,20 +5,20 @@
 <h1 align="center">BrowserPilot</h1>
 
 <p align="center">
-  <strong>你已经登录的浏览器，Agent 接着用。</strong>
+  <strong>The browser you are already signed in to — now driven by your agent.</strong>
 </p>
 
 <p align="center">
-  登录留在本机的一套环境里。人打开窗口，<br>
-  Agent 在同一扇窗口里继续操作标签：不用重开浏览器，不用重新登录。
+  Logins stay in an isolated environment on your machine. You open the window,<br>
+  the agent keeps working in that same window: no second browser, no second login.
 </p>
 
 <p align="center">
-  <a href="https://browser.xyun.dev/">🌐 官网</a> •
-  <a href="https://browser.xyun.dev/guide/quickstart.html">📖 文档</a> •
-  <a href="https://github.com/xy200303/browserpilot/releases/latest">📦 下载</a> •
-  <a href="https://github.com/xy200303/browserpilot-market">🛒 工作流市场</a> •
-  <a href="skills/browserpilot/SKILL.md">🤖 Agent 接入</a>
+  <a href="https://browser.xyun.dev/">🌐 Website</a> •
+  <a href="https://browser.xyun.dev/en/guide/quickstart">📖 Docs</a> •
+  <a href="https://github.com/xy200303/browserpilot/releases/latest">📦 Download</a> •
+  <a href="https://github.com/xy200303/browserpilot-market">🛒 Workflow market</a> •
+  <a href="skills/browserpilot/SKILL.md">🤖 Agent setup</a>
 </p>
 
 <p align="center">
@@ -29,118 +29,120 @@
   <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript 5" />
 </p>
 
----
-
-## ▶️ 看它跑一遍
-
-[![在问卷星的在线考试里自动答题，5 题全对拿到 100 分](website/public/demos/run-poster.jpg)](https://browser.xyun.dev/#demo)
-
-一个真实任务：打开问卷星的「生活常识在线考试」，Agent 逐题读题、选择答案、交卷，5 题全对拿到 100 分。13 秒实录，无声循环；[官网首页](https://browser.xyun.dev/#demo)可以直接播放，仓库里是 [run.mp4](website/public/demos/run.mp4)。
-
-## ✨ 特性
-
-|     | 功能 | 说明 |
-| --- | ---- | ---- |
-| 🪟 | **同窗口人机协作** | 人在窗口里登录、过验证；Agent 接着操作同一扇窗口。操作中遮罩提示，人可随时点「接管」 |
-| 🕘 | **浏览体验** | 历史记录与书签按环境隔离；地址栏全选与历史/书签补全；启动恢复上次标签；错误页、进度条；标签搜索与休眠 |
-| 🔑 | **密码管理** | 登录提交时自动保存账号密码，同一环境下次打开同站自动填入；内容用系统密钥加密后存在本机，设置里可查看或删除。Linux 没有可用密钥环时（Ubuntu 服务器常见）退回本机编码，并在设置里标出「未加密」 |
-| 🗂️ | **数据管理** | 书签、历史、会话、Cookie 都有对应的 Agent 工具：列表、增删、按域名清理，不用点界面 |
-| 🛡️ | **隐私与权限** | 按环境清除历史、Cookie、缓存；摄像头、麦克风、通知、位置等站点权限请求与记住选择 |
-| 🔐 | **多套隔离环境** | 一个进程多套环境，每套环境一扇窗口、一套独立登录态，关窗不清登录 |
-| 🔄 | **工作流引擎** | 节点图编排（点击/填写/循环/脚本/验证码），一次跑完不逐次请示；内置市场一键安装 |
-| 🎬 | **流媒体保存** | B站/抖音/YouTube 抓 DASH 双轨合并 mp4；央视/AcFun 拉 m3u8；搜狐分段合并；腾讯 Worker 拉流用 CDP 嗅探兜底 |
-| 🧩 | **验证码识别** | 极验滑块全自动（cv / ddddocr / onnx 三引擎降级），其余类型截图交给视觉模型识别，种类不限 |
-| 🖱️ | **拟人交互** | 拖拽轨迹自带加减速、抖动和微过冲；穿透 Shadow DOM 与 iframe 定位；跨域 iframe 执行脚本 |
-| 📥 | **下载管理器** | 接管网页所有下载：进度、断点续传、复制链接，Agent 存的媒体也进列表；Agent 用 `download` 查落盘路径（`action: list`，可等下载完成）、暂停/继续/取消/重试/打开/移除、改保存目录 |
-| 🎨 | **画布绘制** | 路径点、贝塞尔曲线（SVG path）、海龟命令绘图，画板/签名/Canva 都能画 |
-| 📹 | **截图与录屏** | 网页视口截图直接回给 Agent；主界面、网页、遮罩和弹层合成整窗预览；窗口录屏成 mp4；页面视频 captureStream 录制，抓不到轨的流媒体也能存 |
-| 🧭 | **诊断** | 控制台与 JS 错误、页面内查找、加载等待；alert / confirm 按策略自动处理，不再把标签卡住；截图默认带坐标网格（`grid`，可关）：网页截图用页面视口坐标，应用截图用内容区坐标，局部截图带起点角标，颜色按背景自动选 |
-| 🪟 | **生命周期** | 关窗保留登录、运行时切有头/无头、恢复刚关的标签、复制 / 静音 / 关闭其他标签 |
-| 🧰 | **工具按需加载** | MCP 默认只暴露核心工具，其余用 `search_tools` 按关键词检索（名称/描述/分组、分页、带参数 schema），设置里可切回全量 |
-| 🕵️ | **网络抓包** | 标签级 HTTP 记录与导出 HAR，请求头 Cookie 只留本机 |
-| 🖱️ | **智能右键菜单** | 按元素类型出菜单：链接开新标签、图像另存、视频音频另存，保存弹系统对话框 |
+<p align="center">
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
+</p>
 
 ---
 
-## 💡 技术亮点
+## ▶️ Watch it run
 
-### 人机共驾的控制权模型
+[![Taking an online exam in Wenjuanxing: five questions answered, 100 points](website/public/demos/run-poster.jpg)](https://browser.xyun.dev/#demo)
 
-同一个标签有三种状态：人操作、Agent 操作、共享。Agent 上手时页面盖「正在操作」遮罩，人点「接管」即刻交还；做完了 Agent 再锁定回来。登录态始终在环境自己的 session 分区里，两边看到的是同一个页面、同一份 Cookie。
+A real task: open a "general knowledge" exam on Wenjuanxing, read each question, pick answers, submit — five out of five, 100 points. Thirteen seconds, silent loop; play it on the [home page](https://browser.xyun.dev/#demo), the file is [run.mp4](website/public/demos/run.mp4).
 
-### 全平台流媒体提取管线
+## ✨ Features
 
-`page_save_media` 一条命令背后是一条分层管线：站点 provider（B站 `__playinfo__`、YouTube `ytInitialPlayerResponse`，`media/video/` 下一个平台一个文件）→ 性能条目嗅探（DASH 双轨 / 渐进 mp4 / m3u8）→ CDP 网络嗅探（抓 Web Worker 拉流）→ 必要时重载页面从头抓清单。ffmpeg 自动下载到用户目录，合并、转封装都在本机完成。
-
-### 验证码的三层引擎
-
-滑块验证码按 cv（内置视觉算法，零依赖）→ ddddocr（开源 OCR/识别库）→ onnx（自托管模型）顺序降级；识别完用拟人轨迹拖过去，失败自动换图重试。搞不定的类型（图标点选、五子棋……）截出面板图和坐标映射，交给会看图的 Agent 自己点。
+|     | Feature | What it does |
+| --- | ------- | ------------ |
+| 🪟 | **Human and agent, same window** | You sign in and solve captchas; the agent continues in that window. An overlay says the agent is working, and you can take over at any moment |
+| 🕘 | **Everyday browsing** | History and bookmarks isolated per environment; address bar select-all with history and bookmark completion; last session restored on start; error pages, progress bar; tab search and hibernation |
+| 🔑 | **Passwords** | Credentials are saved on submit and filled next time in the same environment. Encrypted with the system keychain and stored locally; review or delete them in Settings. Without a usable keychain (common on headless Ubuntu) they fall back to local encoding and Settings marks them as unencrypted |
+| 🗂️ | **Data tools** | Bookmarks, history, sessions and cookies all have agent tools: list, add, remove, clear by domain — no UI clicking |
+| 🛡️ | **Privacy** | Clear history, cookies and cache per environment; site permission prompts (camera, microphone, notifications, location) with remember-this-choice |
+| 🔐 | **Isolated environments** | Many environments in one process, each with its own window and its own login state. Closing a window keeps the logins |
+| 🔄 | **Workflow engine** | Node graphs (click, fill, loop, script, captcha) run end to end without asking each time; one-click install from the built-in market |
+| 🎬 | **Streaming media** | Bilibili, Douyin and YouTube DASH tracks merged into mp4; m3u8 for CCTV and AcFun; Sohu segmented mp4 merged; Tencent player streams via CDP sniffing |
+| 🧩 | **Captchas** | Geetest sliders fully automatic (cv, ddddocr and onnx engines with fallback); any other type is screenshotted for a vision model, no type list to maintain |
+| 🖱️ | **Human-like input** | Drag tracks with acceleration, jitter and slight overshoot; piercing through shadow DOM and iframes; scripts inside cross-origin iframes |
+| 📥 | **Downloads** | All page downloads are captured: progress, resume, copy link, agent-saved media included. Agents use `download` (`action: list`, optionally waiting) to find files on disk, pause, resume, cancel, retry, open, remove, or change the folder |
+| 🎨 | **Canvas drawing** | Path points, SVG paths with beziers, turtle commands — whiteboards, signature pads, Canva |
+| 📹 | **Screenshots and recording** | Viewport screenshots returned to the agent; composited app preview including overlays; window recording to mp4; page video via captureStream when tracks cannot be fetched |
+| 🧭 | **Diagnostics** | Console and JS errors, find in page, load waiting; alert and confirm answered by policy so tabs never block; screenshots carry a coordinate grid by default (`grid`, can be turned off) with viewport coordinates for pages and content-area coordinates for the app |
+| 🪟 | **Lifecycle** | Close a window and keep logins, switch headed or headless at runtime, reopen closed tabs, duplicate, mute or close other tabs |
+| 🧰 | **Tools on demand** | MCP exposes core tools by default and the rest through `search_tools` (names, descriptions, groups, pagination, schemas); Settings can switch back to everything |
+| 🕵️ | **Network capture** | Per-tab HTTP recording and HAR export; cookies in headers never leave the machine |
+| 🖱️ | **Context menus by element** | Links open in a new tab, images and media save as, with the system save dialog |
 
 ---
 
-## 🚀 快速开始
+## 💡 Engineering notes
 
-### 1. 下载安装
+### Who is driving
 
-前往 [Releases](https://github.com/xy200303/browserpilot/releases/latest) 下载（未做代码签名）：
+A tab has three states: user, agent, shared. When the agent takes the wheel an overlay covers the page; the user can take over instantly and the agent locks it again when done. Logins always live in the environment's own session partition, so both sides see the same page and the same cookies.
 
-| 平台 | 文件 |
-| ---- | ---- |
-| Windows x64 | `BrowserPilot.Setup.<版本号>.exe`、`BrowserPilot-<版本号>-win.zip` |
-| macOS（Apple Silicon） | `BrowserPilot-<版本号>-arm64.dmg`、`BrowserPilot-<版本号>-arm64-mac.zip` |
-| Linux x64 | `BrowserPilot-<版本号>.AppImage`、`browserpilot_<版本号>_amd64.deb` |
+### One pipeline for every streaming site
 
-> ⚠️ **Windows**：SmartScreen 提示"未知发布者"时，点「更多信息」→「仍要运行」。
-> ⚠️ **macOS**：提示"应用已损坏"时执行 `xattr -cr /Applications/BrowserPilot.app`。
+A single `page_save_media` call sits on top of layered extraction: site providers (Bilibili `__playinfo__`, YouTube `ytInitialPlayerResponse`, one file per platform under `media/video/`) → performance entries (DASH tracks, progressive mp4, m3u8) → CDP network sniffing for player workers → reload and re-read the manifest when needed. ffmpeg is downloaded into the user directory and merging happens locally.
 
-### 2. 交给 Agent
+### Three engines for captchas
 
-打开 BrowserPilot，在设置的「通用」里确认 MCP 开着。然后把下面这段话发给 Claude Code、Kimi Code、Codex、Cursor、WorkBuddy 或 CodeBuddy：
+Slider captchas degrade through cv (built-in vision, no dependencies) → ddddocr → onnx. The drag uses a human-like track and retries with a fresh image on failure. Anything else (icon picking, board games) is screenshotted with a coordinate mapping and handed to a vision-capable agent.
+
+---
+
+## 🚀 Getting started
+
+### 1. Install
+
+Download from [Releases](https://github.com/xy200303/browserpilot/releases/latest) (builds are not code-signed):
+
+| Platform | Files |
+| -------- | ----- |
+| Windows x64 | `BrowserPilot.Setup.<version>.exe`, `BrowserPilot-<version>-win.zip` |
+| macOS (Apple Silicon) | `BrowserPilot-<version>-arm64.dmg`, `BrowserPilot-<version>-arm64-mac.zip` |
+| Linux x64 | `BrowserPilot-<version>.AppImage`, `browserpilot_<version>_amd64.deb` |
+
+> ⚠️ **Windows**: if SmartScreen reports an unknown publisher, choose More info → Run anyway.
+> ⚠️ **macOS**: if macOS says the app is damaged, run `xattr -cr /Applications/BrowserPilot.app`.
+
+### 2. Hand it to your agent
+
+Open BrowserPilot and check that MCP is enabled in Settings → General. Then send this to Claude Code, Kimi Code, Codex, Cursor, WorkBuddy or CodeBuddy:
 
 ```text
-请安装 BrowserPilot 配套 skill：读取 https://raw.githubusercontent.com/xy200303/browserpilot/main/skills/browserpilot/SKILL.md 并安装到你的用户级 skills 目录，再读取本机 BrowserPilot 的 mcp.json（Windows 是 %APPDATA%\BrowserPilot\mcp.json），只把名为 browserpilot 的 MCP 注册到你自己的配置里，其它服务器不要动；完成后用这个 skill 操作 BrowserPilot。
+Install the BrowserPilot skill: read https://raw.githubusercontent.com/xy200303/browserpilot/main/skills/browserpilot/SKILL.md and install it into your user-level skills directory. Then read the local BrowserPilot mcp.json (on Windows: %APPDATA%\BrowserPilot\mcp.json) and register only the server named browserpilot in your own configuration; leave other servers untouched. Use this skill to operate BrowserPilot afterwards.
 ```
 
-连接口令写在本机 `mcp.json`，不进入代码仓库，也不要贴到对话里。
-也可以直接点 设置 > 通用 > 接入 Agent 的「复制提示词」：这段提示词里有 MCP 地址和口令、skill 安装地址、命令行用法，Agent 拿到就能自己装 skill、注册 MCP。
+The connection token lives in the local `mcp.json`, never in the repository, and should not be pasted into chat. You can also open Settings → General → Connect an agent and press Copy prompt: it contains the MCP address and token, the skill URL and CLI usage, enough for an agent to wire itself up.
 
+### 3. Command line (optional)
 
-### 3. 命令行（可选）
-
-MCP 不可用时用 CLI。Windows 安装后可直接运行 `browserpilot`（窗口没开会先启动）：
+The CLI is the fallback when MCP is unavailable. On Windows the installed app puts `browserpilot` on PATH (it starts the app if no window is open):
 
 ```bash
-browserpilot tools                 # 列出全部工具
-browserpilot search 截图             # 按关键词搜索工具（名称/描述/分组）
-browserpilot search page --page 2 --page-size 5   # 分页；加 --json 输出原始结果
-browserpilot schema page_click     # 查看参数
-browserpilot call page_navigate --json-file nav.json   # 中文参数写进 JSON 文件
+browserpilot tools                 # list every tool
+browserpilot search screenshot     # search by keyword (name, description, group)
+browserpilot search page --page 2 --page-size 5   # paginate; --json for raw output
+browserpilot schema page_click     # show parameters
+browserpilot call page_navigate --json-file nav.json   # non-ASCII arguments via JSON file
 ```
 
 ---
 
-## 🛒 工作流市场
+## 🛒 Workflow market
 
-地址栏右侧「工作流」打开市场：搜索、安装、填参数自己跑，或「交给 Agent」由它调用 `workflow_run`。线上目录是独立仓库 [xy200303/browserpilot-market](https://github.com/xy200303/browserpilot-market)，每次打开都从 GitHub 拉最新。
+The Workflows button on the right of the address bar opens the market: search, install, fill parameters and run, or hand it to an agent that calls `workflow_run`. The catalog is a separate repository, [xy200303/browserpilot-market](https://github.com/xy200303/browserpilot-market), fetched from GitHub on every open.
 
-市场现有：BOSS 直聘自动投递（循环筛薪资、自动过验证码）、B站视频按 BV 号下载、股吧采集导出 CSV、极验滑块等。把自己的工作流放进市场：JSON 提交到该仓库并在 `index.json` 登记，应用只下载不回传。
+Current entries include BOSS Zhipin auto-apply (salary filtering in a loop, captcha handling), Bilibili download by BV id, stock forum scraping to CSV, and Geetest sliders. To publish your own: submit the JSON to that repository and register it in `index.json`; the app only downloads, never uploads.
 
 ---
 
-## 🛠️ 本地开发
+## 🛠️ Local development
 
 ```bash
 npm install
-npm run dev          # 开发模式
-npm run typecheck    # 类型检查
-npm run build        # 构建
-npm run dist:win     # 打包当前平台（dist:mac / dist:linux 同理）
-npm run deploy:win   # 免安装器：覆盖安装目录并重启
+npm run dev          # development
+npm run typecheck    # type checking
+npm run build        # build
+npm run dist:win     # package for the current platform (dist:mac, dist:linux)
+npm run deploy:win   # skip the installer: overwrite the install dir and restart
 ```
 
-推送到 `main` 会跑类型检查和构建；打上与 `package.json` 版本一致的 tag（如 `v0.13.0`）后，CI 在 Windows / macOS / Linux 三端打包并发布 Release。
+Pushes to `main` run typecheck and build; pushing a tag that matches `package.json` (for example `v0.17.1`) makes CI package on Windows, macOS and Linux and publish a release.
 
-官网在 `website/`，本地预览：
+The website lives in `website/`:
 
 ```bash
 cd website
@@ -148,26 +150,26 @@ npm install
 npm run dev
 ```
 
-官网发布由 `.github/workflows/pages.yml` 负责，推送 `website/**` 后自动构建到 GitHub Pages，线上地址是 [browser.xyun.dev](https://browser.xyun.dev/)。
+`.github/workflows/pages.yml` publishes it to GitHub Pages on pushes touching `website/**`; the live site is [browser.xyun.dev](https://browser.xyun.dev/).
 
-## 📁 项目结构
+## 📁 Layout
 
 ```
-├── src/main/          # 主进程：窗口/标签/环境、页面操作、抓包
-│   ├── media/         # 媒体保存：video/ image/ audio/ canvas/ 按类型分目录
-│   │   └── video/     #   平台 provider 一个文件（bilibili.ts、youtube.ts…）
-│   ├── services/      # MCP、工作流引擎、下载、抓包、ffmpeg
-│   └── captcha.ts     # 验证码检测器注册表
-├── src/preload/       # 页面右键信号、性能缓冲扩容
-├── src/renderer/      # React 界面（标签栏、设置、下载、工作流编辑器）
-├── cli/               # Go 版命令行（与 MCP 同一套工具）
-├── skills/            # Agent 使用说明（SKILL.md）
-├── website/           # 官网与文档（VitePress，browser.xyun.dev）
-└── .github/           # CI 三平台打包 + Pages 官网发布
+├── src/main/          # main process: windows, tabs, environments, page control, capture
+│   ├── media/         # media saving: video/ image/ audio/ canvas/ by kind
+│   │   └── video/     #   one provider per platform (bilibili.ts, youtube.ts…)
+│   ├── services/      # MCP, workflow engine, downloads, capture, ffmpeg
+│   └── captcha.ts     # captcha detector registry
+├── src/preload/       # page context-menu signals, performance buffer resize
+├── src/renderer/      # React UI (tab strip, settings, downloads, workflow editor)
+├── cli/               # Go CLI over the same tool catalog as MCP
+├── skills/            # agent instructions (SKILL.md)
+├── website/           # site and docs (VitePress, browser.xyun.dev)
+└── .github/           # three-OS packaging and Pages deployment
 ```
 
 ---
 
-## 💬 反馈
+## 💬 Feedback
 
-问题与建议欢迎提 [Issue](https://github.com/xy200303/browserpilot/issues)。
+Issues and suggestions are welcome in [Issues](https://github.com/xy200303/browserpilot/issues).

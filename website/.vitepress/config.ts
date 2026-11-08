@@ -85,13 +85,49 @@ export default defineConfig({
     }
     return head
   },
+  locales: {
+    root: { label: '简体中文', lang: 'zh-CN' },
+    en: {
+      label: 'English',
+      lang: 'en-US',
+      link: '/en/',
+      themeConfig: {
+        nav: [
+          { text: 'Home', link: '/en/' },
+          { text: 'Docs', link: '/en/guide/quickstart' },
+          { text: 'Download', link: '/en/download' }
+        ],
+        sidebar: {
+          '/en/guide/': [
+            {
+              text: 'Getting started',
+              items: [
+                { text: 'Quickstart', link: '/en/guide/quickstart' },
+                { text: 'Core concepts', link: '/en/guide/concepts' },
+                { text: 'Download', link: '/en/download' }
+              ]
+            }
+          ]
+        },
+        outline: { label: 'On this page' },
+        docFooter: { prev: 'Previous', next: 'Next' },
+        lastUpdated: { text: 'Updated' },
+        footer: {
+          message:
+            'Source is public; no LICENSE in the repository yet · <a href="https://github.com/xy200303/browserpilot">GitHub</a> · <a href="https://github.com/xy200303/browserpilot/releases">Releases</a> · <a href="https://github.com/xy200303/browserpilot/issues">Issues</a>',
+          copyright: `Copyright © 2026 ${SITE_NAME} · v${APP_VERSION}`
+        }
+      }
+    }
+  },
   themeConfig: {
     logo: '/logo.svg',
     nav: [
       { text: '首页', link: '/' },
       { text: '演示', link: '/#demo' },
       { text: '文档', link: '/guide/quickstart' },
-      { text: '下载', link: '/download' }
+      { text: '下载', link: '/download' },
+      { text: 'English', link: '/en/' }
     ],
     sidebar: {
       '/guide/': [
