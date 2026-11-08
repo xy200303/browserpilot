@@ -39,6 +39,7 @@ import { saveMedia } from '../page'
 import { netExport, isWatching } from './NetService'
 import { solveCaptcha } from '../captcha'
 import { downloadTargetDir } from './DownloadService'
+import { mt } from '../i18n'
 
 const template = /\{\{#([\w\u4e00-\u9fff.-]+)#\}\}/g
 
@@ -73,7 +74,7 @@ function paramType(raw: unknown, name: string, label: string): WorkflowParamType
   if (raw === 'time-range') return 'time-range'
   if (raw === 'select' || raw === 'radio') return 'select'
   if (raw === 'checkbox' || raw === 'multi-select') return 'checkbox'
-  if ((raw === 'text-input' || raw === 'string' || raw === 'paragraph' || raw == null || raw === '') && /时间|日期/.test(`${name}${label}`)) return 'time'
+  if ((raw === 'text-input' || raw === 'string' || raw === 'paragraph' || raw == null || raw === '') && /时间|日期|time|date/i.test(`${name}${label}`)) return 'time' // i18n-ignore 字段名启发式
   return 'text'
 }
 
@@ -84,7 +85,7 @@ export function workflowWrite(raw: {
   const graph = normalizeLevel(raw.workflow.graph.nodes, raw.workflow.graph.edges)
   assertGraph(graph.nodes, graph.edges)
   const name = raw.app.name.trim()
-  if (!name) throw new Error('工作流需要名称')
+  if (!name) throw new Error(mt('main.wf.nameRequired'))
   const existing = storage.workflows.find((item) => item.app.name === name)
   const icon = raw.app.icon?.trim() || existing?.app.icon || ''
   const saved: WorkflowApp = {
@@ -110,7 +111,7 @@ export function workflowWrite(raw: {
 
 export function findWorkflow(nameOrId: string): WorkflowApp {
   const found = storage.workflows.find((item) => item.id === nameOrId || item.app.name === nameOrId)
-  if (!found) throw new Error(`没有这个工作流 ${nameOrId}`)
+  if (!found) throw new Error(mt('main.wf.noWorkflow', { id: nameOrId }))
   return found
 }
 
@@ -143,14 +144,14 @@ export function importWorkflow(filePath: string): WorkflowApp {
 
 export function importWorkflowText(text: string): WorkflowApp {
   const cleaned = text.replace(/^\uFEFF/, '').trim()
-  if (!cleaned) throw new Error('这个文件是空的')
+  if (!cleaned) throw new Error(mt('main.wf.emptyFile'))
   let raw: unknown
   try {
     raw = JSON.parse(cleaned)
   } catch {
-    throw new Error('这个文件不是 JSON')
+    throw new Error(mt('main.wf.notJson'))
   }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('这个文件不是工作流')
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(mt('main.wf.notWorkflow'))
   const doc = raw as {
     app?: { name?: unknown; description?: unknown; mode?: unknown; icon?: unknown }
     workflow?: { graph?: { nodes?: unknown; edges?: unknown }; environment_variables?: { name: string; value: string }[] }
@@ -158,8 +159,8 @@ export function importWorkflowText(text: string): WorkflowApp {
   const name = typeof doc.app?.name === 'string' ? doc.app.name : ''
   const nodes = doc.workflow?.graph?.nodes
   const edges = doc.workflow?.graph?.edges
-  if (!name || !Array.isArray(nodes) || !Array.isArray(edges)) throw new Error('这个文件里没有工作流图')
-  if (doc.app?.mode && doc.app.mode !== 'workflow') throw new Error('只导入工作流')
+  if (!name || !Array.isArray(nodes) || !Array.isArray(edges)) throw new Error(mt('main.wf.noGraph'))
+  if (doc.app?.mode && doc.app.mode !== 'workflow') throw new Error(mt('main.wf.onlyWorkflow'))
   return workflowWrite({
     app: {
       name,
@@ -231,7 +232,7 @@ export function workflowUpdate(
   }
   if (typeof patch.rename === 'string' && patch.rename.trim() && patch.rename.trim() !== draft.app.name) {
     const name = patch.rename.trim()
-    if (storage.workflows.some((item) => item.id !== draft.id && item.app.name === name)) throw new Error(`已经有这个名称 ${name}`)
+    if (storage.workflows.some((item) => item.id !== draft.id && item.app.name === name)) throw new Error(mt('main.wf.nameTaken', { name }))
     draft.app.name = name
     changed = true
   }
@@ -259,7 +260,7 @@ export function workflowUpdate(
     upsertEdge(graph, edge)
     changed = true
   }
-  if (!changed) throw new Error('没有要更新的内容')
+  if (!changed) throw new Error(mt('main.wf.nothingToUpdate'))
   draft.workflow.graph = normalizeLevel(graph.nodes, graph.edges)
   assertGraph(draft.workflow.graph.nodes, draft.workflow.graph.edges)
   const index = storage.workflows.findIndex((item) => item.id === draft.id)
@@ -281,7 +282,7 @@ function removeNode(graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, id:
     removed = true
     return true
   })
-  if (!removed) throw new Error(`没有这个节点 ${id}`)
+  if (!removed) throw new Error(mt('main.wf.noNode', { id }))
 }
 
 function upsertNode(graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, node: WorkflowNode, parent?: string): void {
@@ -306,7 +307,7 @@ function upsertNode(graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, nod
     inserted = true
     return true
   })
-  if (!inserted) throw new Error(`没有这个循环 ${parent}`)
+  if (!inserted) throw new Error(mt('main.wf.noLoop', { parent }))
 }
 
 function removeEdge(graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, id: string): void {
@@ -318,7 +319,7 @@ function removeEdge(graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, id:
     removed = true
     return true
   })
-  if (!removed) throw new Error(`没有这条连线 ${id}`)
+  if (!removed) throw new Error(mt('main.wf.noEdge', { id }))
 }
 
 function upsertEdge(graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, edge: WorkflowEdge): void {
@@ -344,7 +345,7 @@ function upsertEdge(graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, edg
     placed = true
     return true
   })
-  if (!placed) throw new Error(`连线两端不在同一层 ${edge.source} → ${edge.target}`)
+  if (!placed) throw new Error(mt('main.wf.edgeLevel', { source: edge.source, target: edge.target }))
 }
 
 async function strokeBaseline(tab: TabRuntime, points: Array<{ x: number; y: number }>): Promise<{ sample: Array<{ x: number; y: number }>; before: CanvasSums }> {
@@ -371,7 +372,7 @@ async function strokeTarget(tab: TabRuntime, data: Data, pool: Pool): Promise<{ 
     const now = found && found.total === 1 ? found.matches[0]?.rect : undefined
     if (!now) return
     const drift = Math.max(Math.abs(now.x - box.x), Math.abs(now.y - box.y))
-    if (drift > 2) throw new Error(`落笔时页面移动了 ${Math.round(drift)} 像素`)
+    if (drift > 2) throw new Error(mt('main.wf.dragDrift', { pixels: Math.round(drift) }))
   }
   return { box, guard }
 }
@@ -392,13 +393,13 @@ async function strokeBox(tab: TabRuntime, data: Data, pool: Pool): Promise<{ x: 
   if (Array.isArray(rect) && rect.length === 4) {
     const [x, y, width, height] = rect.map((item) => Number(render(String(item), pool)))
     if (![x, y, width, height].every((value) => Number.isFinite(value)) || width <= 0 || height <= 0) {
-      throw new Error('rect 要给 x、y、width、height 四个数字，宽高要大于 0')
+      throw new Error(mt('main.wf.rectArgs'))
     }
     return { x, y, width, height }
   }
   const raw = data.locator ?? data.target
   const locator = locatorFrom(raw, pool)
-  if (!locator) throw new Error('落笔节点要写 locator（画布元素）或 rect（视口里的区域）')
+  if (!locator) throw new Error(mt('main.wf.strokeTarget'))
   // 只有露不全的时候才滚：有些站点点击后会自己把画布滚到中间，多滚一次坐标就偏了
   const first = await queryLocator(tab, locator).catch(() => undefined)
   const seen = first && first.total === 1 ? first.matches[0]?.rect : undefined
@@ -412,9 +413,9 @@ async function strokeBox(tab: TabRuntime, data: Data, pool: Pool): Promise<{ x: 
   let stable = 0
   for (let attempt = 0; attempt < 16; attempt += 1) {
     const found = await queryLocator(tab, locator)
-    if (found.total !== 1) throw new Error(`落笔目标匹配到 ${found.total} 个，要恰好一个`)
+    if (found.total !== 1) throw new Error(mt('main.wf.strokeAmbiguous', { count: found.total }))
     const next = found.matches[0]?.rect
-    if (!next) throw new Error('落笔目标没有可见区域，先滚进视口')
+    if (!next) throw new Error(mt('main.wf.strokeInvisible'))
     const same = box
       && Math.abs(box.x - next.x) < 0.5
       && Math.abs(box.y - next.y) < 0.5
@@ -425,8 +426,8 @@ async function strokeBox(tab: TabRuntime, data: Data, pool: Pool): Promise<{ x: 
     if (stable >= 2) break
     await sleep(110)
   }
-  if (stable < 2) throw new Error('落笔目标一直在动（页面还在加载或广告在撑页面），等它稳定再跑')
-  if (!box) throw new Error('落笔目标没有可见区域，先滚进视口')
+  if (stable < 2) throw new Error(mt('main.wf.strokeMoving'))
+  if (!box) throw new Error(mt('main.wf.strokeInvisible'))
   return { x: box.x, y: box.y, width: box.w, height: box.h }
 }
 
@@ -437,19 +438,19 @@ const KNOWN_NODE_TYPES = new Set([
 ])
 
 function assertGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]): void {
-  if (!nodes.length) throw new Error('工作流至少要有一个节点')
+  if (!nodes.length) throw new Error(mt('main.wf.nodesRequired'))
   const starts = nodes.filter((node) => node.data.type === 'start')
-  if (starts.length !== 1) throw new Error('工作流需要一个开始节点')
+  if (starts.length !== 1) throw new Error(mt('main.wf.startRequired'))
   const ids = new Set<string>()
   for (const node of nodes) {
-    if (!node.id) throw new Error('节点缺少编号')
-    if (!KNOWN_NODE_TYPES.has(node.data.type)) throw new Error(`不认识的节点类型 ${node.data.type}（${node.id}）`)
-    if (ids.has(node.id)) throw new Error(`节点编号重复 ${node.id}`)
+    if (!node.id) throw new Error(mt('main.wf.nodeNoId'))
+    if (!KNOWN_NODE_TYPES.has(node.data.type)) throw new Error(mt('main.wf.unknownNodeType', { type: node.data.type, id: node.id }))
+    if (ids.has(node.id)) throw new Error(mt('main.wf.dupId', { id: node.id }))
     ids.add(node.id)
-    if (!node.data?.type) throw new Error(`节点 ${node.id} 缺少类型`)
+    if (!node.data?.type) throw new Error(mt('main.wf.nodeNoType', { id: node.id }))
   }
   for (const edge of edges) {
-    if (!ids.has(edge.source) || !ids.has(edge.target)) throw new Error(`连线指向了不存在的节点 ${edge.source} → ${edge.target}`)
+    if (!ids.has(edge.source) || !ids.has(edge.target)) throw new Error(mt('main.wf.edgeMissing', { source: edge.source, target: edge.target }))
   }
   for (const node of nodes) {
     if (node.data.type === 'loop') assertLoop(node.id, node.data as Data, ids)
@@ -459,15 +460,15 @@ function assertGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]): void {
 function assertLoop(ownerId: string, data: Data, used: Set<string>): void {
   const innerNodes = Array.isArray(data.nodes) ? (data.nodes as WorkflowNode[]) : []
   const innerEdges = Array.isArray(data.edges) ? (data.edges as WorkflowEdge[]) : []
-  if (!innerNodes.length) throw new Error(`循环 ${ownerId} 缺少内部节点`)
+  if (!innerNodes.length) throw new Error(mt('main.wf.loopNoInner', { owner: ownerId }))
   const innerIds = new Set<string>()
   for (const inner of innerNodes) {
-    if (!inner.id || innerIds.has(inner.id) || used.has(inner.id)) throw new Error(`循环 ${ownerId} 的内部编号重复或和外面冲突`)
+    if (!inner.id || innerIds.has(inner.id) || used.has(inner.id)) throw new Error(mt('main.wf.loopDupId', { owner: ownerId }))
     innerIds.add(inner.id)
     used.add(inner.id)
   }
   for (const edge of innerEdges) {
-    if (!innerIds.has(edge.source) || !innerIds.has(edge.target)) throw new Error(`循环 ${ownerId} 的连线指向了内部没有的节点`)
+    if (!innerIds.has(edge.source) || !innerIds.has(edge.target)) throw new Error(mt('main.wf.loopEdgeMissing', { owner: ownerId }))
   }
   for (const inner of innerNodes) {
     if (inner.data?.type === 'loop') assertLoop(inner.id, inner.data as Data, used)
@@ -489,7 +490,7 @@ export async function runWorkflow(
     const pool = seed(app, tab, inputs)
     const nodes = new Map(app.workflow.graph.nodes.map((node) => [node.id, node]))
     const start = app.workflow.graph.nodes.find((node) => node.data.type === 'start')
-    if (!start) throw new Error('工作流需要一个开始节点')
+    if (!start) throw new Error(mt('main.wf.startRequired'))
     await walk(tab, nodes, app.workflow.graph.edges, pool, exported, outputs, start.id, new Set(), failed, produced)
     if (!Object.keys(outputs).length && produced.id && pool[produced.id]) Object.assign(outputs, pool[produced.id])
     const takenOver = tab.control === 'shared'
@@ -519,7 +520,7 @@ export async function runWorkflow(
       ok: false,
       workflow: app.id,
       node: failed.node,
-      error: shotError ? `${message}（截图失败：${shotError}）` : message,
+      error: shotError ? mt('main.wf.shotFailed', { message, error: shotError }) : message,
       screenshot: shot,
       har,
       title: tab.title,
@@ -546,7 +547,7 @@ function seed(app: WorkflowApp, tab: TabRuntime, inputs: Record<string, string>)
     if (typeof variable !== 'string' || !variable) continue
     const required = (item as { required?: unknown }).required !== false
     const raw = inputs[variable]
-    if ((raw == null || raw === '') && required) throw new Error(`缺少参数 ${variable}`)
+    if ((raw == null || raw === '') && required) throw new Error(mt('main.wf.missingParam', { name: variable }))
     const type = (item as { type?: unknown }).type
     pool.input[variable] = type === 'number' ? Number(raw ?? 0) : (raw ?? '')
   }
@@ -579,9 +580,9 @@ async function walk(
   failed: { node: string },
   produced: { id: string }
 ): Promise<void> {
-  if (ran.has(id)) throw new Error(`节点 ${id} 被走到了两次，工作流不能成环，也不能汇合`)
+  if (ran.has(id)) throw new Error(mt('main.wf.ranTwice', { id }))
   const node = nodes.get(id)
-  if (!node) throw new Error(`没有这个节点 ${id}`)
+  if (!node) throw new Error(mt('main.wf.noNode', { id }))
   ran.add(id)
   failed.node = id
   const data = node.data as Data
@@ -633,7 +634,7 @@ async function conditionMatches(tab: TabRuntime, condition: unknown, pool: Pool)
   if (operator === 'is') return current === expected
   if (operator === 'not empty') return current.trim() !== ''
   if (operator === 'empty') return current.trim() === ''
-  throw new Error(`不认识的判断 ${operator}`)
+  throw new Error(mt('main.wf.unknownOperator', { operator }))
 }
 
 function collectEnd(data: Data, pool: Pool, outputs: Record<string, unknown>): void {
@@ -679,7 +680,7 @@ async function execNode(
   }
   if (data.type === 'stroke') {
     const path = textOf(data, 'path', pool)
-    if (!path.trim()) throw new Error('落笔节点要写 path（SVG 路径，支持 M/L/H/V/C/S/Q/T/A/Z）')
+    if (!path.trim()) throw new Error(mt('main.wf.strokePathRequired'))
     const viewBox = Array.isArray(data.viewBox) && data.viewBox.length === 2
       ? ([Number(data.viewBox[0]), Number(data.viewBox[1])] as [number, number])
       : undefined
@@ -692,19 +693,19 @@ async function execNode(
       if (!baseline) return
       const result = await checkStroke(tab, baseline.sample, baseline.before)
       if (result.wiped) {
-        throw new Error('这一笔画完被站点重绘覆盖了：它没进站点的文档，只改了屏幕像素。换个画法（用站点自己的工具）或确认目标 canvas 是文档画布，确定要跳过校验就在节点里设 verify: false')
+        throw new Error(mt('main.wf.strokeWiped'))
       }
       const moved = await strokeDrift(tab, data, pool, box)
       if (!result.empty && moved < 2) return
       if (attempt === 0) await sleep(200)
     }
-    throw new Error('这一笔连续两次都没落到位：可能是页面还在加载、广告把版面撑开，或者画笔没选中。确认画布位置稳定后重跑；确定要跳过校验就在节点里设 verify: false')
+    throw new Error(mt('main.wf.strokeMissed'))
   }
   if (data.type === 'fill') {
     const locator = mustLocator(data.locator, pool)
     const text = textOf(data, 'text', pool)
     const entry = data.entry === 'paste' ? 'paste' : data.entry === 'type' ? 'type' : ''
-    if (!entry) throw new Error('填写节点的 entry 要写 type 或 paste')
+    if (!entry) throw new Error(mt('main.wf.entryRequired'))
     await waitForLocator(tab, locator)
     if (entry === 'type') await typeLocator(tab, locator, text, viaOf(data.via))
     else await pasteLocator(tab, locator, text, viaOf(data.via))
@@ -725,11 +726,11 @@ async function execNode(
     const until = locatorFrom(data.until, pool)
     const direction = textOf(data, 'direction', pool)
     if (data.type === 'scroll') {
-      if (direction !== 'up' && direction !== 'down') throw new Error('滚动方向只能是 up 或 down')
+      if (direction !== 'up' && direction !== 'down') throw new Error(mt('main.wf.scrollDir'))
       await scrollPage(tab, direction, gestureOf(data.via), locator, until)
     } else {
       if (direction !== 'up' && direction !== 'down' && direction !== 'left' && direction !== 'right') {
-        throw new Error('滑动方向只能是 up、down、left 或 right')
+        throw new Error(mt('main.wf.swipeDir'))
       }
       await swipePage(tab, direction, locator, until, gestureOf(data.via))
     }
@@ -738,7 +739,7 @@ async function execNode(
   if (data.type === 'upload') {
     const locator = mustLocator(data.locator, pool)
     const paths = Array.isArray(data.paths) ? data.paths.map((item) => render(String(item), pool)) : []
-    if (!paths.length) throw new Error('上传需要本机路径')
+    if (!paths.length) throw new Error(mt('main.wf.uploadPaths'))
     await waitForLocator(tab, locator)
     const target = await resolveLocator(tab, locator)
     await uploadFiles(tab, paths, target.backendNodeId)
@@ -800,7 +801,7 @@ async function execNode(
   if (data.type === 'cdp') {
     const method = textOf(data, 'method', pool)
     const params = renderValue(data.params ?? {}, pool)
-    if (!params || typeof params !== 'object' || Array.isArray(params)) throw new Error('cdp 参数需要对象')
+    if (!params || typeof params !== 'object' || Array.isArray(params)) throw new Error(mt('main.wf.cdpParams'))
     await sendCdp(tab, method, params as Record<string, unknown>)
     return
   }
@@ -831,7 +832,7 @@ async function execNode(
     produced.id = id
     return
   }
-  throw new Error(`不认识这个节点 ${data.type}`)
+  throw new Error(mt('main.wf.unknownNode', { type: data.type }))
 }
 
 async function httpRequest(tab: TabRuntime, data: Data, pool: Pool): Promise<Record<string, unknown>> {
@@ -856,7 +857,7 @@ async function httpRequest(tab: TabRuntime, data: Data, pool: Pool): Promise<Rec
       return { status_code: res.status, body: await res.text() }
     })()`
   )
-  if (!result || typeof result !== 'object') throw new Error('HTTP 请求没有返回')
+  if (!result || typeof result !== 'object') throw new Error(mt('main.wf.httpNoResult'))
   const record = result as Record<string, unknown>
   if (typeof record.body === 'string') {
     try {
@@ -898,7 +899,7 @@ function nodeInputs(data: Data, pool: Pool): Record<string, unknown> {
 
 async function runScript(tab: TabRuntime, data: Data, pool: Pool): Promise<Record<string, unknown>> {
   const source = typeof data.source === 'string' ? data.source : ''
-  if (!source.trim()) throw new Error('页面脚本缺少 source')
+  if (!source.trim()) throw new Error(mt('main.wf.scriptNoSource'))
   const inputs = nodeInputs(data, pool)
   const result = await evalSource(
     tab,
@@ -907,19 +908,19 @@ async function runScript(tab: TabRuntime, data: Data, pool: Pool): Promise<Recor
       return await (async () => { ${source} })();
     })()`
   )
-  return checkOutput(result, data, '页面脚本')
+  return checkOutput(result, data, mt('main.wf.labelScript'))
 }
 
 async function runCode(data: Data, pool: Pool): Promise<Record<string, unknown>> {
   const source = typeof data.code === 'string' ? data.code : ''
-  if (!source.trim()) throw new Error('代码节点缺少 code')
+  if (!source.trim()) throw new Error(mt('main.wf.codeNoCode'))
   const context = vm.createContext({ inputs: nodeInputs(data, pool) })
   const script = new vm.Script(`(async () => {\n${source}\n})()`)
   const result = await Promise.race([
     Promise.resolve(script.runInContext(context) as Promise<unknown>),
-    new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('代码超时')), 120_000))
+    new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error(mt('main.wf.codeTimeout'))), 120_000))
   ])
-  return checkOutput(result, data, '代码节点')
+  return checkOutput(result, data, mt('main.wf.labelCode'))
 }
 
 async function runLoop(
@@ -937,16 +938,16 @@ async function runLoop(
   const bodyEdges = (Array.isArray(data.edges) ? data.edges : []) as WorkflowEdge[]
   const map = new Map(bodyNodes.map((item) => [item.id, item]))
   for (const id of map.keys()) {
-    if (outer.has(id)) throw new Error(`循环内部编号和外面冲突 ${id}`)
+    if (outer.has(id)) throw new Error(mt('main.wf.loopOuterConflict', { id }))
   }
   const targeted = new Set(bodyEdges.map((edge) => edge.target))
   const entries = bodyNodes.filter((item) => !targeted.has(item.id)).map((item) => item.id)
-  if (!entries.length) throw new Error('循环内部需要一个入口')
+  if (!entries.length) throw new Error(mt('main.wf.loopNoEntry'))
   const mode = data.mode === 'until' ? 'until' : 'list'
-  if (mode === 'until' && !data.until) throw new Error('循环缺少 until')
+  if (mode === 'until' && !data.until) throw new Error(mt('main.wf.loopNoUntil'))
   const items = mode === 'list' ? asArray(readSelector(pool, asSelector(data.items_selector))) : []
   const max = typeof data.max === 'number' ? data.max : mode === 'list' ? Math.max(items.length, 1) : 40
-  if (mode === 'list' && items.length > max) throw new Error(`循环列表有 ${items.length} 项，超过上限 ${max}`)
+  if (mode === 'list' && items.length > max) throw new Error(mt('main.wf.loopTooMany', { count: items.length, max }))
   const rounds = mode === 'list' ? items.length : max
   const collected: Record<string, unknown>[] = []
   const saved = pool.loop
@@ -979,24 +980,24 @@ async function runLoop(
   } finally {
     if (saved) pool.loop = saved
   }
-  if (!stopped) throw new Error(`循环超过 ${max} 次`)
+  if (!stopped) throw new Error(mt('main.wf.loopExceeded', { max }))
   return { output: collected, index: collected.length }
 }
 
 function asArray(value: unknown): unknown[] {
-  if (!Array.isArray(value)) throw new Error('循环列表必须是数组')
+  if (!Array.isArray(value)) throw new Error(mt('main.wf.loopNotArray'))
   return value
 }
 
 function checkOutput(result: unknown, data: Data, label: string): Record<string, unknown> {
-  if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error(`${label}必须 return 一个对象`)
+  if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error(mt('main.wf.mustReturnObject', { label }))
   const output = result as Record<string, unknown>
   const schema = data.outputs
   if (schema && typeof schema === 'object' && !Array.isArray(schema)) {
     for (const [key, spec] of Object.entries(schema as Record<string, { type?: string }>)) {
-      if (!(key in output)) throw new Error(`${label}缺少输出 ${key}`)
+      if (!(key in output)) throw new Error(mt('main.wf.missingOutput', { label, key }))
       const expected = spec?.type
-      if (expected && !typeMatches(output[key], expected)) throw new Error(`${label}的 ${key} 不是 ${expected}`)
+      if (expected && !typeMatches(output[key], expected)) throw new Error(mt('main.wf.wrongType', { label, key, type: expected }))
     }
   }
   return output
@@ -1014,23 +1015,23 @@ function typeMatches(value: unknown, expected: string): boolean {
 function extractText(data: Data, pool: Pool): Record<string, unknown> {
   const source = asText(readSelector(pool, asSelector(data.variable_selector)))
   const pattern = typeof data.pattern === 'string' ? data.pattern : ''
-  if (!pattern) throw new Error('正则缺少 pattern')
+  if (!pattern) throw new Error(mt('main.wf.regexNoPattern'))
   const flags = typeof data.flags === 'string' ? data.flags : ''
-  if ([...flags].some((flag) => !'imsgu'.includes(flag))) throw new Error('正则 flags 只允许 i、m、s、g、u')
+  if ([...flags].some((flag) => !'imsgu'.includes(flag))) throw new Error(mt('main.wf.regexFlags'))
   const expression = new RegExp(pattern, flags.includes('g') ? flags : `${flags}g`)
   const matches: string[] = []
   const group = typeof data.group === 'number' ? data.group : 1
   for (const found of source.matchAll(expression)) matches.push(found[group] ?? found[0] ?? '')
-  if (!matches.length) throw new Error('没有匹配到')
+  if (!matches.length) throw new Error(mt('main.wf.noMatch'))
   return { value: matches[0], matches }
 }
 
 function writeExport(data: Data, pool: Pool): string {
   if (Array.isArray(data.data_selector)) {
     const table = readSelector(pool, asSelector(data.data_selector))
-    if (!table || typeof table !== 'object' || Array.isArray(table)) throw new Error('导出需要一个对象')
+    if (!table || typeof table !== 'object' || Array.isArray(table)) throw new Error(mt('main.wf.exportNeedsObject'))
     const record = table as Record<string, unknown>
-    if (typeof record.filename !== 'string') throw new Error('导出对象缺少 filename')
+    if (typeof record.filename !== 'string') throw new Error(mt('main.wf.exportNoFilename'))
     return writeTable(record.filename, asStringList(record.headers), asRows(record.rows))
   }
   const filename = textOf(data, 'filename', pool)
@@ -1041,7 +1042,7 @@ function writeExport(data: Data, pool: Pool): string {
 }
 
 function asRows(value: unknown): unknown[][] {
-  if (!Array.isArray(value) || value.some((row) => !Array.isArray(row))) throw new Error('导出行必须是数组的数组')
+  if (!Array.isArray(value) || value.some((row) => !Array.isArray(row))) throw new Error(mt('main.wf.exportRows'))
   return value
 }
 
@@ -1062,7 +1063,7 @@ function csvCell(value: unknown): string {
 }
 
 function asStringList(value: unknown): string[] {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw new Error('表头必须是字符串数组')
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw new Error(mt('main.wf.headersArray'))
   return value
 }
 
@@ -1082,13 +1083,13 @@ function renderValue(value: unknown, pool: Pool): unknown {
 }
 
 function readSelector(pool: Pool, selector: string[]): unknown {
-  if (selector.length < 2) throw new Error('变量选择器至少两段')
+  if (selector.length < 2) throw new Error(mt('main.wf.selectorTooShort'))
   const [node, ...rest] = selector
-  if (!pool[node]) throw new Error(`缺少变量 ${selector.join('.')}`)
+  if (!pool[node]) throw new Error(mt('main.wf.missingVar', { name: selector.join('.') }))
   let current: unknown = pool[node]
   for (const part of rest) {
     if (!current || typeof current !== 'object' || !(part in (current as Record<string, unknown>))) {
-      throw new Error(`缺少变量 ${selector.join('.')}`)
+      throw new Error(mt('main.wf.missingVar', { name: selector.join('.') }))
     }
     current = (current as Record<string, unknown>)[part]
   }
@@ -1096,7 +1097,7 @@ function readSelector(pool: Pool, selector: string[]): unknown {
 }
 
 function asSelector(value: unknown): string[] {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw new Error('变量选择器需要字符串数组')
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw new Error(mt('main.wf.selectorStringArray'))
   return value
 }
 
@@ -1109,7 +1110,7 @@ function asText(value: unknown): string {
 
 function textOf(data: Data, key: string, pool: Pool): string {
   const value = data[key]
-  if (typeof value !== 'string') throw new Error(`节点缺少 ${key}`)
+  if (typeof value !== 'string') throw new Error(mt('main.wf.nodeMissingKey', { key }))
   return render(value, pool)
 }
 
@@ -1117,17 +1118,17 @@ function pointFrom(data: Data, pool: Pool): { x: number; y: number; shot?: { wid
   const hasX = data.x != null && String(data.x) !== ''
   const hasY = data.y != null && String(data.y) !== ''
   if (!hasX && !hasY) return undefined
-  if (!hasX || !hasY) throw new Error('画布坐标要同时写 x 和 y')
+  if (!hasX || !hasY) throw new Error(mt('main.wf.bothXY'))
   const x = Number(render(String(data.x), pool))
   const y = Number(render(String(data.y), pool))
-  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('画布坐标要是数字')
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(mt('main.wf.xyNumber'))
   const hasW = data.shotWidth != null && String(data.shotWidth) !== ''
   const hasH = data.shotHeight != null && String(data.shotHeight) !== ''
-  if (hasW !== hasH) throw new Error('截图宽高要一起写')
+  if (hasW !== hasH) throw new Error(mt('main.wf.bothWH'))
   if (!hasW) return { x, y }
   const width = Number(render(String(data.shotWidth), pool))
   const height = Number(render(String(data.shotHeight), pool))
-  if (!Number.isFinite(width) || !Number.isFinite(height)) throw new Error('截图宽高要是数字')
+  if (!Number.isFinite(width) || !Number.isFinite(height)) throw new Error(mt('main.wf.whNumber'))
   return { x, y, shot: { width, height } }
 }
 
@@ -1151,7 +1152,7 @@ function locatorFrom(raw: unknown, pool: Pool): Locator | undefined {
 
 function mustLocator(raw: unknown, pool: Pool): Locator {
   const locator = locatorFrom(raw, pool)
-  if (!locator) throw new Error('节点缺少定位')
+  if (!locator) throw new Error(mt('main.wf.nodeNoLocator'))
   return locator
 }
 
