@@ -57,6 +57,8 @@ export type WindowRuntime = {
   railOpen: boolean
   railPinned: boolean
   bounds: Bounds
+  // 无头窗口不加载 React 外壳，切回有头时补一次
+  chromeLoaded?: boolean
 }
 
 export const windows = new Map<string, WindowRuntime>()

@@ -177,7 +177,11 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
   win.on('maximize', () => bridge.broadcast(envId))
   win.on('unmaximize', () => bridge.broadcast(envId))
   bindShortcuts(win.webContents, envId)
-  void loadChrome(win)
+  // 无头窗口不加载 React 外壳：没人看，留着只是一个 80MB 的渲染进程；切回有头时再补
+  if (!headless) {
+    runtime.chromeLoaded = true
+    void loadChrome(win)
+  }
   if (headless) {
     win.setOpacity(1)
   } else {
@@ -305,6 +309,10 @@ export function applyHeadless(runtime: WindowRuntime, headless: boolean): void {
     runtime.popupPayload = null
   } else if (previous) {
     // 只在从无头切回有头时显示并聚焦；已经是有头窗口时不要抢焦点
+    if (!runtime.chromeLoaded) {
+      runtime.chromeLoaded = true
+      void loadChrome(runtime.win)
+    }
     runtime.win.show()
     runtime.win.focus()
   }
