@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { ArrowLeft, ArrowRight, Bookmark, Clock3, Download, Moon, MoreVertical, PanelTop, RotateCw, Search, Star, Workflow, X } from 'lucide-react'
+import i18n from './i18n'
 import { searchEngineOf, type AddressSuggestion, type HistoryEntry, type SuggestionFilters, type TabInfo, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 function addressPlaceholder(active: TabInfo | undefined, engineName: string): string {
-  if (active?.kind === 'market') return '工作流'
-  if (active?.kind === 'settings') return '设置'
-  if (active?.kind === 'downloads') return '下载'
-  if (active?.kind === 'runs') return '运行记录'
-  if (active?.kind === 'history') return '历史记录'
-  if (active?.kind === 'bookmarks') return '书签'
+  if (active?.kind === 'market') return i18n.t('address.kind.market')
+  if (active?.kind === 'settings') return i18n.t('address.kind.settings')
+  if (active?.kind === 'downloads') return i18n.t('address.kind.downloads')
+  if (active?.kind === 'runs') return i18n.t('address.kind.runs')
+  if (active?.kind === 'history') return i18n.t('address.kind.history')
+  if (active?.kind === 'bookmarks') return i18n.t('address.kind.bookmarks')
   if (active?.kind === 'workflow') return active.title
-  return `在${engineName}中搜索，或输入网址`
+  return i18n.t('address.placeholder', { engine: engineName })
 }
 
 function LoadProgress({ tab }: { tab: TabInfo | undefined }) {
@@ -111,7 +112,7 @@ export function AddressBar({
       list.push({
         key: 'search',
         kind: 'search',
-        title: query + ' - ' + engine.name + ' 搜索',
+        title: i18n.t('address.searchTitle', { query, engine: engine.name }),
         url: engine.search + encodeURIComponent(query),
         titleIndices: [],
         urlIndices: [],
@@ -131,7 +132,7 @@ export function AddressBar({
     }
     if (filters.tabs) {
       state.tabs.filter((tab) => tab.kind === 'page').forEach((tab, index) => {
-        add('tab', tab.title || '新标签页', tab.url, now - index * 1000, tab.favicon, tab.id, tab.hibernated)
+        add('tab', tab.title || i18n.t('shell.tabs.untitled'), tab.url, now - index * 1000, tab.favicon, tab.id, tab.hibernated)
       })
     }
     const seen = new Set<string>()
@@ -220,9 +221,9 @@ export function AddressBar({
   return (
     <>
       <div className="relative flex h-12 items-center gap-1 bg-[#f3f3f3] px-2">
-        <Button variant="ghost" size="icon" className="no-drag" title="后退" disabled={!state.canBack} onClick={() => void window.browser.back()}><ArrowLeft /></Button>
-        <Button variant="ghost" size="icon" className="no-drag" title="前进" disabled={!state.canForward} onClick={() => void window.browser.forward()}><ArrowRight /></Button>
-        <Button variant="ghost" size="icon" className="no-drag" title={active?.loading ? '停止加载' : '刷新'} onClick={() => {
+        <Button variant="ghost" size="icon" className="no-drag" title={i18n.t('address.nav.back')} disabled={!state.canBack} onClick={() => void window.browser.back()}><ArrowLeft /></Button>
+        <Button variant="ghost" size="icon" className="no-drag" title={i18n.t('address.nav.forward')} disabled={!state.canForward} onClick={() => void window.browser.forward()}><ArrowRight /></Button>
+        <Button variant="ghost" size="icon" className="no-drag" title={active?.loading ? i18n.t('address.nav.stop') : i18n.t('address.nav.reload')} onClick={() => {
           if (active?.loading) {
             void window.browser.stop()
             return
@@ -285,12 +286,12 @@ export function AddressBar({
           />
         </form>
         <LoadProgress tab={active} />
-        <Button variant="ghost" size="icon" className="no-drag" title={bookmarked ? '取消书签' : '添加书签'} onClick={() => void window.browser.toggleBookmark()}><Star fill={bookmarked ? 'currentColor' : 'none'} className={bookmarked ? 'text-amber-500' : ''} /></Button>
+        <Button variant="ghost" size="icon" className="no-drag" title={bookmarked ? i18n.t('address.bookmark.remove') : i18n.t('address.bookmark.add')} onClick={() => void window.browser.toggleBookmark()}><Star fill={bookmarked ? 'currentColor' : 'none'} className={bookmarked ? 'text-amber-500' : ''} /></Button>
         <Button
           variant="ghost"
           size="icon"
           className="no-drag"
-          title="收藏夹"
+          title={i18n.t('address.bookmark.menu')}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect()
             void window.browser.openLayer({ kind: 'bookmarks', x: rect.right, y: rect.bottom })
@@ -298,14 +299,14 @@ export function AddressBar({
         >
           <Bookmark />
         </Button>
-        <Button variant="ghost" size="icon" className="no-drag relative" title="下载" onClick={() => void window.browser.openDownloads()}><Download />{state.downloads.some((d) => d.state === 'progressing') && <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-blue-600" />}</Button>
-        <Button variant="ghost" size="icon" className="no-drag" title="工作流" onClick={() => void window.browser.openMarket()}><Workflow /></Button>
-        {state.screenRecording && <span className="rounded-md bg-destructive px-1.5 py-0.5 text-xs text-white">录屏</span>}
+        <Button variant="ghost" size="icon" className="no-drag relative" title={i18n.t('address.downloads')} onClick={() => void window.browser.openDownloads()}><Download />{state.downloads.some((d) => d.state === 'progressing') && <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-blue-600" />}</Button>
+        <Button variant="ghost" size="icon" className="no-drag" title={i18n.t('address.market')} onClick={() => void window.browser.openMarket()}><Workflow /></Button>
+        {state.screenRecording && <span className="rounded-md bg-destructive px-1.5 py-0.5 text-xs text-white">{i18n.t('shell.screen.badge')}</span>}
         <Button
           variant="ghost"
           size="icon"
           className="no-drag"
-          title="菜单"
+          title={i18n.t('address.menu')}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect()
             void window.browser.openLayer({ kind: 'menu', x: rect.right, y: rect.bottom })

@@ -14,7 +14,9 @@
     "dist:win": "npm run cli:build && electron-vite build && electron-builder --win --publish never",
     "deploy:win": "powershell -ExecutionPolicy Bypass -File scripts/deploy-local.ps1",
     "dist:mac": "npm run cli:build && electron-vite build && electron-builder --mac --publish never",
-    "dist:linux": "npm run cli:build && electron-vite build && electron-builder --linux --publish never"
+    "dist:linux": "npm run cli:build && electron-vite build && electron-builder --linux --publish never",
+    "i18n:scan": "node scripts/i18n-scan.mjs",
+    "i18n:check": "node scripts/i18n-scan.mjs --fail-on-zh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",

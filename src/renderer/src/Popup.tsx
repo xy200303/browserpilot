@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import i18n from './i18n'
 import type { LayerPayload, SuggestPayload, TabInfo, UiState } from '../../shared/types'
 import { Button } from '@/components/ui/button'
 import {
@@ -66,7 +67,7 @@ export function PopupApp() {
 
   return (
     <div className={`relative flex h-full w-full items-center justify-center ${dim ? 'bg-black/10' : ''}`}>
-      <button type="button" aria-label="关闭" className="absolute inset-0 cursor-default" onClick={close} />
+      <button type="button" aria-label={i18n.t('shell.common.close')} className="absolute inset-0 cursor-default" onClick={close} />
       {layer.kind === 'menu' && state && <WindowMenu x={layer.x} y={layer.y} state={state} close={close} />}
       {layer.kind === 'context' && state && !groupFor && (
         <TabMenu x={layer.x} y={layer.y} state={state} tab={layer.tab} close={close} onGroup={() => setGroupFor(layer.tab)} />
@@ -127,8 +128,8 @@ function GroupForm({
       }}
     >
       <div>
-        <div className="text-base font-medium">加入分组</div>
-        <p className="mt-1 text-xs text-muted-foreground">输入分组名称。已有同名分组时，这个标签会放进那一组。</p>
+        <div className="text-base font-medium">{i18n.t('menu.group.title')}</div>
+        <p className="mt-1 text-xs text-muted-foreground">{i18n.t('menu.group.detail')}</p>
       </div>
       {state.groups.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -148,10 +149,10 @@ function GroupForm({
           ))}
         </div>
       )}
-      <Input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="分组名称" />
+      <Input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder={i18n.t('menu.group.placeholder')} />
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={close}>取消</Button>
-        <Button type="submit">确定</Button>
+        <Button type="button" variant="ghost" onClick={close}>{i18n.t('shell.common.cancel')}</Button>
+        <Button type="submit">{i18n.t('shell.common.ok')}</Button>
       </div>
     </form>
   )
@@ -164,16 +165,16 @@ function after(task: Promise<unknown>, close: () => void): void {
 function WindowMenu({ x, y, state, close }: { x: number; y: number; state: UiState; close: () => void }) {
   return (
     <AnchoredMenu x={x} y={y} align="end" className="w-52">
-      <DropdownMenuItem onSelect={() => after(window.browser.createEnv({ name: '新环境' }), close)}>新建环境</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => after(window.browser.copyEnv(), close)}>复制 Agent 提示词</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => after(window.browser.devtools(), close)}>开发者工具</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => after(window.browser.toggleScreen(), close)}>{state.screenRecording ? '停止录屏' : '开始录屏'}</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => after(window.browser.openHistoryPage(), close)}>历史记录</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => void window.browser.openLayer({ kind: 'bookmarks', x, y })}>书签</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => void window.browser.openTabSearch()}>搜索标签页<DropdownMenuShortcut>Ctrl+Shift+A</DropdownMenuShortcut></DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => after(window.browser.restoreTab(), close)}>重新打开关闭的标签页</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.createEnv({ name: i18n.t('menu.newEnv') }), close)}>{i18n.t('menu.newEnv')}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.copyEnv(), close)}>{i18n.t('menu.copyAgentPrompt')}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.devtools(), close)}>{i18n.t('menu.devtools')}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.toggleScreen(), close)}>{state.screenRecording ? i18n.t('menu.stopScreen') : i18n.t('menu.startScreen')}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.openHistoryPage(), close)}>{i18n.t('menu.history')}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void window.browser.openLayer({ kind: 'bookmarks', x, y })}>{i18n.t('menu.bookmarks')}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void window.browser.openTabSearch()}>{i18n.t('menu.searchTabs')}<DropdownMenuShortcut>Ctrl+Shift+A</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.restoreTab(), close)}>{i18n.t('menu.reopenTab')}</DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem onSelect={() => after(window.browser.openSettings(), close)}>设置</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => after(window.browser.openSettings(), close)}>{i18n.t('menu.settings')}</DropdownMenuItem>
     </AnchoredMenu>
   )
 }
@@ -196,26 +197,26 @@ function TabMenu({
   const vertical = state.layout === 'left'
   return (
     <AnchoredMenu x={x} y={y} align="start" className="w-72">
-      <DropdownMenuItem onSelect={() => { void window.browser.copyTab(tab.id); close() }}>复制标签提示词</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => { void window.browser.devtoolsTab(tab.id); close() }}>开发者工具</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.copyTab(tab.id); close() }}>{i18n.t('menu.copyTabPrompt')}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.devtoolsTab(tab.id); close() }}>{i18n.t('menu.devtools')}</DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem onSelect={() => { void window.browser.openTabBelow(tab.id); close() }}>在下方新建标签页</DropdownMenuItem>
-      <DropdownMenuItem onSelect={onGroup}>将标签页添加到新组</DropdownMenuItem>
-      {tab.groupId && <DropdownMenuItem onSelect={() => { void window.browser.assignGroup({ tabId: tab.id, groupId: null }); close() }}>移出分组</DropdownMenuItem>}
+      <DropdownMenuItem onSelect={() => { void window.browser.openTabBelow(tab.id); close() }}>{i18n.t('menu.newTabBelow')}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={onGroup}>{i18n.t('menu.addToGroup')}</DropdownMenuItem>
+      {tab.groupId && <DropdownMenuItem onSelect={() => { void window.browser.assignGroup({ tabId: tab.id, groupId: null }); close() }}>{i18n.t('menu.removeFromGroup')}</DropdownMenuItem>}
       <DropdownMenuSeparator />
-      <DropdownMenuItem onSelect={() => { void window.browser.reloadTab(tab.id); close() }}>刷新<DropdownMenuShortcut>Ctrl+R</DropdownMenuShortcut></DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => { void window.browser.duplicateTab(tab.id); close() }}>复制标签页<DropdownMenuShortcut>Ctrl+Shift+K</DropdownMenuShortcut></DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => { void window.browser.pinTab(tab.id); close() }}>{tab.pinned ? '取消固定标签页' : '固定标签页'}</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => { void window.browser.muteTab(tab.id); close() }}>{tab.muted ? '取消标签页静音' : '使标签页静音'}<DropdownMenuShortcut>Ctrl+M</DropdownMenuShortcut></DropdownMenuItem>
-      <DropdownMenuItem disabled={tab.hibernated || tab.kind !== 'page' || tab.active} onSelect={() => { void window.browser.hibernateTab(tab.id); close() }}>休眠标签页</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => { void window.browser.hibernateOtherTabs(); close() }}>休眠其他标签页</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.reloadTab(tab.id); close() }}>{i18n.t('menu.reload')}<DropdownMenuShortcut>Ctrl+R</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.duplicateTab(tab.id); close() }}>{i18n.t('menu.duplicateTab')}<DropdownMenuShortcut>Ctrl+Shift+K</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.pinTab(tab.id); close() }}>{tab.pinned ? i18n.t('menu.unpin') : i18n.t('menu.pin')}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.muteTab(tab.id); close() }}>{tab.muted ? i18n.t('menu.unmuteTab') : i18n.t('menu.muteTab')}<DropdownMenuShortcut>Ctrl+M</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuItem disabled={tab.hibernated || tab.kind !== 'page' || tab.active} onSelect={() => { void window.browser.hibernateTab(tab.id); close() }}>{i18n.t('menu.hibernateTab')}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.hibernateOtherTabs(); close() }}>{i18n.t('menu.hibernateOthers')}</DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem onSelect={() => { void window.browser.closeTab(tab.id); close() }}>关闭标签页<DropdownMenuShortcut>Ctrl+W</DropdownMenuShortcut></DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => { void window.browser.closeOtherTabs(tab.id); close() }}>关闭其他标签页</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => { void window.browser.closeTabsBelow(tab.id); close() }}>关闭以下标签页</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.closeTab(tab.id); close() }}>{i18n.t('menu.closeTab')}<DropdownMenuShortcut>Ctrl+W</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.closeOtherTabs(tab.id); close() }}>{i18n.t('menu.closeOthers')}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.closeTabsBelow(tab.id); close() }}>{i18n.t('menu.closeBelow')}</DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem onSelect={() => { void window.browser.restoreTab(); close() }}>重新打开关闭的标签页<DropdownMenuShortcut>Ctrl+Shift+T</DropdownMenuShortcut></DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => { void window.browser.updateSettings({ tabLayout: vertical ? 'top' : 'left' }); close() }}>{vertical ? '关闭垂直标签页' : '打开垂直标签页'}<DropdownMenuShortcut>Ctrl+Shift+,</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.restoreTab(); close() }}>{i18n.t('menu.reopenTab')}<DropdownMenuShortcut>Ctrl+Shift+T</DropdownMenuShortcut></DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void window.browser.updateSettings({ tabLayout: vertical ? 'top' : 'left' }); close() }}>{vertical ? i18n.t('menu.verticalOff') : i18n.t('menu.verticalOn')}<DropdownMenuShortcut>Ctrl+Shift+,</DropdownMenuShortcut></DropdownMenuItem>
     </AnchoredMenu>
   )
 }

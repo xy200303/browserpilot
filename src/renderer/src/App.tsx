@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
-import { applyLanguage } from './i18n'
+import i18n, { applyLanguage } from './i18n'
 import { ChevronLeft, ChevronRight, Minus, Moon, Plus, Square, TriangleAlert, Volume2, VolumeX, X } from 'lucide-react'
 import type { LanguageSetting, TabInfo, UiState } from '../../shared/types'
+import { useTranslation } from 'react-i18next'
 import { MarketPage } from './MarketPage'
 import { SettingsPage } from './Settings'
 import { WorkflowEditor } from './Workflow'
@@ -64,7 +65,7 @@ export function App() {
     const offStart = window.browser.onScreenStart(async () => {
       try {
         const mime = pickMime()
-        if (!mime) throw new Error('这次没能写成 mp4')
+        if (!mime) throw new Error(i18n.t('shell.screen.noMp4'))
         recordMime = mime
         const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false })
         // 这条轨道不接到一个正在播放的 video 上时，录出来是空的。
@@ -99,7 +100,7 @@ export function App() {
         failed?.stream.getTracks().forEach((track) => track.stop())
         recordPreview?.remove()
         recordPreview = null
-        const message = error instanceof Error ? error.message : '录屏没有开始'
+        const message = error instanceof Error ? error.message : i18n.t('shell.screen.notStarted')
         await window.browser.screenFailed(message)
       }
     })
@@ -156,6 +157,7 @@ export function App() {
 }
 
 function TabStrip({ state }: { state: UiState }) {
+  const { t } = useTranslation()
   const pinnedTabs = state.tabs.filter((tab) => tab.pinned)
   const looseTabs = state.tabs.filter((tab) => !tab.pinned && !tab.groupId)
   const stripRef = useRef<HTMLDivElement>(null)
@@ -189,7 +191,7 @@ function TabStrip({ state }: { state: UiState }) {
   return (
     <div className="flex min-w-0 flex-1 items-end">
       {canLeft && (
-        <Button variant="ghost" size="icon" className="no-drag mb-0 h-7 w-5 shrink-0 rounded-full" title="向左滚动" onClick={() => scrollStrip(-240)}>
+        <Button variant="ghost" size="icon" className="no-drag mb-0 h-7 w-5 shrink-0 rounded-full" title={t('shell.tabs.scrollLeft')} onClick={() => scrollStrip(-240)}>
           <ChevronLeft />
         </Button>
       )}
@@ -236,11 +238,11 @@ function TabStrip({ state }: { state: UiState }) {
         ))}
       </div>
       {canRight && (
-        <Button variant="ghost" size="icon" className="no-drag mb-0 h-7 w-5 shrink-0 rounded-full" title="向右滚动" onClick={() => scrollStrip(240)}>
+        <Button variant="ghost" size="icon" className="no-drag mb-0 h-7 w-5 shrink-0 rounded-full" title={t('shell.tabs.scrollRight')} onClick={() => scrollStrip(240)}>
           <ChevronRight />
         </Button>
       )}
-      <Button variant="ghost" size="icon" className="no-drag shrink-0" title="新标签" onClick={() => void window.browser.newTab()}>
+      <Button variant="ghost" size="icon" className="no-drag shrink-0" title={t('shell.tabs.new')} onClick={() => void window.browser.newTab()}>
         <Plus />
       </Button>
     </div>
@@ -248,21 +250,23 @@ function TabStrip({ state }: { state: UiState }) {
 }
 
 function WindowButtons({ maximized }: { maximized: boolean }) {
+  const { t } = useTranslation()
   return (
     <div className="no-drag flex shrink-0">
-      <Button variant="ghost" className="h-10 w-12 rounded-none" title="最小化" onClick={() => void window.browser.minimize()}><Minus /></Button>
-      <Button variant="ghost" className="h-10 w-12 rounded-none" title={maximized ? '还原' : '最大化'} onClick={() => void window.browser.toggleMaximize()}><Square /></Button>
-      <Button variant="ghost" className="h-10 w-12 rounded-none hover:bg-destructive hover:text-white" title="关闭" onClick={() => void window.browser.closeWindow()}><X /></Button>
+      <Button variant="ghost" className="h-10 w-12 rounded-none" title={t('shell.window.minimize')} onClick={() => void window.browser.minimize()}><Minus /></Button>
+      <Button variant="ghost" className="h-10 w-12 rounded-none" title={maximized ? t('shell.window.restore') : t('shell.window.maximize')} onClick={() => void window.browser.toggleMaximize()}><Square /></Button>
+      <Button variant="ghost" className="h-10 w-12 rounded-none hover:bg-destructive hover:text-white" title={t('shell.window.close')} onClick={() => void window.browser.closeWindow()}><X /></Button>
     </div>
   )
 }
 
 function EnvNameButton({ state, className }: { state: UiState; className: string }) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
       className={'no-drag truncate rounded px-2 text-sm text-neutral-500 hover:bg-black/5 ' + className}
-      title="编辑环境名称和备注"
+      title={t('shell.env.editTitle')}
       onClick={(event) => {
         const rect = event.currentTarget.getBoundingClientRect()
         void window.browser.openLayer({ kind: 'env', envId: state.envId, x: rect.left, y: rect.bottom })
@@ -303,6 +307,7 @@ function FindBar({
   setFindText: (value: string) => void
   setFindOpen: (open: boolean) => void
 }) {
+  const { t } = useTranslation()
   return (
     <form
       className="flex items-center gap-2 bg-white px-3 py-1"
@@ -311,33 +316,34 @@ function FindBar({
         void window.browser.find(findText)
       }}
     >
-      <Input value={findText} onChange={(event) => setFindText(event.target.value)} placeholder="在当前页查找" />
-      <Button type="submit" size="sm">查找</Button>
-      <Button type="button" variant="ghost" size="icon-sm" title="关闭查找" onClick={() => { setFindOpen(false); void window.browser.stopFind() }}><X /></Button>
+      <Input value={findText} onChange={(event) => setFindText(event.target.value)} placeholder={t('shell.find.placeholder')} />
+      <Button type="submit" size="sm">{t('shell.find.action')}</Button>
+      <Button type="button" variant="ghost" size="icon-sm" title={t('shell.find.close')} onClick={() => { setFindOpen(false); void window.browser.stopFind() }}><X /></Button>
     </form>
   )
 }
 
 function errorTitle(error: NonNullable<TabInfo['error']>): string {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return '网络连接已断开'
-  if (error.code === -105) return '找不到这个网站'
-  if (error.code === -102) return '连接被拒绝'
-  if (error.code === -118 || error.code === -7) return '连接超时'
-  if (error.code <= -200 && error.code >= -207) return '证书有问题'
-  return '无法访问此网站'
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return i18n.t('shell.error.offline')
+  if (error.code === -105) return i18n.t('shell.error.notFound')
+  if (error.code === -102) return i18n.t('shell.error.refused')
+  if (error.code === -118 || error.code === -7) return i18n.t('shell.error.timeout')
+  if (error.code <= -200 && error.code >= -207) return i18n.t('shell.error.cert')
+  return i18n.t('shell.error.generic')
 }
 
 function errorHint(code: number, description: string): string {
-  if (code === -106) return '检查网线、Wi-Fi 或代理设置，然后重试。'
-  if (code === -105) return '检查网址拼写，或确认域名是否仍然存在。'
-  if (code === -102) return '目标服务器拒绝了连接，可能服务没有启动或端口不对。'
-  if (code === -118 || code === -7) return '服务器没有在预期时间内响应，稍后重试。'
-  if (code <= -200 && code >= -207) return '网站证书无法验证。不要在这种页面输入密码或支付信息。'
-  if (code === -21) return '网络连接发生了变化，重试通常可以恢复。'
-  return description || '页面加载失败，可以重试或返回上一页。'
+  if (code === -106) return i18n.t('shell.error.hint.offline')
+  if (code === -105) return i18n.t('shell.error.hint.notFound')
+  if (code === -102) return i18n.t('shell.error.hint.refused')
+  if (code === -118 || code === -7) return i18n.t('shell.error.hint.timeout')
+  if (code <= -200 && code >= -207) return i18n.t('shell.error.hint.cert')
+  if (code === -21) return i18n.t('shell.error.hint.changed')
+  return description || i18n.t('shell.error.hint.fallback')
 }
 
 function PageSurface({ state, active, contentRef, reloadKey }: { state: UiState; active: TabInfo | undefined; contentRef: RefObject<HTMLDivElement | null>; reloadKey: number }) {
+  const { t } = useTranslation()
   return (
     <div className="flex min-h-0 flex-1">
       {state.layout === 'left' && <div className={`shrink-0 bg-[#f3f3f3] ${state.railPinned ? 'w-64' : 'w-12'}`} />}
@@ -350,10 +356,10 @@ function PageSurface({ state, active, contentRef, reloadKey }: { state: UiState;
               <h1 className="mt-4 text-xl font-semibold text-neutral-900">{errorTitle(active.error)}</h1>
               <p className="mt-2 text-sm text-neutral-500">{errorHint(active.error.code, active.error.description)}</p>
               <p className="mt-4 break-all rounded-md bg-neutral-100 px-3 py-2 text-xs text-neutral-500">{active.error.url}</p>
-              <p className="mt-2 text-xs text-neutral-400">错误代码 {active.error.code}</p>
+              <p className="mt-2 text-xs text-neutral-400">{t('shell.error.code', { code: active.error.code })}</p>
               <div className="mt-5 flex justify-center gap-2">
-                <Button type="button" onClick={() => void window.browser.reload()}>重试</Button>
-                {state.canBack && <Button type="button" variant="outline" onClick={() => void window.browser.back()}>返回上一页</Button>}
+                <Button type="button" onClick={() => void window.browser.reload()}>{t('shell.error.retry')}</Button>
+                {state.canBack && <Button type="button" variant="outline" onClick={() => void window.browser.back()}>{t('shell.error.back')}</Button>}
               </div>
             </div>
           </div>
@@ -401,13 +407,14 @@ function PageSurface({ state, active, contentRef, reloadKey }: { state: UiState;
 }
 
 function WorkflowPage({ state, tab }: { state: UiState; tab: TabInfo }) {
+  const { t } = useTranslation()
   const workflow = state.workflows.find((item) => workflowPage(item.id) === tab.url)
   if (!workflow) {
     return (
       <div className="grid content-start gap-3">
-        <p className="text-sm">没有这个工作流。</p>
+        <p className="text-sm">{t('shell.workflow.missing')}</p>
         <div>
-          <Button type="button" onClick={() => void window.browser.closeTab(tab.id)}>关闭</Button>
+          <Button type="button" onClick={() => void window.browser.closeTab(tab.id)}>{t('shell.common.close')}</Button>
         </div>
       </div>
     )
@@ -423,12 +430,13 @@ function TabIcon({ tab }: { tab: TabInfo }) {
   }
   return (
     <span className="grid h-4 w-4 shrink-0 place-items-center rounded-sm bg-[#d0d0d0] text-[10px] text-[#3c3c3c]">
-      {(tab.title || '新').slice(0, 1)}
+      {(tab.title || i18n.t('shell.tabs.untitledShort')).slice(0, 1)}
     </span>
   )
 }
 
 function TabButton({ tab, hideDivider }: { tab: TabInfo; hideDivider?: boolean }) {
+  const { t } = useTranslation()
   const openMenu = (event: MouseEvent<HTMLElement>): void => {
     event.preventDefault()
     void window.browser.openLayer({ kind: 'context', x: event.clientX, y: event.clientY, tab })
@@ -447,7 +455,7 @@ function TabButton({ tab, hideDivider }: { tab: TabInfo; hideDivider?: boolean }
         <button
           type="button"
           className="grid h-4 w-4 shrink-0 place-items-center text-neutral-500 hover:text-neutral-900"
-          title={tab.muted ? '取消静音' : '静音'}
+          title={tab.muted ? t('shell.tabs.unmute') : t('shell.tabs.mute')}
           onClick={(event) => {
             event.stopPropagation()
             void window.browser.muteTab(tab.id)
@@ -459,13 +467,13 @@ function TabButton({ tab, hideDivider }: { tab: TabInfo; hideDivider?: boolean }
         <TabIcon tab={tab} />
       )}
       <button type="button" className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-left text-sm" onClick={() => void window.browser.activateTab(tab.id)} onContextMenu={openMenu}>
-        {tab.title || '新标签页'}
+        {tab.title || t('shell.tabs.untitled')}
       </button>
       {!hideDivider && <span className="pointer-events-none absolute -right-1 top-1/2 h-4 w-px -translate-y-1/2 bg-neutral-300" />}
       <Button
         variant="ghost"
         size="icon-xs"
-        title="关闭"
+        title={t('shell.tabs.close')}
         onClick={(event) => {
           event.stopPropagation()
           void window.browser.closeTab(tab.id)
