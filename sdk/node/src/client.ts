@@ -5,6 +5,7 @@ import { Locator } from './locator.js'
 import { Page } from './page.js'
 import { mcpFile } from './paths.js'
 import { Transport, readEndpoint, type Endpoint, type CallResult, type EventRecord, type EventWaitOptions } from './transport.js'
+import { Bookmarks, Downloads, Environments, Groups, History, Net, Network, Settings, Tabs, Workflows } from './api.js'
 import { APP_VERSION, SDK_VERSION } from './version.js'
 
 export const DEFAULT_ENV = 'env-default'
@@ -82,6 +83,17 @@ export class BrowserPilot {
   readonly sdkVersion = SDK_VERSION
   /** 只有 SDK 自己装的那份才知道版本；连别人实例时是 undefined。 */
   readonly appVersion?: string
+  // 按用途分组的工具入口，见 api.ts
+  readonly envs: Environments
+  readonly tabs: Tabs
+  readonly groups: Groups
+  readonly settings: Settings
+  readonly workflow: Workflows
+  readonly net: Net
+  readonly history: History
+  readonly bookmarks: Bookmarks
+  readonly downloads: Downloads
+  readonly network: Network
   private readonly owned?: Owned
 
   constructor(transport: Transport, options: { envId?: string; appVersion?: string; owned?: Owned } = {}) {
@@ -89,6 +101,17 @@ export class BrowserPilot {
     this.envId = options.envId ?? DEFAULT_ENV
     this.appVersion = options.appVersion
     this.owned = options.owned
+    // 按用途分组的工具入口，见 api.ts；等价于直接 bp.call('env_list', ...)
+    this.envs = new Environments(this)
+    this.tabs = new Tabs(this)
+    this.groups = new Groups(this)
+    this.settings = new Settings(this)
+    this.workflow = new Workflows(this)
+    this.net = new Net(this)
+    this.history = new History(this)
+    this.bookmarks = new Bookmarks(this)
+    this.downloads = new Downloads(this)
+    this.network = new Network(this)
   }
 
   /** 原始工具调用。SDK 没封装的工具都从这里走。 */

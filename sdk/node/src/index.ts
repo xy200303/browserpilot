@@ -7,6 +7,9 @@
  *   await page.goto('https://example.com')
  */
 export { launch, connect, findInstalled, BrowserPilot, Environment, DEFAULT_ENV } from './client.js'
+
+// 按用途分组的工具入口（沿一层薄封装，底层还是 bp.call）
+export { Bookmarks, Downloads, Environments, Groups, History, Net, Network, Settings, Tabs, Workflows } from './api.js'
 export type { LaunchOptions, ConnectOptions } from './client.js'
 
 export { Page } from './page.js'

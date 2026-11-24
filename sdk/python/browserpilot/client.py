@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from .errors import BrowserPilotError, InstallError, TransportError
+from .api import Bookmarks, Downloads, Environments, Groups, History, Net, Network, Settings, Tabs, Workflows
 from .install import APP_VERSION, SDK_VERSION, AppLocation, ensure_app, locate_app
 from .locator import Locator
 from .page import Page
@@ -90,6 +91,17 @@ class BrowserPilot:
         # 只有 SDK 自己装的那份才知道版本；连别人实例时是 None。
         self.app_version = app_version
         self._owned = owned
+        # 按用途分组的工具入口，见 api.py；等价于直接 bp.call('env_list', ...)
+        self.envs = Environments(self)
+        self.tabs = Tabs(self)
+        self.groups = Groups(self)
+        self.settings = Settings(self)
+        self.workflow = Workflows(self)
+        self.net = Net(self)
+        self.history = History(self)
+        self.bookmarks = Bookmarks(self)
+        self.downloads = Downloads(self)
+        self.network = Network(self)
 
     def __enter__(self) -> 'BrowserPilot':
         return self
