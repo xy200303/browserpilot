@@ -186,6 +186,7 @@ function RailTab({ tab, expanded }: { tab: TabInfo; expanded: boolean }) {
       title={tab.title || i18n.t('shell.tabs.untitled')}
       draggable
       className={`group mx-2 flex h-8 items-center gap-2 rounded-md px-2 ${tab.active ? 'bg-white' : 'hover:bg-black/[0.06]'}`}
+      onClick={() => void window.browser.activateTab(tab.id)}
       onDragStart={(event) => {
         event.dataTransfer.setData('text/plain', tab.id)
         event.dataTransfer.effectAllowed = 'move'
@@ -197,7 +198,7 @@ function RailTab({ tab, expanded }: { tab: TabInfo; expanded: boolean }) {
         if (tabId && tabId !== tab.id) void window.browser.assignGroup({ tabId, groupId: tab.groupId })
       }}
     >
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left" onClick={() => void window.browser.activateTab(tab.id)} onContextMenu={openMenu}>
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left" onContextMenu={openMenu}>
         <TabIcon tab={tab} />
         <span className="min-w-0 flex-1 truncate text-[13px] text-[#1f1f1f]">{tab.title || i18n.t('shell.tabs.untitled')}</span>
       </button>

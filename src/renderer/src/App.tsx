@@ -456,6 +456,7 @@ function TabButton({ tab, hideDivider }: { tab: TabInfo; hideDivider?: boolean }
     <div
       draggable
       className={`no-drag relative mb-0 flex h-8 max-w-56 min-w-28 shrink-0 items-center gap-2 rounded-t-lg px-3 ${tab.active ? 'bg-white' : 'hover:bg-black/5'}`}
+      onClick={() => void window.browser.activateTab(tab.id)}
       onDragStart={(event) => {
         event.dataTransfer.setData('text/plain', tab.id)
         event.dataTransfer.effectAllowed = 'move'
@@ -477,7 +478,7 @@ function TabButton({ tab, hideDivider }: { tab: TabInfo; hideDivider?: boolean }
       ) : (
         <TabIcon tab={tab} />
       )}
-      <button type="button" className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-left text-sm" onClick={() => void window.browser.activateTab(tab.id)} onContextMenu={openMenu}>
+      <button type="button" className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-left text-sm" onContextMenu={openMenu}>
         {tab.title || t('shell.tabs.untitled')}
       </button>
       {!hideDivider && <span className="pointer-events-none absolute -right-1 top-1/2 h-4 w-px -translate-y-1/2 bg-neutral-300" />}
