@@ -93,12 +93,13 @@ export async function listMarket(): Promise<{ items: MarketEntry[]; source: stri
   return { items, source: MARKET_HOME }
 }
 
-export async function installMarketFile(file: string): Promise<{ workflow: string; name: string }> {
+export async function installMarketFile(file: string, slug?: string): Promise<{ workflow: string; name: string }> {
   const relative = file.replace(/\\/g, '/').replace(/^\.\//, '')
   if (!relative || relative.includes('..') || relative.startsWith('/') || !relative.endsWith('.json')) {
     throw new Error(mt('main.market.badPath'))
   }
-  const saved = importWorkflowText(await readGithub(contentsUrl(relative)))
+  // slug 用市场 index.json 里那个，保证同一工作流再装一次是覆盖而不是新增
+  const saved = importWorkflowText(await readGithub(contentsUrl(relative)), { slug })
   return { workflow: saved.id, name: saved.app.name }
 }
 

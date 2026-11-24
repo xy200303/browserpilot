@@ -1,9 +1,11 @@
-import { app, session } from 'electron'
+import { app } from 'electron'
+import { sessionForEnv } from '../services/env-path'
 import { DEFAULT_ENV, type UiState } from '@shared/types'
 import { workflowPage } from '@shared/market'
 import type { StoredEnv } from '../services/StorageService'
 import { storage } from '../services/store'
 import { workflowParams } from '../services/RecordService'
+import { listWorkflows } from '../services/workflow-store'
 import { listDownloads } from '../services/DownloadService'
 import { netList } from '../services/NetService'
 import { windows, type WindowRuntime } from '../runtime'
@@ -14,7 +16,7 @@ const cookieCache = new Map<string, { at: number; domains: Set<string> }>()
 async function cookieDomains(envId: string): Promise<Set<string>> {
   const cached = cookieCache.get(envId)
   if (cached && Date.now() - cached.at < 5_000) return cached.domains
-  const cookies = await session.fromPartition(`persist:${envId}`).cookies.get({})
+  const cookies = await sessionForEnv(envId).cookies.get({})
   const domains = new Set(cookies.flatMap((cookie) => (cookie.domain ? [cookie.domain.replace(/^\./, '')] : [])))
   cookieCache.set(envId, { at: Date.now(), domains })
   return domains
@@ -61,7 +63,7 @@ export async function buildState(runtime: WindowRuntime, full = true): Promise<U
               : tab.kind === 'bookmarks'
                 ? mt('address.kind.bookmarks')
                 : tab.kind === 'workflow'
-                  ? (storage.workflows.find((item) => tab.url === workflowPage(item.id))?.app.name ?? tab.title)
+                  ? (listWorkflows().find((item) => tab.url === workflowPage(item.id))?.app.name ?? tab.title)
                   : tab.title || mt('shell.tabs.untitled'),
       url: tab.url,
       favicon: tab.favicon || '',
@@ -82,7 +84,7 @@ export async function buildState(runtime: WindowRuntime, full = true): Promise<U
         tabIds: runtime.tabs.filter((tab) => tab.groupId === group.id).map((tab) => tab.id)
       })),
     envs: await Promise.all(storage.envs.map((item) => envView(item))),
-    workflows: storage.workflows.map((item) => ({
+    workflows: listWorkflows().map((item) => ({
       id: item.id,
       name: item.app.name,
       remark: item.app.description,

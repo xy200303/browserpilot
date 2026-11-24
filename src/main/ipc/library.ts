@@ -1,4 +1,5 @@
-import { ipcMain, session } from 'electron'
+import { ipcMain } from 'electron'
+import { sessionForEnv } from '../services/env-path'
 import { storage } from '../services/store'
 import { clearDefaultCache, clearEnvCache } from '../services/CacheService'
 import { broadcast } from './state'
@@ -96,7 +97,7 @@ export function registerLibraryIpc(): void {
     if (!runtime) return { ok: false }
     if (options.history) storage.clearHistory(runtime.envId)
     if (options.cookies) {
-      const ses = session.fromPartition(`persist:${runtime.envId}`)
+      const ses = sessionForEnv(runtime.envId)
       await ses.clearStorageData({
         storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage', 'serviceworkers', 'shadercache', 'filesystem']
       })

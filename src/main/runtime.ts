@@ -95,6 +95,16 @@ export function findTab(tabId: string): { win: WindowRuntime; tab: TabRuntime } 
   return undefined
 }
 
+/** 给 console 事件用：从 webContents id 反查是哪套环境的哪个标签。 */
+export function findTabByWebContentsId(wcId: number): TabRuntime | undefined {
+  for (const win of windows.values()) {
+    for (const tab of win.tabs) {
+      if (tab.view?.webContents.id === wcId) return tab
+    }
+  }
+  return undefined
+}
+
 export function activePage(win: WindowRuntime): TabRuntime | undefined {
   const active = win.tabs.find((tab) => tab.id === win.activeTabId && tab.kind === 'page')
   if (active) return active

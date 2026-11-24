@@ -275,6 +275,8 @@ export type WorkflowApp = {
   id: string
   kind: 'app'
   version: '0.3.0'
+  /** 文件名与唯一键；缺省时由 app.name 推导。改显示名不影响它。 */
+  slug?: string
   app: { name: string; mode: 'workflow'; description: string; icon?: string }
   workflow: {
     environment_variables: { name: string; value: string }[]

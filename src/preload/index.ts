@@ -121,7 +121,7 @@ const api = {
   listRuns: (id?: string): Promise<unknown[]> => ipcRenderer.invoke('workflow:runs', id),
   openMarket: (): Promise<void> => ipcRenderer.invoke('market:open'),
   listMarket: (): Promise<{ items: { slug: string; name: string; description: string; author: string; category: string; site: string; icon: string; file: string }[]; source: string }> => ipcRenderer.invoke('market:list'),
-  installMarket: (input: { file?: string; url?: string }): Promise<{ workflow: string; name: string }> => ipcRenderer.invoke('market:install', input),
+  installMarket: (input: { file?: string; url?: string; slug?: string }): Promise<{ workflow: string; name: string }> => ipcRenderer.invoke('market:install', input),
   runWorkflow: (input: { workflow: string; inputs?: Record<string, string> }): Promise<{ ok?: boolean; error?: string; outputs?: Record<string, unknown> }> => ipcRenderer.invoke('workflow:run', input),
   copyAgentPrompt: (id: string): Promise<{ copied: boolean }> => ipcRenderer.invoke('workflow:agent', id),
   updateWorkflow: (input: {

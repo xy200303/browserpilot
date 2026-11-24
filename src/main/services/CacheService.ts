@@ -1,5 +1,7 @@
 import { app, session } from 'electron'
-import { readFileSync, writeFileSync } from 'fs'
+import { sessionForEnv } from './env-path'
+import { readFileSync } from 'fs'
+import { writeJsonAtomic } from './json-file'
 import { join } from 'path'
 import { storage } from './store'
 
@@ -16,7 +18,7 @@ function stampFile(): string {
 
 /** 清掉一个环境的 HTTP 缓存、代码缓存和 Service Worker 缓存。 */
 export async function clearEnvCache(envId: string): Promise<void> {
-  const ses = session.fromPartition(`persist:${envId}`)
+  const ses = sessionForEnv(envId)
   await ses.clearCache().catch(() => undefined)
   await ses.clearCodeCaches({}).catch(() => undefined)
   await ses.clearStorageData({ storages: [...CACHE_STORAGES] }).catch(() => undefined)
@@ -51,7 +53,7 @@ function lastCleanupAt(): number {
 
 function markCleanup(): void {
   try {
-    writeFileSync(stampFile(), JSON.stringify({ at: Date.now() }))
+    writeJsonAtomic(stampFile(), { at: Date.now() })
   } catch {
     /* 写不了就下个周期再来 */
   }

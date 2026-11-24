@@ -4,6 +4,7 @@ import { join } from 'path'
 import type { Settings, WorkflowEdge, WorkflowNode, WorkflowParam } from '@shared/types'
 import { searchEngines } from '@shared/types'
 import { storage } from './services/store'
+import { findWorkflow as findStoredWorkflow } from './services/workflow-store'
 import { buildEnvPrompt, buildTabPrompt } from './services/PromptService'
 import { deleteWorkflow, exportWorkflow, findWorkflow, importWorkflow, runWorkflow, workflowParams, workflowUpdate } from './services/RecordService'
 import { installMarketFile, installMarketUrl, listMarket } from './services/MarketService'
@@ -259,7 +260,7 @@ export function wireIpc(): void {
 
   ipcMain.handle('workflow:export', async (event, id: string) => {
     const runtime = windowFromSender(event.sender)
-    const appItem = storage.workflows.find((item) => item.id === id)
+    const appItem = findStoredWorkflow(id)
     if (!appItem) throw new Error(mt('main.err.noWorkflow', { id }))
     const options = {
       title: mt('main.dialog.exportWorkflow'),
@@ -304,8 +305,8 @@ export function wireIpc(): void {
 
   ipcMain.handle('market:list', () => listMarket())
 
-  ipcMain.handle('market:install', async (_event, input: { file?: string; url?: string }) => {
-    const saved = input.url?.trim() ? await installMarketUrl(input.url) : await installMarketFile(String(input.file || ''))
+  ipcMain.handle('market:install', async (_event, input: { file?: string; url?: string; slug?: string }) => {
+    const saved = input.url?.trim() ? await installMarketUrl(input.url) : await installMarketFile(String(input.file || ''), input.slug)
     broadcast()
     return saved
   })

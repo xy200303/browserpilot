@@ -1,10 +1,11 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import vm from 'vm'
 import type { ActVia, GestureVia, Locator, WorkflowApp, WorkflowEdge, WorkflowNode, WorkflowParam, WorkflowParamType } from '@shared/types'
 import { createId } from '../ids'
 import { enterRun, leaveRun, type TabRuntime } from '../runtime'
 import { storage } from './store'
+import { findWorkflow as findStoredWorkflow, listWorkflows, removeWorkflow, saveWorkflow, slugFromName, workflowsDir } from './workflow-store'
 import {
   clickLocator,
   clickPoint,
@@ -78,20 +79,31 @@ function paramType(raw: unknown, name: string, label: string): WorkflowParamType
   return 'text'
 }
 
-export function workflowWrite(raw: {
-  app: { name: string; description?: string; icon?: string }
-  workflow: WorkflowApp['workflow']
-}): WorkflowApp {
+export function workflowWrite(
+  raw: {
+    app: { name: string; description?: string; icon?: string }
+    workflow: WorkflowApp['workflow']
+  },
+  options: { slug?: string } = {}
+): WorkflowApp {
   const graph = normalizeLevel(raw.workflow.graph.nodes, raw.workflow.graph.edges)
   assertGraph(graph.nodes, graph.edges)
   const name = raw.app.name.trim()
   if (!name) throw new Error(mt('main.wf.nameRequired'))
-  const existing = storage.workflows.find((item) => item.app.name === name)
+
+  // slug 是身份：市场安装会显式指定。指定了 slug 但那个 slug 属于别的名字，直接拒绝。
+  const bySlug = options.slug ? findStoredWorkflow(options.slug) : undefined
+  if (bySlug && bySlug.app.name !== name) {
+    throw new Error(mt('main.wf.slugConflict', { slug: options.slug ?? '', name: bySlug.app.name }))
+  }
+  // 没有 slug 命中时退回按显示名找，避免同名重复出现两份
+  const existing = bySlug ?? listWorkflows().find((item) => item.app.name === name)
   const icon = raw.app.icon?.trim() || existing?.app.icon || ''
   const saved: WorkflowApp = {
     id: existing?.id ?? createId('wf'),
     kind: 'app',
     version: '0.3.0',
+    slug: existing?.slug,
     app: { name, mode: 'workflow', description: raw.app.description?.trim() ?? '', ...(icon ? { icon } : {}) },
     workflow: {
       environment_variables: raw.workflow.environment_variables ?? [],
@@ -99,42 +111,31 @@ export function workflowWrite(raw: {
       graph
     }
   }
-  if (existing) {
-    const index = storage.workflows.indexOf(existing)
-    storage.workflows[index] = saved
-  } else {
-    storage.workflows.unshift(saved)
-  }
-  storage.saveWorkflows()
-  return saved
+  return saveWorkflow(saved, {
+    slug: existing?.slug ?? options.slug,
+    onConflict: 'overwrite'
+  })
 }
 
 export function findWorkflow(nameOrId: string): WorkflowApp {
-  const found = storage.workflows.find((item) => item.id === nameOrId || item.app.name === nameOrId)
+  const found = findStoredWorkflow(nameOrId)
   if (!found) throw new Error(mt('main.wf.noWorkflow', { id: nameOrId }))
   return found
 }
 
 export function deleteWorkflow(nameOrId: string): { id: string; name: string } {
-  const app = findWorkflow(nameOrId)
-  const index = storage.workflows.findIndex((item) => item.id === app.id)
-  storage.workflows.splice(index, 1)
-  storage.saveWorkflows()
+  const app = removeWorkflow(nameOrId)
   return { id: app.id, name: app.app.name }
 }
 
 export function exportWorkflow(nameOrId: string, dest?: string): string {
   const app = findWorkflow(nameOrId)
-  const dsl = {
-    kind: app.kind,
-    version: app.version,
-    app: app.app,
-    workflow: app.workflow
-  }
+  const slug = app.slug ?? slugFromName(app.app.name)
   const safe = app.app.name.replace(/[\\/:*?"<>|]/g, '_')
   const path = dest || join(storage.dir('exports'), `${safe}.json`)
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(dsl, null, 2)}\n`, 'utf8')
+  // 直接拷贝存盘文件，保证导出内容与 workflows\<slug>.json 字节一致
+  copyFileSync(join(workflowsDir(), `${slug}.json`), path)
   return path
 }
 
@@ -142,7 +143,7 @@ export function importWorkflow(filePath: string): WorkflowApp {
   return importWorkflowText(readFileSync(filePath, 'utf8'))
 }
 
-export function importWorkflowText(text: string): WorkflowApp {
+export function importWorkflowText(text: string, options: { slug?: string } = {}): WorkflowApp {
   const cleaned = text.replace(/^\uFEFF/, '').trim()
   if (!cleaned) throw new Error(mt('main.wf.emptyFile'))
   let raw: unknown
@@ -153,6 +154,7 @@ export function importWorkflowText(text: string): WorkflowApp {
   }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(mt('main.wf.notWorkflow'))
   const doc = raw as {
+    slug?: unknown
     app?: { name?: unknown; description?: unknown; mode?: unknown; icon?: unknown }
     workflow?: { graph?: { nodes?: unknown; edges?: unknown }; environment_variables?: { name: string; value: string }[] }
   }
@@ -161,18 +163,22 @@ export function importWorkflowText(text: string): WorkflowApp {
   const edges = doc.workflow?.graph?.edges
   if (!name || !Array.isArray(nodes) || !Array.isArray(edges)) throw new Error(mt('main.wf.noGraph'))
   if (doc.app?.mode && doc.app.mode !== 'workflow') throw new Error(mt('main.wf.onlyWorkflow'))
-  return workflowWrite({
-    app: {
-      name,
-      description: typeof doc.app?.description === 'string' ? doc.app.description : '',
-      icon: typeof doc.app?.icon === 'string' ? doc.app.icon : ''
+  const docSlug = typeof doc.slug === 'string' && doc.slug.trim() ? doc.slug.trim() : undefined
+  return workflowWrite(
+    {
+      app: {
+        name,
+        description: typeof doc.app?.description === 'string' ? doc.app.description : '',
+        icon: typeof doc.app?.icon === 'string' ? doc.app.icon : ''
+      },
+      workflow: {
+        environment_variables: doc.workflow?.environment_variables ?? [],
+        conversation_variables: [],
+        graph: { nodes: nodes as WorkflowApp['workflow']['graph']['nodes'], edges: edges as WorkflowApp['workflow']['graph']['edges'] }
+      }
     },
-    workflow: {
-      environment_variables: doc.workflow?.environment_variables ?? [],
-      conversation_variables: [],
-      graph: { nodes: nodes as WorkflowApp['workflow']['graph']['nodes'], edges: edges as WorkflowApp['workflow']['graph']['edges'] }
-    }
-  })
+    { slug: options.slug ?? docSlug }
+  )
 }
 
 function normalizeGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]): { nodes: WorkflowNode[]; edges: WorkflowEdge[] } {
@@ -232,7 +238,7 @@ export function workflowUpdate(
   }
   if (typeof patch.rename === 'string' && patch.rename.trim() && patch.rename.trim() !== draft.app.name) {
     const name = patch.rename.trim()
-    if (storage.workflows.some((item) => item.id !== draft.id && item.app.name === name)) throw new Error(mt('main.wf.nameTaken', { name }))
+    if (listWorkflows().some((item) => item.id !== draft.id && item.app.name === name)) throw new Error(mt('main.wf.nameTaken', { name }))
     draft.app.name = name
     changed = true
   }
@@ -263,10 +269,7 @@ export function workflowUpdate(
   if (!changed) throw new Error(mt('main.wf.nothingToUpdate'))
   draft.workflow.graph = normalizeLevel(graph.nodes, graph.edges)
   assertGraph(draft.workflow.graph.nodes, draft.workflow.graph.edges)
-  const index = storage.workflows.findIndex((item) => item.id === draft.id)
-  storage.workflows[index] = draft
-  storage.saveWorkflows()
-  return draft
+  return saveWorkflow(draft, { slug: existing.slug ?? slugFromName(draft.app.name), onConflict: 'overwrite' })
 }
 
 function removeNode(graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, id: string): void {

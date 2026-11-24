@@ -1,15 +1,19 @@
-import { app, BrowserWindow, clipboard, dialog, Menu, session, WebContentsView } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, Menu, WebContentsView } from 'electron'
 import { appendFileSync, existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { DEFAULT_ENV, type LayerPayload, type SuggestPayload } from '@shared/types'
-import { chromeUserAgent } from './ua'
 import { createId } from './ids'
 import { BOOKMARKS_PAGE, DOWNLOADS_PAGE, HISTORY_PAGE, MARKET_PAGE, RUNS_PAGE, SETTINGS_PAGE, workflowPage } from '@shared/market'
 import { storage } from './services/store'
+import { sessionForEnv } from './services/env-path'
+import { ensureSessionNetwork, networkReady, userAgentFor, webrtcPolicyFor } from './services/network-config'
+import { emit } from './services/events'
+import { findWorkflow as findStoredWorkflow } from './services/workflow-store'
 import {
   activePage,
   bridge,
   findTab,
+  findTabByWebContentsId,
   markUserTookOver,
   runDepth,
   windows,
@@ -21,13 +25,34 @@ import { downloadBegin, downloadDone, downloadFail, downloadProgress, downloadTa
 import { scheduleClearEnvCache } from './services/CacheService'
 import { clearCaptures } from './services/NetService'
 import { watchDialogs } from './dialogs'
-import { watchConsole } from './console-log'
+import { watchConsole, setConsoleSink } from './console-log'
 import { inspectElement, isSendingToPage, saveMedia, saveMediaInfo, sendCdp, startUrl, type ElementInfo } from './page'
 import { mt } from './i18n'
 
 const lockHtml = (): string => `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:rgba(32,33,36,.45);font-family:Segoe UI,sans-serif;color:#fff"><div style="text-align:center"><div style="font-size:18px">${mt('main.lock.working')}</div><button id="take" style="margin-top:16px;padding:8px 18px;border:0;border-radius:8px;background:#fff;color:#202124;font-size:14px">${mt('main.lock.takeOver')}</button></div></body></html>`
 
 const DEFAULT_BOUNDS: Bounds = { x: 0, y: 96, width: 1280, height: 704 }
+
+// console 事件出口。同一标签 1 秒内重复的同一条日志直接丢掉，
+// 否则一个死循环的 console.log 能瞬间把事件缓冲刷满。
+const consoleSeen = new Map<string, { key: string; at: number }>()
+setConsoleSink((wcId, entry) => {
+  const tab = findTabByWebContentsId(wcId)
+  if (!tab) return
+  const key = `${entry.level}\u0000${entry.message}\u0000${entry.source ?? ''}\u0000${entry.line ?? ''}`
+  const now = Date.now()
+  const seen = consoleSeen.get(tab.id)
+  if (seen && seen.key === key && now - seen.at < 1000) {
+    seen.at = now
+    return
+  }
+  consoleSeen.set(tab.id, { key, at: now })
+  emit('page.console', {
+    env: tab.envId,
+    tabId: tab.id,
+    payload: { level: entry.level, message: entry.message, line: entry.line, source: entry.source }
+  })
+})
 
 export function headlessCount(): number {
   let count = 0
@@ -119,9 +144,9 @@ export function createBrowserWindow(envId: string, headless: boolean): WindowRun
   }
   const env = storage.envs.find((item) => item.id === envId)
   if (!env) throw new Error(mt('main.err.noEnv', { id: envId }))
-  const ses = session.fromPartition(`persist:${envId}`)
-  const ua = chromeUserAgent()
-  ses.setUserAgent(ua)
+  const ses = sessionForEnv(envId)
+  // 代理是异步下发的，先踢一脚；第一个标签的加载会等它（networkReady）
+  void ensureSessionNetwork(envId)
   configurePermissions(ses, envId)
   const win = new BrowserWindow({
     width: 1280,
@@ -592,8 +617,10 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
     refs: new Map(),
     lastActiveAt: Date.now()
   }
-  const ses = session.fromPartition(`persist:${runtime.envId}`)
-  ses.setUserAgent(chromeUserAgent())
+  emit('tab.created', { env: runtime.envId, tabId: tab.id, payload: { url: tab.url, kind: tab.kind } })
+  const ses = sessionForEnv(runtime.envId)
+  const ua = userAgentFor(runtime.envId)
+  ses.setUserAgent(ua.ua, ua.languages)
   const view = new WebContentsView({
     webPreferences: {
       session: ses,
@@ -605,7 +632,9 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
       preload: join(__dirname, '../preload/page.js')
     }
   })
-  view.webContents.setUserAgent(chromeUserAgent())
+  view.webContents.setUserAgent(ua.ua)
+  // WebRTC 是 WebContents 级开关，只能按标签逐个下发
+  view.webContents.setWebRTCIPHandlingPolicy(webrtcPolicyFor(runtime.envId))
   tab.view = view
   runtime.win.contentView.addChildView(view)
   bindPage(runtime, tab)
@@ -616,7 +645,10 @@ export function addTab(runtime: WindowRuntime, url?: string, groupId: string | n
     runtime.tabs.push(tab)
   }
   activateTab(runtime, tab.id, focus)
-  void view.webContents.loadURL(tab.url)
+  // 等代理生效再发第一个请求，否则首屏会直连出去
+  void networkReady(runtime.envId).then(() => {
+    if (!view.webContents.isDestroyed()) void view.webContents.loadURL(tab.url)
+  })
   return tab
 }
 
@@ -837,7 +869,7 @@ export function openRunsPage(runtime: WindowRuntime, workflowId?: string): TabRu
 }
 
 export function openWorkflowPage(runtime: WindowRuntime, workflowId: string): TabRuntime {
-  const app = storage.workflows.find((item) => item.id === workflowId)
+  const app = findStoredWorkflow(workflowId)
   if (!app) throw new Error(mt('main.err.noWorkflow', { id: workflowId }))
   const url = workflowPage(workflowId)
   const existing = runtime.tabs.find((tab) => tab.kind === 'workflow' && tab.url === url)
@@ -912,6 +944,7 @@ export function closeTab(runtime: WindowRuntime, tabId: string): void {
   scheduleSessionSave(runtime)
   bridge.layout(runtime.envId)
   bridge.broadcast(runtime.envId)
+  emit('tab.closed', { env: runtime.envId, tabId: tab.id, payload: { url: tab.url, title: tab.title } })
 }
 
 /** 渲染进程崩溃/被销毁后，给标签重建 WebContentsView 并重新加载原地址 */
@@ -921,8 +954,9 @@ export function restoreTabView(tab: TabRuntime): boolean {
   if (tab.view?.webContents && !tab.view.webContents.isDestroyed()) return true
   tab.hibernated = false
   const old = tab.view
-  const ses = session.fromPartition(`persist:${runtime.envId}`)
-  ses.setUserAgent(chromeUserAgent())
+  const ses = sessionForEnv(runtime.envId)
+  const ua = userAgentFor(runtime.envId)
+  ses.setUserAgent(ua.ua, ua.languages)
   const view = new WebContentsView({
     webPreferences: {
       session: ses,
@@ -934,7 +968,9 @@ export function restoreTabView(tab: TabRuntime): boolean {
       preload: join(__dirname, '../preload/page.js')
     }
   })
-  view.webContents.setUserAgent(chromeUserAgent())
+  view.webContents.setUserAgent(ua.ua)
+  // WebRTC 是 WebContents 级开关，只能按标签逐个下发
+  view.webContents.setWebRTCIPHandlingPolicy(webrtcPolicyFor(runtime.envId))
   tab.view = view
   if (old) {
     try {
@@ -1125,6 +1161,7 @@ export function shareControl(tab: TabRuntime, byUser: boolean): void {
   }
   bridge.layout(tab.envId)
   bridge.broadcast(tab.envId)
+  emit('control.changed', { env: tab.envId, tabId: tab.id, payload: { control: 'shared', byUser } })
 }
 
 export function beginHandoff(tab: TabRuntime, message: string): void {
@@ -1134,6 +1171,7 @@ export function beginHandoff(tab: TabRuntime, message: string): void {
   if (runtime?.headless) applyHeadless(runtime, false)
   bridge.layout(tab.envId)
   bridge.broadcast(tab.envId)
+  emit('control.changed', { env: tab.envId, tabId: tab.id, payload: { control: 'handoff', message } })
 }
 
 export function beginAgentAction(tab: TabRuntime): void {
@@ -1214,27 +1252,32 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
   wc.on('page-title-updated', () => {
     rememberHistory()
     sync()
+    emit('tab.title', { env: runtime.envId, tabId: tab.id, payload: { title: tab.title, url: tab.url } })
   })
   wc.on('page-favicon-updated', (_event, favicons) => {
     const next = favicons[0] || ''
     if (tab.favicon === next) return
     tab.favicon = next
     bridge.broadcast(runtime.envId)
+    emit('tab.favicon', { env: runtime.envId, tabId: tab.id, payload: { icons: favicons.slice(0, 4) } })
   })
   wc.on('media-started-playing', () => {
     if (tab.audible) return
     tab.audible = true
     bridge.broadcast(runtime.envId)
+    emit('tab.media', { env: runtime.envId, tabId: tab.id, payload: { state: 'playing' } })
   })
   wc.on('media-paused', () => {
     if (!tab.audible) return
     tab.audible = false
     bridge.broadcast(runtime.envId)
+    emit('tab.media', { env: runtime.envId, tabId: tab.id, payload: { state: 'paused' } })
   })
   wc.on('did-navigate', () => {
     tab.audible = false
     rememberHistory()
     sync()
+    emit('tab.navigation', { env: runtime.envId, tabId: tab.id, payload: { phase: 'commit', url: wc.getURL() || tab.url } })
   })
   wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace) return
@@ -1244,11 +1287,17 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
     }
     tab.progress = 8
     bridge.broadcast(runtime.envId)
+    emit('tab.navigation', { env: runtime.envId, tabId: tab.id, payload: { phase: 'start', url: _url } })
   })
-  wc.on('did-start-loading', sync)
+  wc.on('did-start-loading', () => {
+    sync()
+    emit('tab.loading', { env: runtime.envId, tabId: tab.id, payload: { loading: true } })
+  })
   wc.on('did-stop-loading', () => {
     setProgress(100)
     sync()
+    emit('tab.navigation', { env: runtime.envId, tabId: tab.id, payload: { phase: 'stop', url: wc.getURL() || tab.url } })
+    emit('tab.loading', { env: runtime.envId, tabId: tab.id, payload: { loading: false } })
   })
   wc.on('dom-ready', () => setProgress(Math.max(tab.progress, 55)))
   wc.on('did-frame-finish-load', (_event, isMainFrame) => {
@@ -1268,6 +1317,11 @@ function bindPage(runtime: WindowRuntime, tab: TabRuntime): void {
     tab.progress = 0
     bridge.layout(runtime.envId)
     bridge.broadcast(runtime.envId)
+    emit('tab.navigation', {
+      env: runtime.envId,
+      tabId: tab.id,
+      payload: { phase: 'fail', url: tab.error.url, code, error: description }
+    })
   })
   wc.on('did-navigate-in-page', () => {
     rememberHistory()

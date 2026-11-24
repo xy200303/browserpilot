@@ -16,6 +16,7 @@ import (
 
 type endpoint struct {
 	URL   string `json:"url"`
+	API   string `json:"api"`
 	Token string `json:"token"`
 }
 
@@ -214,12 +215,68 @@ func parseRPC(raw []byte) (map[string]any, error) {
 	return payload, nil
 }
 
+// apiCall 走程序面 /api/call：请求是朴素的 {tool, args}，响应就是工具载荷本身。
+func apiCall(ep endpoint, name string, args map[string]any) (map[string]any, error) {
+	body, _ := json.Marshal(map[string]any{"tool": name, "args": args})
+	req, err := http.NewRequest(http.MethodPost, ep.API+"/call", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+ep.Token)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(res.Body)
+	if res.StatusCode >= 400 {
+		return nil, fmt.Errorf("状态 %d: %s", res.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("%s", string(raw))
+	}
+	return payload, nil
+}
+
+// anyCall 有 /api 就走 /api，老版本没有这个字段时退回 JSON-RPC。
+func anyCall(name string, args map[string]any) (map[string]any, error) {
+	ep, err := loadEndpoint()
+	if err != nil {
+		return nil, err
+	}
+	if ep.API != "" {
+		return apiCall(ep, name, args)
+	}
+	result, err := rpc("tools/call", map[string]any{"name": name, "arguments": args})
+	if err != nil {
+		return nil, err
+	}
+	content, _ := result["content"].([]any)
+	if len(content) == 0 {
+		return map[string]any{}, nil
+	}
+	first, _ := content[0].(map[string]any)
+	text, _ := first["text"].(string)
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
 func fullTools() ([]any, error) {
 	ep, err := loadEndpoint()
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodGet, ep.URL, nil)
+	// 程序面的 /tools 给全量；/mcp 上不再提供 GET
+	url := ep.API + "/tools"
+	if ep.API == "" {
+		url = ep.URL
+	}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -296,25 +353,17 @@ func searchTools(args []string) error {
 		size = 50
 	}
 	query := strings.Join(words, " ")
-	result, err := rpc("tools/call", map[string]any{
-		"name": "search_tools",
-		"arguments": map[string]any{
-			"query":     query,
-			"page":      page,
-			"page_size": size,
-		},
+	data, err := anyCall("search_tools", map[string]any{
+		"query":     query,
+		"page":      page,
+		"page_size": size,
 	})
 	if err != nil {
 		return err
 	}
-	content, _ := result["content"].([]any)
-	if len(content) == 0 {
-		return fmt.Errorf("没有拿到搜索结果")
-	}
-	first, _ := content[0].(map[string]any)
-	text, _ := first["text"].(string)
+	encoded, _ := json.Marshal(data)
 	if jsonOut {
-		fmt.Println(text)
+		fmt.Println(string(encoded))
 		return nil
 	}
 	var payload struct {
@@ -328,7 +377,7 @@ func searchTools(args []string) error {
 			Description string `json:"description"`
 		} `json:"tools"`
 	}
-	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+	if err := json.Unmarshal(encoded, &payload); err != nil {
 		return err
 	}
 	if payload.Total == 0 {
@@ -425,18 +474,11 @@ func callTool(name string, args []string) error {
 			payload[key] = args[i]
 		}
 	}
-	result, err := rpc("tools/call", map[string]any{"name": name, "arguments": payload})
+	data, err := anyCall(name, payload)
 	if err != nil {
 		return err
 	}
-	content, _ := result["content"].([]any)
-	if len(content) > 0 {
-		if first, ok := content[0].(map[string]any); ok {
-			fmt.Println(first["text"])
-			return nil
-		}
-	}
-	encoded, _ := json.MarshalIndent(result, "", "  ")
+	encoded, _ := json.MarshalIndent(data, "", "  ")
 	fmt.Println(string(encoded))
 	return nil
 }

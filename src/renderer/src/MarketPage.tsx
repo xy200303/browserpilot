@@ -98,7 +98,7 @@ export function MarketPage({ state: external }: { state?: UiState }) {
   const installed = catalogItem ? saved.find((workflow) => workflow.name === catalogItem.name) : undefined
   const visible = installedOnly ? savedVisible : catalog
 
-  const install = (input: { file?: string; url?: string }, key: string) => {
+  const install = (input: { file?: string; url?: string; slug?: string }, key: string) => {
     setBusy(key)
     setImportError('')
     setNotice('')
@@ -146,7 +146,7 @@ export function MarketPage({ state: external }: { state?: UiState }) {
         notice={notice}
         error={importError}
         onBack={() => { setPicked(null); setNotice(''); setImportError('') }}
-        onInstall={() => install({ file: catalogItem.file }, catalogItem.slug)}
+        onInstall={() => install({ file: catalogItem.file, slug: catalogItem.slug }, catalogItem.slug)}
       />
     )
   }

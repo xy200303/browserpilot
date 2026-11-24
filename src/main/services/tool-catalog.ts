@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import { clipboard, nativeImage, session } from 'electron'
-import { mkdirSync } from 'fs'
+import { clipboard, nativeImage } from 'electron'
+import { envDataDir, profileRoot, sessionForEnv } from './env-path'
+import { existsSync, mkdirSync } from 'fs'
 import { rm } from 'fs/promises'
 import { isAbsolute, join } from 'path'
 import { DEFAULT_ENV, type ActVia, type Control, type Locator, type WorkflowApp, type WorkflowNode } from '@shared/types'
@@ -10,6 +11,11 @@ import { createId } from '../ids'
 import { applyMainLanguage } from '../i18n'
 import { bridge, publicControl, windows, type TabRuntime } from '../runtime'
 import { storage } from './store'
+import { listWorkflows } from './workflow-store'
+import { latestSeq, waitEvents } from './events'
+import { closeHistory, queryHistory } from './history-store'
+import { rememberOrphan } from './env-path'
+import { applySessionNetwork, describeNetwork, forgetNetwork, writeNetwork, type NetworkPatch } from './network-config'
 import { screenStartWaiters, screenWaiters } from './screen-waiters'
 import { downloadCancel, downloadCopyLink, downloadForget, downloadOpen, downloadPause, downloadResume, downloadShow, downloadTargetDir, downloadsClear, listDownloads } from './DownloadService'
 import { clearPasswords } from './PasswordService'
@@ -143,7 +149,8 @@ function controlOf(tabId?: string, envId?: string): Control {
 }
 
 async function finish(args: { tabId?: string; env?: string }, data: Record<string, unknown>, tabRef?: TabRuntime): Promise<ToolResult> {
-  return { ok: data.ok !== false, control: tabRef ? publicControl(tabRef) : controlOf(args.tabId, args.env), ...data }
+  // seq 让 Agent 能"我做了这一步之后，看看触发了什么事件"
+  return { ok: data.ok !== false, control: tabRef ? publicControl(tabRef) : controlOf(args.tabId, args.env), seq: latestSeq(), ...data }
 }
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -364,6 +371,7 @@ const TOOL_GROUPS: Array<[string, string]> = [
   ['screen_', 'Recording'],
   ['workflow_', 'Workflows'],
   ['net_', 'Network'],
+  ['events_', 'Events'],
   ['captcha_', 'Captcha'],
   ['bookmark_', 'Bookmarks'],
   ['history_', 'History'],
@@ -458,6 +466,9 @@ const TOOL_KEYWORDS: Record<string, string> = {
   workflow_delete: 'remove workflow',
   workflow_import: 'load restore',
   net_start: 'network capture http requests har',
+  events_wait: 'block wait subscribe notify stream change after action',
+  network_get: 'proxy ip socks http network config exit',
+  network_set: 'proxy ip socks http network config exit set',
   net_stop: 'stop capture network',
   net_list: 'requests list network',
   net_get: 'request body details',
@@ -659,25 +670,71 @@ tool('env_update', 'Rename an environment or change its note. The id stays the s
   return { env: item.id, name: item.name, remark: item.remark }
 })
 
+tool('network_get', 'Read this environment\'s network config: proxy, user agent, languages, WebRTC policy, and whether it is currently applied.', z.object({ env: env }), async (args) => {
+  const id = dataEnv(args as { env?: string })
+  const info = describeNetwork(id)
+  return { env: id, config: info.config, applied: info.applied, error: info.error, file: info.file }
+})
+
+tool('network_set', 'Change network settings for one environment. Takes effect immediately, no restart. Fields you omit stay as they are. proxy.mode is direct / fixed / pac; fixed needs rules like "http://127.0.0.1:7890", pac needs pacScript. Pass null to clear userAgent / acceptLanguages / timezone / locale.', z.object({
+  env: env,
+  proxy: z.object({
+    mode: z.enum(['direct', 'fixed', 'pac']),
+    rules: z.string().optional(),
+    bypass: z.string().optional(),
+    pacScript: z.string().optional()
+  }).optional(),
+  userAgent: z.string().nullable().optional(),
+  acceptLanguages: z.string().nullable().optional(),
+  timezone: z.string().nullable().optional(),
+  locale: z.string().nullable().optional(),
+  webrtcPolicy: z.enum(['default', 'default_public_and_private_interfaces', 'default_public_interface_only', 'disable_non_proxied_udp']).optional()
+}), async (args) => {
+  const id = dataEnv(args as { env?: string })
+  const patch = args as NetworkPatch
+  writeNetwork(id, patch)
+  // 立刻下发，不等重启
+  await applySessionNetwork(id)
+  const info = describeNetwork(id)
+  return { env: id, config: info.config, applied: info.applied, error: info.error, file: info.file }
+})
+
 tool('env_delete', 'Close the window and clear its logins. The default environment cannot be deleted.', z.object({ env: z.string() }), async (args) => {
   const id = String(args.env)
   if (id === DEFAULT_ENV) throw new Error(mt('main.tc.defaultEnv'))
   const runtime = windows.get(id)
   runtime?.win.close()
-  const ses = session.fromPartition(`persist:${id}`)
-  await ses.clearStorageData()
-  await ses.clearCache()
-  await rm(join(storage.userData(), 'Partitions', id), { recursive: true, force: true }).catch(() => undefined)
+  // 先把内存和历史库收拾掉：删完目录再开库会把这个环境目录又建出来
+  storage.clearHistory(id)
+  closeHistory(id)
+  forgetNetwork(id)
+  // 不碰 session：Chromium 的 clearStorageData() 在窗口刚关掉时会把主进程 CPU 转满，
+  // 而且不返回——它只是清数据，而目录马上就要删，没必要付这个代价。
+  // Windows 上目录通常此刻删不掉（文件还被攥着），记成孤儿，下次启动在开窗口之前删。
+  const dir = profileRoot(id)
+  let dirRemoved = false
+  if (existsSync(dir)) {
+    const removed = await Promise.race([
+      rm(dir, { recursive: true, force: true, maxRetries: 2, retryDelay: 100 }).then(() => true).catch(() => false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2_000))
+    ])
+    dirRemoved = removed && !existsSync(dir)
+    if (!dirRemoved) {
+      rememberOrphan(id)
+      console.warn('[env] profile dir busy, will retry on next start:', id)
+    }
+  } else {
+    dirRemoved = true
+  }
   storage.envs = storage.envs.filter((item) => item.id !== id)
   storage.groups = storage.groups.filter((item) => item.envId !== id)
   storage.saveEnvs()
   storage.saveGroups()
   storage.clearSession(id)
-  storage.clearHistory(id)
   storage.clearBookmarks(id)
   storage.clearPermissions(id)
   clearPasswords(id)
-  return { env: id }
+  return { env: id, dirRemoved }
 })
 
 tool('tab_list', 'List tabs across all windows. Tab ids are globally unique.', z.object({}), async () => ({
@@ -1417,7 +1474,7 @@ tool('download', 'Local download records and the download directory. action list
   } else if (action === 'retry') {
     if (item.state !== 'failed') throw new Error(mt('main.tc.retryState', { state: item.state }))
     if (!item.envId || !/^https?:/i.test(item.url)) throw new Error(mt('main.tc.retryUrl'))
-    await session.fromPartition(`persist:${item.envId}`).downloadURL(item.url)
+    await sessionForEnv(item.envId).downloadURL(item.url)
   }
   const after = listDownloads().find((entry) => entry.id === id)
   return { action, id, state: after?.state ?? 'removed', path: after?.path ?? item.path }
@@ -2089,7 +2146,7 @@ tool('workflow_update', 'Patch part of an existing workflow. nodes replace by id
 })
 
 tool('workflow_list', 'List saved workflows and their parameter names.', z.object({}), async () => ({
-  workflows: storage.workflows.map((item) => ({
+  workflows: listWorkflows().map((item) => ({
     id: item.id,
     name: item.app.name,
     remark: item.app.description,
@@ -2172,6 +2229,32 @@ tool('net_start', 'Start recording HTTP for this tab. Request headers may contai
   return { tabId: args.tabId }
 })
 
+tool('events_wait', 'Block until matching browser events happen, then return them in one call. Use it right after an action to see what that action triggered. Pass since with the seq from the previous tool result so nothing between the action and this call is missed. types supports net.* style prefixes. timeout seconds default 30, max 60.', z.object({
+  since: z.number().optional(),
+  types: z.array(z.string()).optional(),
+  env: env,
+  tabId: z.string().optional(),
+  timeout: z.number().optional(),
+  limit: z.number().optional()
+}), async (args) => {
+  const seconds = Math.max(0, Math.min(60, Number(args.timeout ?? 30)))
+  const result = await waitEvents({
+    since: typeof args.since === 'number' ? args.since : undefined,
+    types: Array.isArray(args.types) ? args.types.map((item) => String(item)) : undefined,
+    env: typeof args.env === 'string' && args.env ? String(args.env) : undefined,
+    tabId: typeof args.tabId === 'string' && args.tabId ? String(args.tabId) : undefined,
+    timeoutMs: seconds * 1000,
+    limit: typeof args.limit === 'number' ? Number(args.limit) : undefined
+  })
+  return {
+    events: result.events,
+    seq: result.seq,
+    ...(result.timeout ? { timeout: true } : {}),
+    ...(result.reset ? { reset: true } : {}),
+    ...(result.busy ? { busy: true } : {})
+  }
+})
+
 tool('net_stop', 'Stop recording and detach the debugger.', z.object({ tabId: z.string() }), async (args) => {
   netStop(String(args.tabId))
   return { tabId: args.tabId }
@@ -2184,8 +2267,7 @@ tool('net_list', 'List request summaries without bodies.', z.object({ tabId: z.s
 tool('net_get', 'Return one request including its body when still kept. Local only.', z.object({ reqId: z.string() }), async (args) => {
   const item = netGet(String(args.reqId))
   if (!item) throw new Error(mt('main.tc.noRequest', { id: String(args.reqId) }))
-  return { request: item }
-})
+  return { request: item }})
 
 tool('net_export', 'Write this tab records as HAR and return the path.', z.object({ tabId: z.string() }), async (args) => ({
   path: netExport(String(args.tabId), storage.dir('runs'))
@@ -2257,7 +2339,7 @@ tool('env_export', 'Export cookies for this environment to a JSON file and retur
   const id = String(args.env)
   const item = storage.envs.find((envItem) => envItem.id === id)
   if (!item) throw new Error(mt('main.tc.noEnv', { id }))
-  const ses = session.fromPartition(`persist:${id}`)
+  const ses = sessionForEnv(id)
   const cookies = await ses.cookies.get({})
   const path = join(storage.dir('exports'), `env-${id}-${Date.now()}.json`)
   writeFileSync(path, JSON.stringify({ name: item.name, remark: item.remark, exportedAt: Date.now(), cookies }, null, 2))
@@ -2276,7 +2358,7 @@ tool('env_import', 'Restore logins from a file written by env_export. Without en
     storage.envs.push({ id, name: String(args.name || raw.name || mt('main.tc.importedEnv')), remark: '', sites: [] })
     storage.saveEnvs()
   }
-  const ses = session.fromPartition(`persist:${id}`)
+  const ses = sessionForEnv(id)
   let ok = 0
   for (const cookie of raw.cookies ?? []) {
     try {
@@ -2355,9 +2437,8 @@ tool('history_list', 'List history for an environment, newest first. query filte
   const envId = dataEnv(args as { env?: string })
   const query = String(args.query ?? '').trim().toLowerCase()
   const limit = Math.max(1, Math.min(500, Number(args.limit ?? 50)))
-  const items = storage.historyFor(envId)
-    .filter((item) => !query || item.title.toLowerCase().includes(query) || item.url.toLowerCase().includes(query))
-    .slice(0, limit)
+  // 走每环境自己的库，不用把几千条历史全摊在内存里过滤
+  const items = queryHistory(envId, { urlContains: query || undefined, limit })
   return {
     env: envId,
     history: items.map((item) => ({ id: item.id, url: item.url, title: item.title, visitedAt: item.visitedAt }))
@@ -2445,7 +2526,7 @@ tool('cookie_list', 'List cookies for this environment, optionally filtered by d
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
   const domain = String(args.domain ?? '').trim().replace(/^\./, '').toLowerCase()
-  const cookies = await session.fromPartition(`persist:${envId}`).cookies.get({})
+  const cookies = await sessionForEnv(envId).cookies.get({})
   const list = cookies.filter((cookie) => {
     const host = String(cookie.domain || '').replace(/^\./, '').toLowerCase()
     return !domain || host === domain || host.endsWith(`.${domain}`)
@@ -2490,7 +2571,7 @@ tool('cookie_set', 'Write one cookie into this environment. Without url an addre
   const details: Electron.CookiesSetDetails = { url, name, value, path, secure, httpOnly: Boolean(args.httpOnly) }
   if (typeof args.domain === 'string' && args.domain) details.domain = args.domain
   if (typeof args.expirationDate === 'number') details.expirationDate = args.expirationDate
-  await session.fromPartition(`persist:${envId}`).cookies.set(details)
+  await sessionForEnv(envId).cookies.set(details)
   bridge.broadcast(envId)
   return { env: envId, ok: true }
 })
@@ -2503,7 +2584,7 @@ tool('cookie_remove', 'Delete cookies: url plus name for one, domain for all of 
   all: z.boolean().optional()
 }), async (args) => {
   const envId = dataEnv(args as { env?: string })
-  const ses = session.fromPartition(`persist:${envId}`)
+  const ses = sessionForEnv(envId)
   if (args.all) {
     const all = await ses.cookies.get({})
     for (const cookie of all) await ses.cookies.remove(cookieAddress(cookie), cookie.name)

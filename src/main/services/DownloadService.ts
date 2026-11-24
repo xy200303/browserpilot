@@ -3,6 +3,7 @@ import { mkdirSync } from 'fs'
 import { createId } from '../ids'
 import { bridge } from '../runtime'
 import { storage } from './store'
+import { emit as emitEvent } from './events'
 import { mt } from '../i18n'
 
 export type DownloadItem = {
@@ -76,6 +77,7 @@ export function downloadBegin(name: string, url: string, path = '', totalBytes =
     entries.delete(last)
   }
   emit()
+  emitEvent('download', { env: envId, payload: { phase: 'started', id, name, url, totalBytes } })
   return id
 }
 
@@ -94,6 +96,10 @@ export function downloadDone(id: string, path: string): void {
   entry.item.path = path
   entry.item.doneAt = Date.now()
   emit()
+  emitEvent('download', {
+    env: entry.item.envId,
+    payload: { phase: 'done', id, name: entry.item.name, path, bytes: entry.item.receivedBytes }
+  })
 }
 
 export function downloadFail(id: string, error: string): void {
@@ -103,6 +109,7 @@ export function downloadFail(id: string, error: string): void {
   entry.item.error = error
   entry.item.doneAt = Date.now()
   emit()
+  emitEvent('download', { env: entry.item.envId, payload: { phase: 'failed', id, name: entry.item.name, error } })
 }
 
 export function downloadsClear(): void {

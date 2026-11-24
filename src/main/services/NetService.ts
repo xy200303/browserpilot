@@ -5,6 +5,7 @@ import type { CaptureInfo } from '@shared/types'
 import { createId } from '../ids'
 import { findTab } from '../runtime'
 import { holdDebugger, onDebuggerMessage, releaseDebugger } from './debugger'
+import { emit } from './events'
 import { mt } from '../i18n'
 
 export type Capture = CaptureInfo & {
@@ -14,7 +15,8 @@ export type Capture = CaptureInfo & {
 }
 
 const captures = new Map<string, Capture[]>()
-const watching = new Set<string>()
+/** tabId → envId。抓包时记下来，发事件时不用每条都去全表找标签。 */
+const watching = new Map<string, string>()
 const listeners = new Map<string, () => void>()
 const mockListeners = new Map<string, () => void>()
 const requestOwners = new Map<string, { tabId: string; id: string }>()
@@ -70,7 +72,7 @@ export async function netStart(tabId: string): Promise<void> {
   const dbg = holdDebugger(wc)
   await dbg.sendCommand('Network.enable')
   listeners.set(tabId, onDebuggerMessage(wc, (method, params) => onMessage(tabId, method, params)))
-  watching.add(tabId)
+  watching.set(tabId, found.tab.envId)
 }
 
 export function netStop(tabId: string): void {
@@ -119,9 +121,12 @@ export function netExport(tabId: string, dir: string): string {
 
 function onMessage(tabId: string, method: string, params: unknown): void {
   if (!watching.has(tabId)) return
+  const env = watching.get(tabId)
   const data = params as {
     requestId?: string
     type?: string
+    errorText?: string
+    canceled?: boolean
     request?: { method?: string; url?: string; headers?: Record<string, string> }
     response?: { status?: number; mimeType?: string; headers?: Record<string, string> }
   }
@@ -142,6 +147,12 @@ function onMessage(tabId: string, method: string, params: unknown): void {
       const oldest = requestOwners.keys().next().value
       if (oldest) requestOwners.delete(oldest)
     }
+    // 事件跟着抓包开关走：没在抓包的页面不往缓冲里灌数据
+    emit('net.request', {
+      env,
+      tabId,
+      payload: { reqId: created.id, method: created.method, url: created.url, resourceType: created.resourceType }
+    })
   }
   if (method === 'Network.responseReceived' && data.requestId && data.response) {
     const owner = requestOwners.get(data.requestId)
@@ -151,10 +162,31 @@ function onMessage(tabId: string, method: string, params: unknown): void {
     item.status = data.response.status
     item.mimeType = data.response.mimeType
     item.responseHeaders = data.response.headers
+    emit('net.response', {
+      env,
+      tabId,
+      payload: {
+        reqId: item.id,
+        url: item.url,
+        status: item.status ?? 0,
+        mimeType: item.mimeType ?? '',
+        resourceType: item.resourceType
+      }
+    })
     const mime = item.mimeType ?? ''
     if (mime.includes('json') || mime.startsWith('text/')) {
       void pullBody(tabId, data.requestId, item)
     }
+  }
+  if (method === 'Network.loadingFailed' && data.requestId) {
+    const owner = requestOwners.get(data.requestId)
+    if (!owner || owner.tabId !== tabId) return
+    const item = listOf(tabId).find((entry) => entry.id === owner.id)
+    emit('net.failed', {
+      env,
+      tabId,
+      payload: { reqId: item?.id ?? owner.id, url: item?.url ?? '', error: data.errorText ?? '', canceled: Boolean(data.canceled) }
+    })
   }
 }
 

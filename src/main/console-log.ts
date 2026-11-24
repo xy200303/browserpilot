@@ -11,6 +11,14 @@ export type ConsoleEntry = {
 
 const logs = new Map<number, ConsoleEntry[]>()
 
+/** 事件总线的出口：windows.ts 装好之后，每条 console 都会走这里变成 `page.console` 事件。 */
+type ConsoleSink = (wcId: number, entry: ConsoleEntry) => void
+let sink: ConsoleSink | undefined
+
+export function setConsoleSink(next: ConsoleSink | undefined): void {
+  sink = next
+}
+
 type ConsoleMessageEvent = {
   level?: unknown
   message?: unknown
@@ -43,6 +51,7 @@ export function watchConsole(wc: WebContents): void {
     entry.level = labels[entry.level] ?? entry.level
     list.unshift(entry)
     if (list.length > 300) list.length = 300
+    sink?.(wc.id, entry)
   }
   wc.on('console-message', onMessage as never)
   wc.once('destroyed', () => logs.delete(wc.id))
@@ -65,6 +74,7 @@ export function recordConsole(wc: WebContents, entry: ConsoleEntry): void {
   }
   list.unshift(entry)
   if (list.length > 300) list.length = 300
+  sink?.(wc.id, entry)
 }
 
 export function consoleFor(wc: WebContents): ConsoleEntry[] {

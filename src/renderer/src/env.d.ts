@@ -91,7 +91,7 @@ export type BrowserApi = {
   listRuns: (id?: string) => Promise<RunLog[]>
   openMarket: () => Promise<void>
   listMarket: () => Promise<{ items: { slug: string; name: string; description: string; author: string; category: string; site: string; icon: string; file: string }[]; source: string }>
-  installMarket: (input: { file?: string; url?: string }) => Promise<{ workflow: string; name: string }>
+  installMarket: (input: { file?: string; url?: string; slug?: string }) => Promise<{ workflow: string; name: string }>
   runWorkflow: (input: { workflow: string; inputs?: Record<string, string> }) => Promise<{ ok?: boolean; error?: string; outputs?: Record<string, unknown> }>
   copyAgentPrompt: (id: string) => Promise<{ copied: boolean }>
   updateWorkflow: (input: {
