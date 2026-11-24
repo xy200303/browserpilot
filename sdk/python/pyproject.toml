@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # PyPI 上 browserpilot 这个名字被一个 Selenium 时代的项目占了（0.2.53，作者 handrew），
 # 所以发布名用 browserpilot-sdk；装完之后 import 的仍然是 browserpilot。
 name = "browserpilot-sdk"
-version = "0.20.0"
+version = "0.20.1"
 description = "Drive the BrowserPilot desktop browser from Python, Playwright style"
 readme = "README.md"
 requires-python = ">=3.9"

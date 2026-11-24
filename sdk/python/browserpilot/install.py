@@ -34,8 +34,8 @@ __all__ = [
 ]
 
 # SDK 版本和 App 版本同号，只留一个真源：asset 名和下载目录都从这里来。
-APP_VERSION = '0.20.0'
-SDK_VERSION = '0.20.0'
+APP_VERSION = '0.20.1'
+SDK_VERSION = '0.20.1'
 
 RELEASE_API = 'https://api.github.com/repos/xy200303/browserpilot/releases/tags'
 USER_AGENT = 'browserpilot-sdk'
