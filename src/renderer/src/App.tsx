@@ -203,7 +203,11 @@ function TabStrip({ state }: { state: UiState }) {
     const strip = stripRef.current
     if (!strip || !activeId) return
     const tab = strip.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
-    tab?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    if (!tab) return
+    tab.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    // 用键盘关掉当前标签时焦点会掉到 body，这里把它还给新的活动标签；
+    // 只在焦点本来就在标签条里时才抢，避免从地址栏或页面把焦点夺过来
+    if (document.activeElement?.getAttribute('role') === 'tab') tab.focus()
   }, [activeId])
   return (
     <div className="flex min-w-0 flex-1 items-end">
