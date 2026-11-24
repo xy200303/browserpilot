@@ -38,3 +38,6 @@ sdk/python/*.egg-info
 # 探针脚本（scripts/probe-*.js）跑出来的临时产物；*.log 上面已经覆盖
 .probe-*
 .tmp/
+
+# 临时探针脚本
+.tmp-*

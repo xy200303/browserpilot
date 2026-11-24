@@ -10,6 +10,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { storage } from './store'
 import { advertisedToolMeta, callTool, listToolMeta } from './tool-catalog'
 import { waitEvents } from './events'
+import { mt } from '../i18n'
 
 let httpServer: ReturnType<typeof createServer> | null = null
 let token = randomBytes(24).toString('hex')
@@ -40,23 +41,41 @@ function headerOf(req: IncomingMessage, name: string): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
-function readBody(req: IncomingMessage): Promise<unknown> {
+/**
+ * 读请求体。必须带超时：客户端发一半断开时 `end` 永远不会来，
+ * 没有超时的话这个 handler 会一直挂着，占住连接和内存。
+ */
+function readBody(req: IncomingMessage, timeoutMs = 15_000): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    req.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
-    req.on('end', () => {
+    let settled = false
+    const finish = (fn: () => void): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      req.off('data', onData)
+      req.off('end', onEnd)
+      req.off('error', onError)
+      fn()
+    }
+    const timer = setTimeout(() => finish(() => reject(new Error('request body timeout'))), timeoutMs)
+    const onData = (chunk: Buffer): void => {
+      chunks.push(Buffer.from(chunk))
+    }
+    const onEnd = (): void => {
       const text = Buffer.concat(chunks).toString('utf8')
-      if (!text) {
-        resolve(undefined)
-        return
-      }
+      if (!text) return finish(() => resolve(undefined))
       try {
-        resolve(JSON.parse(text))
+        const parsed = JSON.parse(text) as unknown
+        finish(() => resolve(parsed))
       } catch (error) {
-        reject(error)
+        finish(() => reject(error))
       }
-    })
-    req.on('error', reject)
+    }
+    const onError = (error: unknown): void => finish(() => reject(error))
+    req.on('data', onData)
+    req.on('end', onEnd)
+    req.on('error', onError)
   })
 }
 
@@ -326,6 +345,9 @@ function handleApiTools(req: IncomingMessage, res: ServerResponse): void {
  * 单个工具调用。返回工具载荷本身（不再包成 content part），图片放同级 `image` 字段。
  * 解析成功且鉴权通过之后一律 200，成败看 `ok`。
  */
+/** 硬上限：比工具自身的 90 秒多留一点余量 */
+const HARD_CALL_TIMEOUT_MS = 100_000
+
 async function handleApiCall(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method !== 'POST') {
     res.writeHead(405, { Allow: 'POST' })
@@ -352,8 +374,18 @@ async function handleApiCall(req: IncomingMessage, res: ServerResponse): Promise
     reply(res, 400, { ok: false, code: 'bad_request', error: 'args must be an object' })
     return
   }
+  // 外层再兜一道硬超时：callTool 内部自己有 timeout，但如果某条路径把定时器饿死了
+  // （或者卡在读 body / 队列上），这里保证请求一定会回，不至于整条通道被拖死。
+  const started = Date.now()
   try {
-    const result = await callTool(tool, args ?? {})
+    const result = await Promise.race([
+      callTool(tool, args ?? {}),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(mt('main.tc.toolTimeout', { name: tool, seconds: HARD_CALL_TIMEOUT_MS / 1000 }))), HARD_CALL_TIMEOUT_MS)
+      )
+    ])
+    const elapsed = Date.now() - started
+    if (elapsed > 30_000) console.warn('[api] slow tool', tool, `${Math.round(elapsed / 1000)}s`)
     const { image, ...rest } = result as typeof result & {
       image?: { mimeType?: string; data?: string }
     }
