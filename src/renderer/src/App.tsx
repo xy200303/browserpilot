@@ -197,6 +197,14 @@ function TabStrip({ state }: { state: UiState }) {
   const scrollStrip = (delta: number): void => {
     stripRef.current?.scrollBy({ left: delta, behavior: 'smooth' })
   }
+  const activeId = orderedTabs.find((tab) => tab.active)?.id ?? ''
+  // 切到被溢出滚出去的标签时，把它滚回视野内
+  useEffect(() => {
+    const strip = stripRef.current
+    if (!strip || !activeId) return
+    const tab = strip.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+    tab?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeId])
   return (
     <div className="flex min-w-0 flex-1 items-end">
       {canLeft && (
@@ -206,7 +214,29 @@ function TabStrip({ state }: { state: UiState }) {
       )}
       <div
         ref={stripRef}
+        role="tablist"
         className="drag flex min-w-0 flex-1 items-end gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        onKeyDown={(event) => {
+          const index = orderedTabs.findIndex((tab) => tab.active)
+          if (index < 0) return
+          const move = (next: number): void => {
+            const target = orderedTabs[(next + orderedTabs.length) % orderedTabs.length]
+            if (target) void window.browser.activateTab(target.id)
+          }
+          if (event.key === 'ArrowRight') {
+            event.preventDefault()
+            move(index + 1)
+          } else if (event.key === 'ArrowLeft') {
+            event.preventDefault()
+            move(index - 1)
+          } else if (event.key === 'Home') {
+            event.preventDefault()
+            move(0)
+          } else if (event.key === 'End') {
+            event.preventDefault()
+            move(orderedTabs.length - 1)
+          }
+        }}
         onWheel={(event) => {
           const el = stripRef.current
           if (!el || event.deltaY === 0) return
@@ -455,8 +485,24 @@ function TabButton({ tab, hideDivider }: { tab: TabInfo; hideDivider?: boolean }
   return (
     <div
       draggable
-      className={`no-drag relative mb-0 flex h-8 max-w-56 min-w-28 shrink-0 items-center gap-2 rounded-t-lg px-3 ${tab.active ? 'bg-white' : 'hover:bg-black/5'}`}
-      onClick={() => void window.browser.activateTab(tab.id)}
+      role="tab"
+      aria-selected={tab.active}
+      tabIndex={tab.active ? 0 : -1}
+      className={`no-drag relative mb-0 flex h-8 max-w-56 min-w-28 shrink-0 cursor-default select-none items-center gap-2 rounded-t-lg px-3 ${tab.active ? 'bg-white' : 'hover:bg-black/5'} focus:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+      // 按下就切，别等 click：拖拽和单击的判定在 mouseup，等 click 会让人觉得迟钝；
+      // 键盘触发的 click 没有按键信息，所以 detail === 0 时也要处理
+      onMouseDown={(event) => {
+        if (event.button !== 0) return
+        if (!tab.active) void window.browser.activateTab(tab.id)
+      }}
+      onClick={(event) => {
+        if (event.detail === 0 && !tab.active) void window.browser.activateTab(tab.id)
+      }}
+      onAuxClick={(event) => {
+        if (event.button !== 1) return
+        event.preventDefault()
+        void window.browser.closeTab(tab.id)
+      }}
       onDragStart={(event) => {
         event.dataTransfer.setData('text/plain', tab.id)
         event.dataTransfer.effectAllowed = 'move'
@@ -468,6 +514,7 @@ function TabButton({ tab, hideDivider }: { tab: TabInfo; hideDivider?: boolean }
           type="button"
           className="grid h-4 w-4 shrink-0 place-items-center text-neutral-500 hover:text-neutral-900"
           title={tab.muted ? t('shell.tabs.unmute') : t('shell.tabs.mute')}
+          onMouseDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation()
             void window.browser.muteTab(tab.id)
@@ -486,6 +533,7 @@ function TabButton({ tab, hideDivider }: { tab: TabInfo; hideDivider?: boolean }
         variant="ghost"
         size="icon-xs"
         title={t('shell.tabs.close')}
+        onMouseDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation()
           void window.browser.closeTab(tab.id)
