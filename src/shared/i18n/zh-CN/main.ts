@@ -237,6 +237,8 @@ export const zhMain = {
     wf: {
       nameRequired: '工作流需要名称',
       noWorkflow: '没有这个工作流 {{id}}',
+      slugInvalid: 'slug 不合法：{{slug}}',
+      slugConflict: '「{{slug}}」已经被「{{name}}」占用，换个名字或先删掉那个',
       emptyFile: '这个文件是空的',
       notJson: '这个文件不是 JSON',
       notWorkflow: '这个文件不是工作流',
@@ -409,6 +411,13 @@ export const zhMain = {
       inputs: 'inputs 使用下面这些值（按名字对应，不要自己编）：\n{{list}}',
       noParams: '这个工作流没有参数。',
       unlock: '做完后调用 page_unlock。'
+    },
+    net: {
+      needRules: 'fixed 代理需要 rules，例如 "http://127.0.0.1:7890"',
+      badRule: '代理规则看不懂：{{rule}}',
+      needPac: 'pac 模式需要 pacScript',
+      badPolicy: 'webrtcPolicy 只能是 {{allowed}}',
+      applyFailed: '代理没生效：{{message}}'
     }
   }
 } as const

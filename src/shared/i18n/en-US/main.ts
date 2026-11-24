@@ -240,6 +240,8 @@ export const enMain: MessageShape<typeof zhMain> = {
     wf: {
       nameRequired: 'A workflow needs a name',
       noWorkflow: 'No such workflow {{id}}',
+      slugInvalid: 'Invalid slug: {{slug}}',
+      slugConflict: 'Slug "{{slug}}" already belongs to "{{name}}"; rename this one or delete that one first',
       emptyFile: 'This file is empty',
       notJson: 'This file is not JSON',
       notWorkflow: 'This file is not a workflow',
@@ -412,6 +414,13 @@ export const enMain: MessageShape<typeof zhMain> = {
       inputs: 'Use these values for inputs (match by name, do not invent):\n{{list}}',
       noParams: 'This workflow takes no parameters.',
       unlock: 'Call page_unlock when done.'
+    },
+    net: {
+      needRules: 'fixed proxy needs rules, for example "http://127.0.0.1:7890"',
+      badRule: 'Unrecognized proxy rule: {{rule}}',
+      needPac: 'pac mode needs pacScript',
+      badPolicy: 'webrtcPolicy must be one of {{allowed}}',
+      applyFailed: 'Proxy did not take effect: {{message}}'
     }
   }
 }
