@@ -190,6 +190,44 @@ cookie 隔离不用开新进程，`env_create` 就够。
 `fill()` 为什么是三步：`page_type` 底层用 `Input.insertText`，**只在光标处插入、不清空**已有内容。
 要 Playwright 的「覆盖」语义，必须先点进控件、全选、再插入。
 
+### 现在封装了哪些操作
+
+浏览器层（Playwright 风格）：
+
+| 分类 | 方法 |
+| --- | --- |
+| 导航 | `goto` `reload` `back` `forward` `waitForLoad` `url` `title` |
+| 定位 | `locator` `xpath` `getByText` `getByRole` `getByLabel` `getByPlaceholder` `getByTestId` |
+| 交互 | `click` `fill` `type` `press` `hover` `select` `scroll` `scrollTo` |
+| 等待 | `waitFor` `waitForText` `expectText` |
+| 读取 | `count` `isVisible` `textContent` `content` `snapshot` `consoleLogs` `screenshot` |
+| 标签 | `bringToFront` `close` |
+
+环境与客户端层：
+
+| 方法 | 说明 |
+| --- | --- |
+| `bp.environments()` | 列出所有环境 |
+| `bp.environment(id)` | 取一套环境：`open` / `close` / `newPage` / `pages` |
+| `bp.newPage({env})` / `bp.pages()` | 开标签、列标签 |
+| `bp.events()` / `bp.on(type, fn)` | 事件流（长轮询，`seq` 续传） |
+| `bp.call(tool, args)` | 直接调任意工具，不做封装 |
+
+底层 100 个工具都能从 `bp.call` / `page.call` 直接调：工作流（录制、运行、导入导出）、市场、历史、书签、下载、网络抓包、每环境代理、环境与分组管理。
+
+### 一条命令跑一遍
+
+```bash
+cd sdk/node && node build.mjs
+node sdk/scripts/demo.mjs
+```
+
+它会新建一套临时环境（需要先有一个在跑的 App），依次验证：列环境、建环境、开标签、导航、
+填表点按钮、等文字、数元素、可见性、执行脚本、无障碍快照、截图、页面 console、超时报错、
+事件通道、网络抓包、历史隔离、每环境网络配置，最后把环境删掉。
+
+最近一次在装好的 0.20.0 上跑：**15/15 步通过，约 3 秒**，截图 8716 字节。
+
 ## 8. 已知限制
 
 | 限制 | 原因 | 现状 |
