@@ -28,3 +28,33 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build
+
+  # 三个 SDK 的单元测试都对着假端点跑，不需要真机、不联网。
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      # Node SDK 的构建脚本用仓库根目录的 tsc，所以根依赖要装
+      - run: npm ci
+      - name: Node SDK
+        run: |
+          cd sdk/node
+          node build.mjs
+          node test/sdk.test.mjs
+      - name: Python SDK
+        run: |
+          cd sdk/python
+          python -m unittest discover -s tests -v
+      - name: Go SDK
+        run: |
+          cd sdk/go
+          go vet ./...
+          test -z "$(gofmt -l .)"
+          go test ./...

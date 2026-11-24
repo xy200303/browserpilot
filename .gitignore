@@ -25,3 +25,16 @@ release-*
 # VitePress 构建缓存与产物
 website/.vitepress/cache
 website/.vitepress/dist
+
+# SDK：Python 字节码、Go 构建缓存
+__pycache__/
+*.pyc
+sdk/go/.gocache
+sdk/go/.gomodcache
+sdk/python/dist
+sdk/python/build
+sdk/python/*.egg-info
+
+# 探针脚本（scripts/probe-*.js）跑出来的临时产物；*.log 上面已经覆盖
+.probe-*
+.tmp/
