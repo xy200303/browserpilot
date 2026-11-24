@@ -302,6 +302,24 @@ node sdk/scripts/dump-tools.mjs     # → sdk/spec/tools.json（100 个工具）
 node sdk/scripts/sync-version.mjs   # → node/package.json、version.ts、pyproject.toml、install.py、go/version.go、spec/versions.json
 ```
 
+### 高级效果演示
+
+`ash
+python sdk/python/scripts/showcase.py            # 读系统默认 mcp.json
+python sdk/python/scripts/showcase.py --mcp x    # 指定端点
+`
+
+四段，跑完自动清理：
+
+1. **CDP 组合伪装**：时区 + UA + 设备型号一次下发，页面里读 Intl / 
+avigator.userAgent /
+   screen.width / devicePixelRatio 验证（注意 mobile:true 时布局视口固定 980px，设备宽度看 screen.width）
+2. **net_mock 改包**：把 xample.com/api/demo 的响应换成假 JSON，页面拿到的就是假的
+3. **多环境并行**：两套环境各自伪装不同时区（Europe/London / Asia/Tokyo），同时跑、互不影响
+4. **工作流**：录制一小段操作 → 跑一遍 → workflow_batch 两行并发
+
+上次实测：四段全过，工作流跑一遍 ok=True，批量 2 行 2 成功。
+
 ## 10. 目录
 
 ```

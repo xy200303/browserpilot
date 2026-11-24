@@ -118,7 +118,6 @@ class Settings(_Api):
         return dict(self._call('settings_get').get('settings') or {})
 
     def update(self, **fields: Any) -> Dict[str, Any]:
-        fields.pop('self', None)
         return self._call('settings_set', **fields)
 
 
