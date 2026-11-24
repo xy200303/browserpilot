@@ -13,7 +13,7 @@ export { Bookmarks, Downloads, Environments, Groups, History, Net, Network, Sett
 export type { LaunchOptions, ConnectOptions } from './client.js'
 
 export { Page } from './page.js'
-export type { PageTarget, ClickOptions, ScreenshotOptions, WaitOptions } from './page.js'
+export type { PageTarget, PageEventName, ClickOptions, ScreenshotOptions, WaitOptions } from './page.js'
 
 export { Locator } from './locator.js'
 export type { LocatorSpec } from './locator.js'

@@ -1,7 +1,25 @@
 import { writeFileSync } from 'node:fs'
 import { NotFoundError, ToolError, type ToolPayload } from './errors.js'
 import { Locator, actionArgs, describe, isLocatorSpec, typePlan, waitArgs, type LocatorSpec } from './locator.js'
-import type { CallResult, Transport } from './transport.js'
+import type { CallResult, EventRecord, Transport } from './transport.js'
+
+/** 页面能订阅的事件，映射到事件总线里的 type */
+export type PageEventName = 'response' | 'request' | 'navigation' | 'console' | 'loading'
+
+const PAGE_EVENT_TYPES: Record<PageEventName, string[]> = {
+  response: ['net.response'],
+  request: ['net.request'],
+  navigation: ['tab.navigation'],
+  console: ['page.console'],
+  loading: ['tab.loading']
+}
+
+function urlMatches(match: string | RegExp, url: string): boolean {
+  if (typeof match === 'string') return url.includes(match)
+  // 带 g/y 的正则 test() 会留 lastIndex，下一轮可能从中间开始
+  match.lastIndex = 0
+  return match.test(url)
+}
 
 /** 定位目标：CSS 选择器、Locator、或者直接给一份定位描述。 */
 export type PageTarget = string | Locator | LocatorSpec
@@ -28,6 +46,10 @@ export class Page {
   readonly id: string
   readonly env: string
   private readonly transport: Transport
+  /** 这个 Page 当前有几路订阅要抓包；0 时才真的 net_stop */
+  private captureUsers = 0
+  /** net_start 的进行中 Promise：并发订阅共用一次握手，不各开一遍 */
+  private captureReady: Promise<void> | null = null
 
   constructor(transport: Transport, id: string, env: string) {
     this.transport = transport
@@ -298,6 +320,129 @@ export class Page {
     return (data.messages as Array<Record<string, unknown>>) ?? []
   }
 
+  // ---------- 事件 ----------
+
+  /**
+   * 订阅这个标签的事件，返回取消函数。
+   *
+   *   const off = await page.on('response', (e) => console.log(e.payload.status, e.payload.url))
+   *   ...
+   *   off()
+   *
+   * 是 async 的：返回时抓包已经挂好（response / request），紧接着导航不会漏掉首批请求。
+   * 最后一个订阅取消时 net_stop；取消会立刻掐断在途的长轮询。
+   */
+  async on(event: PageEventName, handler: (event: EventRecord) => void): Promise<() => void> {
+    if (!(event in PAGE_EVENT_TYPES)) {
+      // JS 调用方没有类型检查，拼错事件名会静默订阅成全部事件
+      throw new Error(`不认识的事件 ${String(event)}；可选：${Object.keys(PAGE_EVENT_TYPES).join(', ')}`)
+    }
+    const controller = new AbortController()
+    const needsCapture = event === 'response' || event === 'request'
+    if (needsCapture) await this.acquireCapture()
+    void this.run(PAGE_EVENT_TYPES[event], handler, controller.signal, needsCapture)
+    return () => controller.abort()
+  }
+
+  /**
+   * 等第一个 URL 匹配的响应，返回事件本身（payload 里有 url / status / mimeType / reqId）。
+   * 会先把抓包挂好再开始等，所以「先 waitForResponse 再 goto」不会漏掉首批请求。
+   *
+   *   const res = await page.waitForResponse('api/user', { timeout: 10 })
+   */
+  async waitForResponse(
+    match: string | RegExp,
+    options: { timeout?: number } = {}
+  ): Promise<EventRecord> {
+    const seconds = options.timeout ?? 30
+    const controller = new AbortController()
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, seconds * 1000)
+    let acquired = false
+    try {
+      await this.acquireCapture()
+      acquired = true
+      for await (const record of this.stream(['net.response'], controller.signal)) {
+        const url = String((record.payload as { url?: unknown }).url ?? '')
+        if (urlMatches(match, url)) return record
+      }
+    } catch (error) {
+      if (!timedOut) throw error
+    } finally {
+      clearTimeout(timer)
+      if (acquired) await this.releaseCapture()
+    }
+    throw new NotFoundError(`等了 ${seconds}s，没等到匹配 ${String(match)} 的响应`)
+  }
+
+  /**
+   * 这个标签的事件流：长轮询续传，直到 signal 取消。
+   * 一般不用直接调，用 `on()` / `waitForResponse()` 就行。
+   */
+  async *stream(types: string[], signal?: AbortSignal): AsyncGenerator<EventRecord, void, void> {
+    let since: number | undefined
+    for (;;) {
+      if (signal?.aborted) return
+      const floor = since
+      const result = await this.transport.events({ tabId: this.id, types, since, wait: 25, signal })
+      // 服务端 waiter 满了会立刻返回 busy，等一下再试，别空转打满 CPU
+      if (result.busy) {
+        await sleep(100, signal)
+        continue
+      }
+      since = result.seq
+      for (const record of result.events) {
+        if (signal?.aborted) return
+        // 位置失效时服务端会重放缓冲，比自己拿到的位置还旧的丢掉
+        if (floor !== undefined && record.seq <= floor) continue
+        yield record
+      }
+    }
+  }
+
+  private async run(
+    types: string[],
+    handler: (event: EventRecord) => void,
+    signal: AbortSignal,
+    capture: boolean
+  ): Promise<void> {
+    try {
+      for await (const record of this.stream(types, signal)) {
+        if (signal.aborted) return
+        handler(record)
+      }
+    } catch {
+      /* 取消、App 关了、连接断了：都当作订阅结束，调用方可以重新订阅 */
+    } finally {
+      // on() 已经把抓包挂上了，这里只负责收尾
+      if (capture) await this.releaseCapture()
+    }
+  }
+
+  private async acquireCapture(): Promise<void> {
+    this.captureUsers += 1
+    if (!this.captureReady) {
+      this.captureReady = this.call('net_start', {})
+        .then(() => undefined)
+        .catch(() => undefined)
+    }
+    await this.captureReady
+  }
+
+  private async releaseCapture(): Promise<void> {
+    this.captureUsers = Math.max(0, this.captureUsers - 1)
+    if (this.captureUsers > 0) return
+    const ready = this.captureReady
+    this.captureReady = null
+    // 抓包还在握手就先等它挂上，否则 net_stop 可能跑在 net_start 前面
+    if (ready) await ready
+    if (this.captureUsers > 0) return
+    await this.call('net_stop', {}).catch(() => undefined)
+  }
+
   // ---------- 截图 ----------
 
   /** 返回图片字节。App 那边也会存一份，路径在载荷里。 */
@@ -390,6 +535,15 @@ function locateFields(spec: LocatorSpec): Record<string, unknown> | null {
   return null
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve()
+    const done = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', done)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    signal?.addEventListener('abort', done, { once: true })
+  })
 }

@@ -57,6 +57,15 @@ await page.content('response')                    // 这次导航的原始 HTML
 await page.evaluate(() => document.querySelectorAll('a').length)
 await page.consoleLogs()                          // 页面报错先看这个
 
+// 事件：response / request 会自动开抓包，最后一个订阅取消时关掉
+const off = await page.on('response', (e) => console.log(e.payload.status, e.payload.url))
+await page.goto('https://example.com')
+off()
+
+// 等一个响应：先挂好抓包再开始等，先等再导航不会漏
+const api = await page.waitForResponse('api/user', { timeout: 10 })
+console.log(api.payload.status, api.payload.mimeType)
+
 // 截图（默认不画坐标网格，和 Playwright 一样干净）
 await page.screenshot({ path: 'a.png' })
 await page.screenshot({ target: page.locator('#chart') })
@@ -94,9 +103,28 @@ SDK 启动的进程是 detached 的，脚本崩了不会把你的浏览器一起
 | `BROWSERPILOT_DEBUG=1` | 打印发现/启动过程 |
 | `GITHUB_TOKEN` | 下载时提高 GitHub API 限流额度 |
 
+## 事件
+
+`page.on()` 支持 `response`、`request`、`navigation`、`console`、`loading`，返回取消函数。
+`on()` 是 async 的：`await` 返回时抓包已经挂好，紧接着导航不会漏掉首批请求。
+`response` / `request` 会在订阅时自动 `net_start`，最后一个订阅取消时 `net_stop`；取消会立刻
+掐断在途的长轮询，不会留后台请求。
+
+```ts
+const seen = []
+const off = await page.on('response', (e) => seen.push(e.payload.url))
+await page.goto('https://example.com')
+off()
+
+// 字符串按子串匹配，也可以传 RegExp
+const res = await page.waitForResponse(/\/api\/user\/\d+/, { timeout: 10 })
+```
+
+`waitForResponse()` 会先挂好抓包再开始等，所以「先 `waitForResponse` 再 `goto`」不会漏掉首批请求。
+超时抛 `NotFoundError`。
+
 ## 限制
 
-- 没有 `page.on('response')`：MCP 是无状态 POST，没有订阅通道，只能轮询
 - `goto()` 只等到 `did-stop-loading`，没有 networkidle
 - `waitFor()` 支持 selector / xpath / 文本 / role；`label`、`placeholder` 请改写成 selector
 - 一次只能有一个 App 实例，并发测试靠环境隔离

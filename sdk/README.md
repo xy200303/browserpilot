@@ -204,6 +204,7 @@ Go 用 `time.Duration`，单位写在类型里（`500 * time.Millisecond`）。
 | 交互 | `click` `fill` `type` `press` `hover` `select` `scroll` `scrollTo` |
 | 等待 | `waitFor` `waitForText` `expectText` |
 | 读取 | `count` `isVisible` `textContent` `content` `snapshot` `consoleLogs` `screenshot` |
+| 事件 | `on` `waitForResponse`（response / request / navigation / console / loading） |
 | 标签 | `bringToFront` `close` |
 
 环境与客户端层：
@@ -217,6 +218,26 @@ Go 用 `time.Duration`，单位写在类型里（`500 * time.Millisecond`）。
 | `bp.call(tool, args)` | 直接调任意工具，不做封装 |
 
 底层 100 个工具都能从 `bp.call` / `page.call` 直接调：工作流（录制、运行、导入导出）、市场、历史、书签、下载、网络抓包、每环境代理、环境与分组管理。
+
+### 事件与等响应
+
+`page.on(event, handler)` 返回取消函数，三个语言用同一组事件名：
+`response` / `request`（订阅时自动 `net_start`）、`navigation` / `console` / `loading`。
+抓包按订阅计数，最后一个取消才 `net_stop`；取消会立刻结束在途的长轮询。
+Node 的 `on()` 是 async 的，`await` 返回时抓包已经挂好；Python / Go 的 `on()` 同步阻塞到挂好为止。
+
+```python
+off = page.on('response', lambda event: print(event.payload['status'], event.payload['url']))
+page.goto('https://example.com')
+off()
+
+res = page.wait_for_response('api/user', timeout=10)   # 返回前抓包已经挂好
+```
+
+`waitForResponse()` 会先挂好抓包再开始等，所以「先等、再导航」不会漏掉首批请求；
+字符串按 URL 子串匹配，也可以传正则（Go 用 `string` 或 `*regexp.Regexp`）。
+超时抛 `NotFoundError`（Go 用 `IsNotFoundError` 判断）。更细的匹配条件（方法、状态码）
+用 `page.on('response', ...)` 自己筛。
 
 ### 底层 CDP
 
@@ -260,8 +281,8 @@ node sdk/scripts/demo.mjs
 
 | 限制 | 原因 | 现状 |
 | --- | --- | --- |
-| `goto()` 不知道「网络空闲」 | 只有 `did-stop-loading` | 用 `waitForLoadState()` 或 `locator.waitFor()`；也可以等 `tab.navigation` 事件 |
-| 没有 `page.waitForResponse()` | 事件是长轮询拿到的批量流，没有按请求挂起的原语 | 用 `bp.events({types:['net.response']})` 自己筛；要精确接管请求就用 `page.cdp('Fetch.enable')` |
+| `goto()` 不知道「网络空闲」 | 只有 `did-stop-loading` | 用 `waitForLoadState()` 或 `locator.waitFor()`；也可以等 `tab.navigation` 事件，或 `waitForResponse()` 等具体请求 |
+| `waitForResponse()` 只按 URL 匹配 | 事件载荷里只有 url / status / mimeType / reqId | 要按方法或状态码筛，就用 `page.on('response', ...)` 自己判断 |
 | Linux 无头仍需 `Xvfb` | Electron 起 BrowserWindow 需要 display | CI 里 `xvfb-run`；SDK 在 `DISPLAY` 缺失时给出明确提示 |
 | 二进制没有代码签名 | 项目本身如此 | macOS 首次运行可能需要 `xattr -cr` |
 | 一次只能有一个 App 实例 | 单实例锁 | 并发测试靠「环境」隔离，不靠进程隔离 |
@@ -271,9 +292,9 @@ node sdk/scripts/demo.mjs
 单元测试对假服务端跑，三套都不需要真机（CI 的 `sdk` job 就是这三条命令）：
 
 ```bash
-cd sdk/node   && node build.mjs && node test/sdk.test.mjs      # 19
-cd sdk/python && python -m unittest discover -s tests          # 44
-cd sdk/go     && go test ./...                                 # 50
+cd sdk/node   && node build.mjs && node test/sdk.test.mjs      # 25
+cd sdk/python && python -m unittest discover -s tests          # 51
+cd sdk/go     && go test ./...                                 # 56
 ```
 
 真机冒烟对着正在运行的 BrowserPilot 跑，三个语言各一条：
@@ -304,17 +325,16 @@ node sdk/scripts/sync-version.mjs   # → node/package.json、version.ts、pypro
 
 ### 高级效果演示
 
-`ash
+```bash
 python sdk/python/scripts/showcase.py            # 读系统默认 mcp.json
 python sdk/python/scripts/showcase.py --mcp x    # 指定端点
-`
+```
 
 四段，跑完自动清理：
 
-1. **CDP 组合伪装**：时区 + UA + 设备型号一次下发，页面里读 Intl / 
-avigator.userAgent /
+1. **CDP 组合伪装**：时区 + UA + 设备型号一次下发，页面里读 Intl / navigator.userAgent /
    screen.width / devicePixelRatio 验证（注意 mobile:true 时布局视口固定 980px，设备宽度看 screen.width）
-2. **net_mock 改包**：把 xample.com/api/demo 的响应换成假 JSON，页面拿到的就是假的
+2. **net_mock 改包**：把 example.com/api/demo 的响应换成假 JSON，页面拿到的就是假的
 3. **多环境并行**：两套环境各自伪装不同时区（Europe/London / Asia/Tokyo），同时跑、互不影响
 4. **工作流**：录制一小段操作 → 跑一遍 → workflow_batch 两行并发
 

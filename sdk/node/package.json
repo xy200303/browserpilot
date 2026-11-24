@@ -1,6 +1,6 @@
 {
   "name": "browserpilot-sdk",
-  "version": "0.20.1",
+  "version": "0.21.0",
   "description": "Drive the BrowserPilot desktop browser from Node, Playwright style.",
   "keywords": ["browser", "automation", "mcp", "playwright", "browserpilot"],
   "license": "MIT",

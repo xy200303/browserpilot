@@ -4,13 +4,40 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Target 是一次动作要落到的元素：CSS 选择器字符串、*Locator，或者直接写一份 LocatorSpec。
 type Target = any
+
+// PageEventName 是页面能订阅的事件名。
+type PageEventName string
+
+const (
+	// EventResponse 是网络响应，自动开抓包。payload 里有 url / status / mimeType / reqId。
+	EventResponse PageEventName = "response"
+	// EventRequest 是网络请求，自动开抓包。
+	EventRequest PageEventName = "request"
+	// EventNavigation 是标签跳转完成。
+	EventNavigation PageEventName = "navigation"
+	// EventConsole 是页面 console 输出。
+	EventConsole PageEventName = "console"
+	// EventLoading 是加载状态变化。
+	EventLoading PageEventName = "loading"
+)
+
+// 页面事件到事件总线 type 的映射。
+var pageEventTypes = map[PageEventName][]string{
+	EventResponse:   {"net.response"},
+	EventRequest:    {"net.request"},
+	EventNavigation: {"tab.navigation"},
+	EventConsole:    {"page.console"},
+	EventLoading:    {"tab.loading"},
+}
 
 // Clip 是截图裁剪区域，坐标和尺寸都用 CSS 像素。
 type Clip struct {
@@ -185,6 +212,10 @@ type Page struct {
 	transport *Transport
 	id        string
 	env       string
+
+	// 当前有几路订阅要抓包；0 时才真的 net_stop。
+	captureMu    sync.Mutex
+	captureUsers int
 }
 
 // NewPage 直接构造一个页面。常规路径是从 BrowserPilot.NewPage 或 Environment.NewPage 拿。
@@ -687,7 +718,7 @@ func (p *Page) Evaluate(ctx context.Context, source string, opts ...EvaluateOpti
 	return data["value"], nil
 }
 
-// ConsoleLogs 把最近的控制台消息捞出来。MCP 是无状态 POST，没有事件订阅，只能轮询。
+// ConsoleLogs 把最近的控制台消息捞出来。要被动接收新的 console 消息用 On(EventConsole)。
 func (p *Page) ConsoleLogs(ctx context.Context, opts ...ConsoleOption) ([]map[string]any, error) {
 	options := consoleOptions{limit: 100}
 	for _, apply := range opts {
@@ -704,6 +735,182 @@ func (p *Page) ConsoleLogs(ctx context.Context, opts ...ConsoleOption) ([]map[st
 		return nil, err
 	}
 	return mapList(data["messages"]), nil
+}
+
+// ---------- 事件 ----------
+
+// On 订阅这个页面的事件，返回取消函数；取消后 goroutine 和抓包都会收尾。
+//
+//	stop := page.On(ctx, browserpilot.EventResponse, func(e browserpilot.EventRecord) {
+//		fmt.Println(e.Payload["url"])
+//	})
+//	defer stop()
+//
+// response / request 会自动 net_start，最后一个订阅取消时 net_stop。
+// 事件名不在常量里时按原始事件类型处理（例如 "net.response"）。
+func (p *Page) On(ctx context.Context, event PageEventName, handler func(EventRecord)) func() {
+	types := pageEventTypes[event]
+	if types == nil {
+		types = []string{string(event)}
+	}
+	capture := event == EventResponse || event == EventRequest
+	runCtx, cancel := context.WithCancel(ctx)
+	// 先把抓包挂上再返回，调用方紧接着导航不会漏掉首批请求
+	if capture {
+		_ = p.acquireCapture(runCtx)
+	}
+	go func() {
+		defer func() {
+			if !capture {
+				return
+			}
+			releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			p.releaseCapture(releaseCtx)
+			releaseCancel()
+		}()
+		_ = p.streamEvents(runCtx, types, func(record EventRecord) bool {
+			handler(record)
+			return true
+		})
+	}()
+	return cancel
+}
+
+// WaitForResponse 等第一个 URL 匹配的响应，返回事件本身。
+//
+// match 可以是 string（按子串匹配）或 *regexp.Regexp；超时返回 CodeNotFound 错误。
+//
+//	record, err := page.WaitForResponse(ctx, "api/user", 10*time.Second)
+//	fmt.Println(record.Payload["status"])
+func (p *Page) WaitForResponse(ctx context.Context, match any, timeout time.Duration) (EventRecord, error) {
+	var empty EventRecord
+	if !validResponseMatch(match) {
+		return empty, newError(CodeBrowserPilotError, "match 只支持 string 或 *regexp.Regexp", nil)
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	_ = p.acquireCapture(waitCtx)
+	defer func() {
+		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		p.releaseCapture(releaseCtx)
+		releaseCancel()
+	}()
+
+	var hit EventRecord
+	found := false
+	err := p.streamEvents(waitCtx, []string{"net.response"}, func(record EventRecord) bool {
+		url, _ := record.Payload["url"].(string)
+		if !responseMatches(match, url) {
+			return true
+		}
+		hit = record
+		found = true
+		return false
+	})
+	if err != nil {
+		if waitCtx.Err() != nil {
+			return empty, newNotFoundError(fmt.Sprintf("等了 %s，没等到匹配 %v 的响应", timeout, match))
+		}
+		return empty, err
+	}
+	if !found {
+		return empty, newNotFoundError(fmt.Sprintf("等了 %s，没等到匹配 %v 的响应", timeout, match))
+	}
+	return hit, nil
+}
+
+// streamEvents 是标签级事件流：长轮询续传，直到 ctx 取消或 emit 返回 false。
+func (p *Page) streamEvents(ctx context.Context, types []string, emit func(EventRecord) bool) error {
+	var since *int64
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		floor := since
+		result, err := p.transport.WaitEvents(ctx, EventWaitOptions{
+			Since: since,
+			Types: types,
+			TabID: p.id,
+		})
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		if result.Busy {
+			// 服务端 waiter 满了会立刻返回，等一下再试，别空转
+			if err := p.sleep(ctx, 100*time.Millisecond); err != nil {
+				return nil
+			}
+			continue
+		}
+		seq := result.Seq
+		since = &seq
+		for _, record := range result.Events {
+			if ctx.Err() != nil {
+				return nil
+			}
+			// 位置失效时服务端会重放缓冲，比自己拿到的位置还旧的丢掉
+			if floor != nil && record.Seq <= *floor {
+				continue
+			}
+			if !emit(record) {
+				return nil
+			}
+		}
+	}
+}
+
+func (p *Page) acquireCapture(ctx context.Context) error {
+	p.captureMu.Lock()
+	defer p.captureMu.Unlock()
+	p.captureUsers++
+	if p.captureUsers > 1 {
+		return nil
+	}
+	// 在锁里握手：并发订阅共用一次 net_start，后来的不会抢跑
+	if _, err := p.Call(ctx, "net_start", map[string]any{}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *Page) releaseCapture(ctx context.Context) {
+	p.captureMu.Lock()
+	defer p.captureMu.Unlock()
+	if p.captureUsers == 0 {
+		return
+	}
+	p.captureUsers--
+	if p.captureUsers > 0 {
+		return
+	}
+	_, _ = p.Call(ctx, "net_stop", map[string]any{})
+}
+
+func validResponseMatch(match any) bool {
+	switch match.(type) {
+	case string, *regexp.Regexp, regexp.Regexp:
+		return true
+	}
+	return false
+}
+
+func responseMatches(match any, url string) bool {
+	switch value := match.(type) {
+	case string:
+		return strings.Contains(url, value)
+	case *regexp.Regexp:
+		return value != nil && value.MatchString(url)
+	case regexp.Regexp:
+		return value.MatchString(url)
+	}
+	return false
 }
 
 // ---------- 截图 ----------

@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -572,4 +574,212 @@ func equalArgs(got, want map[string]any) bool {
 		}
 	}
 	return true
+}
+
+func callNames(fake *fakeServer) []string {
+	calls := fake.recorded()
+	names := make([]string, 0, len(calls))
+	for _, call := range calls {
+		names = append(names, call.Name)
+	}
+	return names
+}
+
+func countCall(names []string, name string) int {
+	count := 0
+	for _, item := range names {
+		if item == name {
+			count++
+		}
+	}
+	return count
+}
+
+func waitForCondition(t *testing.T, timeout time.Duration, predicate func() bool, message string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if predicate() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal(message)
+}
+
+func TestPageOnResponse(t *testing.T) {
+	fake := startFakeServer(t, fakeServerOptions{})
+	page := newTestPage(fake)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var mu sync.Mutex
+	var seen []string
+	stop := page.On(ctx, EventResponse, func(event EventRecord) {
+		mu.Lock()
+		defer mu.Unlock()
+		url, _ := event.Payload["url"].(string)
+		seen = append(seen, url)
+	})
+	if got := countCall(callNames(fake), "net_start"); got != 1 {
+		t.Fatalf("订阅 response 应该开一次抓包，实际 %d", got)
+	}
+
+	fake.pushEvent("net.response", map[string]any{"url": "https://a.test/api", "status": 200})
+	waitForCondition(t, 3*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(seen) == 1
+	}, "没收到 net.response")
+	mu.Lock()
+	first := seen[0]
+	mu.Unlock()
+	if first != "https://a.test/api" {
+		t.Fatalf("URL 不对：%q", first)
+	}
+
+	stop()
+	waitForCondition(t, 3*time.Second, func() bool {
+		return countCall(callNames(fake), "net_stop") == 1
+	}, "取消订阅后没有关抓包")
+
+	fake.pushEvent("net.response", map[string]any{"url": "https://a.test/late"})
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 1 {
+		t.Fatalf("取消后还收到了事件：%v", seen)
+	}
+}
+
+func TestPageOnConsoleDoesNotCapture(t *testing.T) {
+	fake := startFakeServer(t, fakeServerOptions{})
+	page := newTestPage(fake)
+	var mu sync.Mutex
+	var seen []string
+	stop := page.On(context.Background(), EventConsole, func(event EventRecord) {
+		mu.Lock()
+		defer mu.Unlock()
+		message, _ := event.Payload["message"].(string)
+		seen = append(seen, message)
+	})
+	fake.pushEvent("page.console", map[string]any{"message": "hello"})
+	waitForCondition(t, 3*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(seen) == 1
+	}, "没收到 console 事件")
+	stop()
+	if name := "net_start"; countCall(callNames(fake), name) != 0 {
+		t.Fatalf("console 订阅不该开抓包")
+	}
+}
+
+func TestPageWaitForResponse(t *testing.T) {
+	fake := startFakeServer(t, fakeServerOptions{})
+	page := newTestPage(fake)
+	fake.pushEvent("net.response", map[string]any{"url": "https://a.test/api/user", "status": 201})
+
+	record, err := page.WaitForResponse(context.Background(), "api/user", 2*time.Second)
+	if err != nil {
+		t.Fatalf("waitForResponse 失败：%v", err)
+	}
+	if status, _ := record.Payload["status"].(float64); status != 201 {
+		t.Fatalf("status 不对：%v", record.Payload["status"])
+	}
+	names := callNames(fake)
+	start, stop := -1, -1
+	for i, name := range names {
+		if name == "net_start" {
+			start = i
+		}
+		if name == "net_stop" {
+			stop = i
+		}
+	}
+	if start < 0 || stop < 0 || start > stop {
+		t.Fatalf("抓包开关顺序不对：%v", names)
+	}
+}
+
+func TestPageWaitForResponseRegexp(t *testing.T) {
+	fake := startFakeServer(t, fakeServerOptions{})
+	page := newTestPage(fake)
+	fake.pushEvent("net.response", map[string]any{"url": "https://a.test/api/user/42"})
+
+	record, err := page.WaitForResponse(context.Background(), regexp.MustCompile(`/api/user/\d+`), 2*time.Second)
+	if err != nil {
+		t.Fatalf("正则匹配失败：%v", err)
+	}
+	url, _ := record.Payload["url"].(string)
+	if !strings.HasSuffix(url, "/42") {
+		t.Fatalf("URL 不对：%q", url)
+	}
+}
+
+func TestPageWaitForResponseTimeout(t *testing.T) {
+	fake := startFakeServer(t, fakeServerOptions{})
+	page := newTestPage(fake)
+	started := time.Now()
+	_, err := page.WaitForResponse(context.Background(), "never", 400*time.Millisecond)
+	if err == nil || !IsNotFoundError(err) {
+		t.Fatalf("期望 not_found，收到 %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("超时释放太慢：%s", elapsed)
+	}
+	if countCall(callNames(fake), "net_stop") != 1 {
+		t.Fatalf("超时后没有关抓包")
+	}
+}
+
+func TestPageCaptureIsReferenceCounted(t *testing.T) {
+	fake := startFakeServer(t, fakeServerOptions{})
+	page := newTestPage(fake)
+	ctx := context.Background()
+
+	var mu sync.Mutex
+	var first []string
+	var second []string
+	stopFirst := page.On(ctx, EventResponse, func(event EventRecord) {
+		mu.Lock()
+		defer mu.Unlock()
+		url, _ := event.Payload["url"].(string)
+		first = append(first, url)
+	})
+	stopSecond := page.On(ctx, EventResponse, func(event EventRecord) {
+		mu.Lock()
+		defer mu.Unlock()
+		url, _ := event.Payload["url"].(string)
+		second = append(second, url)
+	})
+	if got := countCall(callNames(fake), "net_start"); got != 1 {
+		t.Fatalf("两个订阅应该共用一次抓包，实际 %d", got)
+	}
+	defer stopSecond()
+
+	fake.pushEvent("net.response", map[string]any{"url": "https://a.test/one"})
+	waitForCondition(t, 3*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(first) == 1 && len(second) == 1
+	}, "两个订阅没都收到事件")
+
+	stopFirst()
+	time.Sleep(300 * time.Millisecond)
+	if got := countCall(callNames(fake), "net_stop"); got != 0 {
+		t.Fatalf("还有一路订阅时不该关抓包，实际关了 %d 次", got)
+	}
+
+	fake.pushEvent("net.response", map[string]any{"url": "https://a.test/two"})
+	waitForCondition(t, 3*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(second) == 2
+	}, "第二路订阅没继续收到事件")
+
+	stopSecond()
+	waitForCondition(t, 3*time.Second, func() bool {
+		return countCall(callNames(fake), "net_stop") == 1
+	}, "最后一个订阅取消后没有关抓包")
 }

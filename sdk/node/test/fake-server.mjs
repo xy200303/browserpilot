@@ -102,7 +102,12 @@ export function startFakeServer(options = {}) {
           queue.push({ seq, at: Date.now(), type: 'test', payload: {}, ...event, seq: event?.seq ?? seq })
         },
         endpoint: { url: `${base}/mcp`, api: `${base}/api`, token },
-        close: () => new Promise((done) => server.close(done))
+        close: () =>
+          new Promise((done) => {
+            // 长轮询的请求还挂在服务端时 close() 会等它超时，测试白等 3 秒
+            server.closeAllConnections()
+            server.close(done)
+          })
       })
     })
   })

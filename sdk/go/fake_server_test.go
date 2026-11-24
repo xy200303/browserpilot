@@ -118,6 +118,10 @@ func (f *fakeServer) serve(writer http.ResponseWriter, request *http.Request) {
 		}
 		deadline := time.Now().Add(wait)
 		for {
+			// 客户端取消（订阅 off / 超时）后别再傻等到 3 秒，否则 httptest 的 Close 会陪着等
+			if request.Context().Err() != nil {
+				return
+			}
 			f.mu.Lock()
 			ready := make([]map[string]any, 0, len(f.events))
 			for _, event := range f.events {

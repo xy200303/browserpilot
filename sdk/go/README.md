@@ -179,7 +179,11 @@ page.TextContent(ctx, "#item")
 page.Content(ctx)
 page.Snapshot(ctx)             // 无障碍树，Agent 看页面主要靠它
 page.Evaluate(ctx, "document.title")
-page.ConsoleLogs(ctx)          // 轮询快照；要被动接收用 bp.Subscribe
+page.ConsoleLogs(ctx)          // 轮询快照；要被动接收用 page.On
+page.On(ctx, browserpilot.EventResponse, func(event browserpilot.EventRecord) {
+	log.Println(event.Payload["status"], event.Payload["url"])
+}) // 返回取消函数；response / request 自动开抓包
+page.WaitForResponse(ctx, "api/user", 10*time.Second)
 page.Screenshot(ctx, browserpilot.WithPath("a.png"))
 page.BringToFront(ctx); page.Close(ctx)
 page.ID(); page.Env()
@@ -221,6 +225,32 @@ role+name 走无障碍树轮询；label / placeholder 没有通道，会直接�
 
 ## 事件
 
+页面级：`On` 返回取消函数，回调跑在独立 goroutine。`response` / `request` 订阅时自动
+`net_start`，最后一个订阅取消时 `net_stop`；取消会立刻结束在途的长轮询。
+
+```go
+stop := page.On(ctx, browserpilot.EventResponse, func(event browserpilot.EventRecord) {
+    fmt.Println(event.Payload["status"], event.Payload["url"])
+})
+page.Goto(ctx, "https://example.com")
+stop()
+
+// match 可以是 string（子串）或 *regexp.Regexp；返回前抓包已经挂好
+record, err := page.WaitForResponse(ctx, "api/user", 10*time.Second)
+if err != nil {
+    log.Fatal(err) // 超时是 CodeNotFound
+}
+fmt.Println(record.Payload["status"], record.Payload["mimeType"])
+```
+
+事件名：`EventResponse`、`EventRequest`、`EventNavigation`、`EventConsole`、`EventLoading`；
+不在常量里的按原始事件类型处理（比如 `"net.response"`）。
+
+`WaitForResponse` 是阻塞调用：要覆盖一次点击/导航触发的请求，把它放进 goroutine 先等，
+再在主 goroutine 里执行动作（或直接用 `On` 先订阅）。
+
+客户端级（所有环境）：
+
 ```go
 before, _ := bp.Call(ctx, "env_list", nil)
 page.Goto(ctx, "https://example.com")
@@ -240,8 +270,8 @@ for event := range sub.C {
 
 | 限制 | 原因 |
 | --- | --- |
-| 事件是长轮询批量拿，不是回调 | 没有推送通道；用 `Subscribe` 或 `WaitEvents` 自己筛 |
-| `Goto` 不知道「网络空闲」 | 只有 `did-stop-loading`；用 `WaitForLoad` 或 locator 的 `WaitFor` |
+| `On` 的回调跑在独立 goroutine | 没有推送通道，底层是长轮询；回调里别直接 `t.Fatal` 之类退出进程 |
+| `Goto` 不知道「网络空闲」 | 只有 `did-stop-loading`；用 `WaitForLoad`、locator 的 `WaitFor` 或 `WaitForResponse` |
 | Linux 无头仍需 `Xvfb` | Electron 起 BrowserWindow 需要 display，`DISPLAY` 缺失时 App 自己会报错 |
 | 一次只能有一个 App 实例 | 单实例锁；并发测试靠「环境」隔离 |
 | `WithGrid` 只接受 bool | Node 版还支持传数字当网格间距，Go 这边需要的话用 `Page.Call` 直发 |

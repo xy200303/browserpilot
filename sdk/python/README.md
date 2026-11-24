@@ -112,6 +112,7 @@ launch(env=None, headless=None, timeout=60, exe=None, version=None,
 | `click` `fill` `type` `press` `hover` `select` `scroll` `scroll_to` | 动作 |
 | `wait_for` `wait_for_text` `expect_text` | 等待 |
 | `count` `is_visible` `text_content` `content` `snapshot` `evaluate` `console_logs` | 读取 |
+| `on(event, handler)` `wait_for_response(match, timeout=30)` | 事件：`response` / `request` 自动开抓包；返回取消函数 |
 | `screenshot(path=None, ...)` | 返回 `bytes`，给了 `path` 就顺手写一份 |
 | `bring_to_front` `close` | 标签生命周期 |
 | `call(tool, args=None)` | 原始调用，自动带 `tabId` |
@@ -128,6 +129,28 @@ launch(env=None, headless=None, timeout=60, exe=None, version=None,
 或者字典（`{"role": "button", "name": "登录"}`，键名同时认 `testId` 和 `test_id`）。
 
 ## 事件
+
+页面级：`page.on(event, handler)` 返回取消函数，回调在后台线程里跑。
+`response` / `request` 订阅时自动 `net_start`，最后一个订阅取消时 `net_stop`；取消后最多一次
+长轮询（约 1 秒）收手。
+
+```python
+seen = []
+off = page.on('response', lambda event: seen.append(event.payload.get('url')))
+page.goto('https://example.com')
+off()
+
+# 字符串按子串匹配，也可以传 re.compile(...)；抓包在开始等之前就挂好了
+res = page.wait_for_response('api/user', timeout=10)
+print(res.payload['status'], res.payload['mimeType'])
+```
+
+支持的事件名：`response`、`request`、`navigation`、`console`、`loading`。
+超时抛 `NotFoundError`；更细的匹配（方法、状态码）用 `page.on('response', ...)` 自己筛。
+`wait_for_response` 是阻塞调用：要覆盖一次点击/导航触发的请求，先把它放进后台线程
+（或先用 `page.on` 订阅），再执行动作。
+
+客户端级（所有环境）：
 
 ```python
 before = bp.call('env_list')                 # 任何工具结果里都有 seq
@@ -147,8 +170,8 @@ for event in bp.events(since=before['seq']):
 | --- | --- |
 | `fill()` 要发三次调用（聚焦 → 全选 → 粘贴） | `page_type` 底层是 `Input.insertText`，只在光标处插入、不清空；selector/xpath 例外，一次 `via="inject"` 就够 |
 | 不能开多个浏览器，隔离单位是「环境」 | App 是单实例应用 |
-| 事件是长轮询批量拿，不是回调 | 没有推送通道；用 `bp.events()` 或 `bp.transport.events()` 自己筛 |
-| `goto()` 不知道「网络空闲」 | 只有 `did-stop-loading`，需要时补 `wait_for_load()` 或 `locator.wait_for()` |
+| 事件回调是后台线程 + 长轮询 | 没有推送通道；`page.on()` 负责线程和抓包，取消后最多约 1 秒收手 |
+| `goto()` 不知道「网络空闲」 | 只有 `did-stop-loading`，需要时补 `wait_for_load()`、`locator.wait_for()` 或 `wait_for_response()` |
 | `screenshot()` 默认 `grid=False` | App 默认会画坐标网格（给人点位置用），SDK 里那是噪点 |
 | `evaluate()` 只收 JS 源码字符串 | Python 函数没法序列化进页面；Node 版会把函数 `toString()` |
 | `click()` 按 text → role+name → selector/xpath → testId/alt 映射 | 工具本身就按这个优先级找元素；`label` / `placeholder` 定位器点不了，得改写成 selector |

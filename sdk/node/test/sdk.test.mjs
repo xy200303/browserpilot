@@ -277,3 +277,102 @@ test('BROWSERPILOT_EXE 指向不存在的文件时给出明确错误', () => {
     else process.env.BROWSERPILOT_EXE = saved
   }
 })
+
+const waitFor = async (predicate, timeoutMs = 3000) => {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error('等超时了')
+}
+
+test('page.on(response) 自动开抓包，收到事件，off 后停止并关抓包', async () => {
+  await withServer({}, async (server) => {
+    const page = pageOf(server)
+    const seen = []
+    const off = await page.on('response', (event) => seen.push(event.payload.url))
+    await waitFor(() => server.calls.some((call) => call.name === 'net_start'))
+
+    server.pushEvent({ type: 'net.response', payload: { url: 'https://a.test/api', status: 200 } })
+    await waitFor(() => seen.length === 1)
+    assert.equal(seen[0], 'https://a.test/api')
+
+    off()
+    await waitFor(() => server.calls.some((call) => call.name === 'net_stop'))
+    server.pushEvent({ type: 'net.response', payload: { url: 'https://a.test/late', status: 200 } })
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    assert.equal(seen.length, 1, 'off() 之后不该再收到事件')
+    assert.equal(server.calls.filter((call) => call.name === 'net_start').length, 1)
+  })
+})
+
+test('page.on(console) 不需要抓包，也不会发 net_start', async () => {
+  await withServer({}, async (server) => {
+    const page = pageOf(server)
+    const seen = []
+    const off = await page.on('console', (event) => seen.push(event.payload.message))
+    server.pushEvent({ type: 'page.console', payload: { message: 'hello' } })
+    await waitFor(() => seen.length === 1)
+    assert.equal(seen[0], 'hello')
+    off()
+    assert.ok(!server.calls.some((call) => call.name === 'net_start'))
+  })
+})
+
+test('不认识的事件名会报错，不会退化成订阅全部事件', async () => {
+  await withServer({}, async (server) => {
+    const page = pageOf(server)
+    await assert.rejects(() => page.on('respones', () => {}), /不认识的事件/)
+    assert.equal(server.calls.length, 0)
+  })
+})
+
+test('waitForResponse 命中 URL 返回事件，命中前抓包已经挂好', async () => {
+  await withServer({}, async (server) => {
+    const page = pageOf(server)
+    server.pushEvent({
+      type: 'net.response',
+      payload: { url: 'https://a.test/api/user', status: 201, mimeType: 'application/json' }
+    })
+    const record = await page.waitForResponse('api/user', { timeout: 2 })
+    assert.equal(record.payload.status, 201)
+    const names = server.calls.map((call) => call.name)
+    assert.ok(names.indexOf('net_start') >= 0)
+    assert.ok(names.indexOf('net_start') < names.indexOf('net_stop'))
+  })
+})
+
+test('waitForResponse 超时抛 NotFoundError，不会一直等下去', async () => {
+  await withServer({}, async (server) => {
+    const page = pageOf(server)
+    const started = Date.now()
+    await assert.rejects(() => page.waitForResponse('never', { timeout: 0.4 }), NotFoundError)
+    assert.ok(Date.now() - started < 2500, `超时释放太慢：${Date.now() - started}ms`)
+    await waitFor(() => server.calls.some((call) => call.name === 'net_stop'))
+  })
+})
+
+test('抓包按订阅计数：先取消一个不关，最后一个取消才关', async () => {
+  await withServer({}, async (server) => {
+    const page = pageOf(server)
+    const first = []
+    const second = []
+    const offFirst = await page.on('response', (event) => first.push(event.payload.url))
+    const offSecond = await page.on('response', (event) => second.push(event.payload.url))
+    await waitFor(() => server.calls.filter((call) => call.name === 'net_start').length === 1)
+
+    server.pushEvent({ type: 'net.response', payload: { url: 'https://a.test/one' } })
+    await waitFor(() => first.length === 1 && second.length === 1)
+
+    offFirst()
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    assert.equal(server.calls.filter((call) => call.name === 'net_stop').length, 0, '还有一路订阅，不该关抓包')
+
+    server.pushEvent({ type: 'net.response', payload: { url: 'https://a.test/two' } })
+    await waitFor(() => second.length === 2)
+
+    offSecond()
+    await waitFor(() => server.calls.filter((call) => call.name === 'net_stop').length === 1)
+  })
+})

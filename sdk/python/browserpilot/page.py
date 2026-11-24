@@ -8,10 +8,11 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Pattern, Union
 
 from .errors import BrowserPilotError, NotFoundError, ToolError
 from .locator import (
@@ -23,12 +24,27 @@ from .locator import (
     type_plan,
     wait_args,
 )
-from .transport import Transport
+from .transport import EventRecord, Transport
 
-__all__ = ['Page', 'PageTarget', 'DEFAULT_MODIFIER']
+__all__ = ['Page', 'PageTarget', 'PAGE_EVENT_TYPES', 'DEFAULT_MODIFIER']
 
 # 定位目标：CSS 选择器、Locator、或者直接给一份定位描述。
 PageTarget = Union[str, Locator, LocatorSpec, Mapping[str, Any]]
+
+# 页面能订阅的事件，映射到事件总线里的 type。
+PAGE_EVENT_TYPES: Dict[str, List[str]] = {
+    'response': ['net.response'],
+    'request': ['net.request'],
+    'navigation': ['tab.navigation'],
+    'console': ['page.console'],
+    'loading': ['tab.loading'],
+}
+
+
+def _url_matches(match: Union[str, Pattern[str]], url: str) -> bool:
+    if isinstance(match, str):
+        return match in url
+    return match.search(url) is not None
 
 # page_type 的底层是 Input.insertText，只在光标处插入，覆盖语义得先全选。
 DEFAULT_MODIFIER = 'Meta+A' if sys.platform == 'darwin' else 'Control+A'
@@ -62,6 +78,9 @@ class Page:
         self._transport = transport
         self.id = id
         self.env = env
+        # 这个 Page 当前有几路订阅要抓包；0 时才真的 net_stop
+        self._capture_users = 0
+        self._capture_lock = threading.Lock()
 
     def __enter__(self) -> 'Page':
         return self
@@ -341,6 +360,138 @@ class Page:
             return []
         messages = self.call('page_console', {'limit': limit}).get('messages')
         return list(messages or [])
+
+    # ---------- 事件 ----------
+
+    def on(self, event: str, handler: Callable[[EventRecord], None]) -> Callable[[], None]:
+        """订阅这个标签的事件，返回取消函数。
+
+            seen = []
+            off = page.on('response', lambda e: seen.append(e.payload.get('url')))
+            page.goto('https://example.com')
+            off()
+
+        ``response`` / ``request`` 会自动开抓包（net_start），最后一个订阅取消时关掉。
+        事件在后台线程里回调；取消后最多一次长轮询（约 1 秒）内收手。
+        """
+        if event not in PAGE_EVENT_TYPES:
+            raise ValueError(f"不认识的事件 {event!r}；可选：{', '.join(PAGE_EVENT_TYPES)}")
+        stop = threading.Event()
+        capture = event in ('response', 'request')
+        if capture:
+            # 先把抓包挂上再返回，调用方紧接着导航不会漏掉首批请求
+            self._acquire_capture()
+        thread = threading.Thread(
+            target=self._run_events,
+            args=(PAGE_EVENT_TYPES[event], handler, stop, capture),
+            name=f'browserpilot-{self.id}-{event}',
+            daemon=True,
+        )
+        try:
+            thread.start()
+        except RuntimeError:
+            if capture:
+                self._release_capture()
+            raise
+        return stop.set
+
+    def wait_for_response(
+        self,
+        match: Union[str, Pattern[str]],
+        timeout: float = 30.0,
+    ) -> EventRecord:
+        """等第一个 URL 匹配的响应，返回事件本身。
+
+            res = page.wait_for_response('api/user', timeout=10)
+            print(res.payload['status'])
+
+        ``match`` 是字符串时按子串匹配，正则用 ``re.compile(...)``。
+        超时抛 :class:`NotFoundError`，不会一直等下去。
+        """
+        deadline = time.monotonic() + float(timeout)
+        stop = threading.Event()
+        self._acquire_capture()
+        try:
+            stream = self._stream(['net.response'], stop, deadline=deadline)
+            for record in stream:
+                if _url_matches(match, str(record.payload.get('url') or '')):
+                    return record
+            raise NotFoundError(f'等了 {timeout}s，没等到匹配 {match} 的响应')
+        finally:
+            self._release_capture()
+
+    def _run_events(
+        self,
+        types: List[str],
+        handler: Callable[[EventRecord], None],
+        stop: threading.Event,
+        capture: bool,
+    ) -> None:
+        try:
+            for record in self._stream(types, stop):
+                if stop.is_set():
+                    return
+                handler(record)
+        except Exception:  # noqa: BLE001 - 取消/断线/handler 抛错都只结束这一路订阅
+            pass
+        finally:
+            if capture:
+                self._release_capture()
+
+    def _stream(
+        self,
+        types: List[str],
+        stop: threading.Event,
+        deadline: Optional[float] = None,
+    ) -> Iterator[EventRecord]:
+        """标签级事件流：长轮询续传，直到 stop 或 deadline。
+
+        每次最多挂 1 秒，这样取消和超时都在一秒内生效。
+        """
+        since: Optional[int] = None
+        while not stop.is_set():
+            if deadline is None:
+                wait = 1.0
+            else:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return
+                wait = min(1.0, remaining)
+            result = self._transport.events(since=since, types=types, tab_id=self.id, wait=wait)
+            if stop.is_set():
+                return
+            if result.get('busy'):
+                stop.wait(0.1)
+                continue
+            floor = since
+            since = int(result.get('seq') or 0)
+            for raw in result.get('events') or []:
+                if stop.is_set():
+                    return
+                record = EventRecord.of(raw)
+                # 位置失效时服务端会重放缓冲，比自己拿到的位置还旧的丢掉
+                if floor is not None and record.seq <= floor:
+                    continue
+                yield record
+
+    def _acquire_capture(self) -> None:
+        # 在锁里做 net_start：并发订阅共用一次握手，后来的不用抢跑
+        with self._capture_lock:
+            if self._capture_users == 0:
+                try:
+                    self.call('net_start', {})
+                except BrowserPilotError:
+                    pass
+            self._capture_users += 1
+
+    def _release_capture(self) -> None:
+        with self._capture_lock:
+            self._capture_users = max(0, self._capture_users - 1)
+            if self._capture_users == 0:
+                try:
+                    self.call('net_stop', {})
+                except BrowserPilotError:
+                    pass
 
     # ---------- 截图 ----------
 

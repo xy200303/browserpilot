@@ -8,6 +8,7 @@
 import base64
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -725,6 +726,104 @@ class LocatorTest(SdkTest):
         locator = Locator(page, {'text': '完成', 'textMatch': 'exact'})
         locator.click()
         self.assertEqual(server.calls[0]['args']['textMatch'], 'exact')
+
+
+# ---------------------------------------------------------------- 事件监听
+
+
+def wait_until(predicate, timeout=3.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError('等超时了')
+
+
+class EventTest(SdkTest):
+    def names(self, server):
+        return [call['name'] for call in server.calls]
+
+    def test_on_response_starts_capture_and_stops_after_off(self):
+        server = self.serve()
+        page = self.page(server)
+        seen = []
+        off = page.on('response', lambda event: seen.append(event.payload.get('url')))
+        self.assertEqual(self.names(server).count('net_start'), 1)
+
+        server.push_event('net.response', {'url': 'https://a.test/api', 'status': 200})
+        wait_until(lambda: len(seen) == 1)
+        self.assertEqual(seen[0], 'https://a.test/api')
+
+        off()
+        wait_until(lambda: 'net_stop' in self.names(server))
+        server.push_event('net.response', {'url': 'https://a.test/late', 'status': 200})
+        time.sleep(0.3)
+        self.assertEqual(seen, ['https://a.test/api'], 'off() 之后不该再收到事件')
+
+    def test_on_console_does_not_open_capture(self):
+        server = self.serve()
+        page = self.page(server)
+        seen = []
+        off = page.on('console', lambda event: seen.append(event.payload.get('message')))
+        server.push_event('page.console', {'message': 'hello'})
+        wait_until(lambda: len(seen) == 1)
+        self.assertEqual(seen, ['hello'])
+        off()
+        self.assertNotIn('net_start', self.names(server))
+
+    def test_wait_for_response_matches_url(self):
+        server = self.serve()
+        page = self.page(server)
+        server.push_event('net.response', {'url': 'https://a.test/api/user', 'status': 201})
+        record = page.wait_for_response('api/user', timeout=2)
+        self.assertEqual(record.payload['status'], 201)
+        self.assertIn('net_start', self.names(server))
+        self.assertIn('net_stop', self.names(server))
+
+    def test_wait_for_response_accepts_regex(self):
+        server = self.serve()
+        page = self.page(server)
+        server.push_event('net.response', {'url': 'https://a.test/api/user/42'})
+        record = page.wait_for_response(re.compile(r'/api/user/\d+'), timeout=2)
+        self.assertTrue(record.payload['url'].endswith('/42'))
+
+    def test_wait_for_response_times_out(self):
+        server = self.serve()
+        page = self.page(server)
+        started = time.monotonic()
+        with self.assertRaises(NotFoundError):
+            page.wait_for_response('never', timeout=0.4)
+        self.assertLess(time.monotonic() - started, 2.5, '超时释放太慢')
+        self.assertIn('net_stop', self.names(server))
+
+    def test_capture_is_reference_counted(self):
+        server = self.serve()
+        page = self.page(server)
+        first = []
+        second = []
+        off_first = page.on('response', lambda event: first.append(event.payload.get('url')))
+        off_second = page.on('response', lambda event: second.append(event.payload.get('url')))
+        self.assertEqual(self.names(server).count('net_start'), 1)
+
+        server.push_event('net.response', {'url': 'https://a.test/one'})
+        wait_until(lambda: len(first) == 1 and len(second) == 1)
+
+        off_first()
+        time.sleep(0.3)
+        self.assertNotIn('net_stop', self.names(server), '还有一路订阅，不该关抓包')
+
+        server.push_event('net.response', {'url': 'https://a.test/two'})
+        wait_until(lambda: len(second) == 2)
+
+        off_second()
+        wait_until(lambda: 'net_stop' in self.names(server))
+
+    def test_unknown_event_is_rejected(self):
+        server = self.serve()
+        page = self.page(server)
+        with self.assertRaises(ValueError):
+            page.on('nope', lambda event: None)
 
 
 if __name__ == '__main__':

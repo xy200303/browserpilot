@@ -30,6 +30,8 @@ export type EventWaitOptions = {
   /** 最多挂起多少秒，默认 25，上限 25 */
   wait?: number
   limit?: number
+  /** 取消这次长轮询；`page.on()` 的 off() 就靠它立刻收手 */
+  signal?: AbortSignal
 }
 
 export type EventWaitResult = {
@@ -126,7 +128,7 @@ export class Transport {
     if (options.tabId) body.tabId = options.tabId
     if (options.limit !== undefined) body.limit = options.limit
     // 客户端要比服务端挂得更久一点，否则先超时的永远是客户端
-    const response = await this.request('POST', '/events', wait + 10, body)
+    const response = await this.request('POST', '/events', wait + 10, body, options.signal)
     return (await response.json()) as EventWaitResult
   }
 
@@ -134,10 +136,19 @@ export class Transport {
     this.closed = true
   }
 
-  private async request(method: 'GET' | 'POST', path: string, timeoutSeconds: number, body?: unknown): Promise<Response> {
+  private async request(
+    method: 'GET' | 'POST',
+    path: string,
+    timeoutSeconds: number,
+    body?: unknown,
+    signal?: AbortSignal
+  ): Promise<Response> {
     if (this.closed) throw new TransportError('连接已经关了')
+    if (signal?.aborted) throw new TransportError('已取消')
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutSeconds * 1000)
+    const onAbort = () => controller.abort()
+    signal?.addEventListener('abort', onAbort, { once: true })
     try {
       const init: RequestInit = {
         method,
@@ -158,10 +169,12 @@ export class Transport {
       return response
     } catch (error) {
       if (error instanceof TransportError) throw error
+      if (signal?.aborted) throw new TransportError('已取消')
       if ((error as Error).name === 'AbortError') throw new TransportError(`等了 ${timeoutSeconds}s 没回应`)
       throw new TransportError(`连不上 ${this.endpoint.api}${path}`, { cause: error })
     } finally {
       clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
     }
   }
 }
