@@ -5,6 +5,7 @@ import type { LanguageSetting, TabInfo, UiState } from '../../shared/types'
 import { useTranslation } from 'react-i18next'
 import { workflowPage } from '../../shared/market'
 import { Button } from '@/components/ui/button'
+import { TipButton } from '@/components/ui/tip-button'
 import { Input } from '@/components/ui/input'
 import { AddressBar } from './AddressBar'
 
@@ -212,9 +213,9 @@ function TabStrip({ state }: { state: UiState }) {
   return (
     <div className="flex min-w-0 flex-1 items-end">
       {canLeft && (
-        <Button variant="ghost" size="icon" className="no-drag mb-0 h-7 w-5 shrink-0 rounded-full" title={t('shell.tabs.scrollLeft')} onClick={() => scrollStrip(-240)}>
+        <TipButton label={t('shell.tabs.scrollLeft')} variant="ghost" size="icon" className="no-drag mb-0 h-7 w-5 shrink-0 rounded-full" onClick={() => scrollStrip(-240)}>
           <ChevronLeft />
-        </Button>
+        </TipButton>
       )}
       <div
         ref={stripRef}
@@ -285,9 +286,9 @@ function TabStrip({ state }: { state: UiState }) {
           <ChevronRight />
         </Button>
       )}
-      <Button variant="ghost" size="icon" className="no-drag shrink-0" title={t('shell.tabs.new')} onClick={() => void window.browser.newTab()}>
+      <TipButton label={t('shell.tabs.new')} variant="ghost" size="icon" className="no-drag shrink-0" onClick={() => void window.browser.newTab()}>
         <Plus />
-      </Button>
+      </TipButton>
     </div>
   )
 }
@@ -548,4 +549,3 @@ function TabButton({ tab, hideDivider }: { tab: TabInfo; hideDivider?: boolean }
     </div>
   )
 }
-
