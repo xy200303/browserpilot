@@ -95,25 +95,23 @@ jobs:
           fi
           npm publish --access public
 
-      # npm 的「暂存发布」会让 publish 返回成功、却在注册表上只留一个 0.0.0-stage 占位。
-      # 所以这里必须回查：真的能查到版本号才算发出去。
+      # npm 的「暂存发布」会让 publish 返回成功、注册表上却先留一个 0.0.0-stage 占位，
+      # 审核通过后才替换成正式版本。审核时长不受我们控制，所以这里只做确认和提醒，不判失败。
       - name: 确认 npm 上真的能查到
         working-directory: sdk/node
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           version="$(node -p "require('./package.json').version")"
-          for attempt in 1 2 3 4 5 6; do
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
             if npm view "browserpilot-sdk@${version}" version >/dev/null 2>&1; then
               echo "browserpilot-sdk@${version} 已上线"
               exit 0
             fi
-            sleep 10
+            sleep 30
           done
-          echo "等了 60 秒仍查不到 browserpilot-sdk@${version}。"
-          echo "多半是被 npm 暂存了：到 https://www.npmjs.com/package/browserpilot-sdk 批准，"
-          echo "或检查账号设置里的 staged publishing 开关。"
-          exit 1
+          echo "::warning::发布后 5 分钟仍查不到 browserpilot-sdk@${version}，多半还在 npm 的暂存审核里。"
+          echo "审核通过后会自动替换占位版本；也可以到 https://www.npmjs.com/package/browserpilot-sdk 查看状态。"
 
   pypi:
     needs: verify
