@@ -619,6 +619,54 @@ func (p *Page) Snapshot(ctx context.Context) (string, error) {
 	return stringField(data, "snapshot"), nil
 }
 
+// CDP 直接下发一条 CDP 命令，返回原始结果。
+//
+//	page.CDP(ctx, "Emulation.setTimezoneOverride", map[string]any{"timezoneId": "America/New_York"})
+//	metrics, err := page.CDP(ctx, "Page.getLayoutMetrics", nil)
+func (p *Page) CDP(ctx context.Context, method string, params map[string]any) (any, error) {
+	results, err := p.CDPBatch(ctx, []CDPCommand{{Method: method, Params: params}})
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, nil
+	}
+	return results[0], nil
+}
+
+// CDPCommand 是 CDPBatch 里的一条命令。DelayMS 是这条命令之后等多久，上限 5 秒。
+type CDPCommand struct {
+	Method  string
+	Params  map[string]any
+	DelayMS int
+}
+
+// CDPBatch 一次下发多条命令，共用同一个 debugger 会话。中间某条失败会返回错误，前面的已经生效。
+func (p *Page) CDPBatch(ctx context.Context, commands []CDPCommand) ([]any, error) {
+	payload := make([]map[string]any, 0, len(commands))
+	for _, command := range commands {
+		item := map[string]any{"method": command.Method}
+		if command.Params != nil {
+			item["params"] = command.Params
+		}
+		if command.DelayMS > 0 {
+			delay := command.DelayMS
+			if delay > 5000 {
+				delay = 5000
+			}
+			// 工具那边 delay 的单位是秒
+			item["delay"] = float64(delay) / 1000
+		}
+		payload = append(payload, item)
+	}
+	data, err := p.call(ctx, "page_cdp_batch", map[string]any{"commands": payload}, 0)
+	if err != nil {
+		return nil, err
+	}
+	raw, _ := data["results"].([]any)
+	return raw, nil
+}
+
 // Evaluate 在页面里执行 JS，返回值原样回来。传函数不行，Go 这边只能传源码字符串；
 // 想跑函数体就自己写成 `(() => { ... })()` 的形式。
 func (p *Page) Evaluate(ctx context.Context, source string, opts ...EvaluateOption) (any, error) {

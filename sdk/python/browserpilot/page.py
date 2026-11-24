@@ -298,6 +298,31 @@ class Page:
         tree = self.call('page_snapshot', {}).get('snapshot')
         return '' if tree is None else str(tree)
 
+    def cdp(self, method: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        """直接下发一条 CDP 命令，返回原始结果。
+
+            page.cdp('Emulation.setTimezoneOverride', {'timezoneId': 'America/New_York'})
+            metrics = page.cdp('Page.getLayoutMetrics')
+        """
+        results = self.cdp_batch([{'method': method, 'params': params or {}}])
+        return results[0] if results else None
+
+    def cdp_batch(self, commands: List[Dict[str, Any]]) -> List[Any]:
+        """一次下发多条命令，共用同一个 debugger 会话。
+
+        ``delay_ms`` 是每条之后等多久（上限 5 秒）。工具那边 delay 的单位是秒，这里换算。
+        """
+        payload = []
+        for command in commands:
+            delay_ms = float(command.get('delay_ms') or 0)
+            item: Dict[str, Any] = {'method': command['method'], 'params': command.get('params') or {}}
+            if delay_ms > 0:
+                item['delay'] = min(delay_ms, 5000.0) / 1000.0
+            payload.append(item)
+        data = self.call('page_cdp_batch', {'commands': payload})
+        results = data.get('results')
+        return list(results or [])
+
     def evaluate(self, source: str, frame: Optional[str] = None) -> Any:
         """在页面里执行 JS，返回值原样回来。
 

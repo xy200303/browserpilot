@@ -92,6 +92,13 @@ try {
     }
   })
 
+  await step('底层 CDP', async () => {
+    const before = await page.evaluate('Intl.DateTimeFormat().resolvedOptions().timeZone')
+    await page.cdp('Emulation.setTimezoneOverride', { timezoneId: 'America/New_York' })
+    const after = await page.evaluate('Intl.DateTimeFormat().resolvedOptions().timeZone')
+    return 时区 ${before} → ${after}
+  })
+
   await step('事件通道', async () => {
     const before = await bp.call('env_list')
     await page.goto('data:text/html,<title>事件测试</title><p>hi</p>')

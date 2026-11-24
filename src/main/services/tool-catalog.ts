@@ -1978,7 +1978,15 @@ tool('page_cdp_batch', 'Run CDP commands in order on one debugger session withou
   })).min(1)
 }), async (args) => {
   const tabRef = await pageTab(args)
-  const results = await sendCdpBatch(tabRef, args.commands as Array<{ method: string; params?: Record<string, unknown>; delay?: number }>)
+  // 工具里的 delay 单位是秒，page.ts 那边收的是 delayMs——这里换算，别让延时静默失效
+  const commands = (args.commands as Array<{ method: string; params?: Record<string, unknown>; delay?: number }>).map(
+    (command) => ({
+      method: command.method,
+      params: command.params,
+      delayMs: Math.min(Math.max((command.delay ?? 0) * 1000, 0), 5_000)
+    })
+  )
+  const results = await sendCdpBatch(tabRef, commands)
   return { tabId: tabRef.id, results }
 })
 

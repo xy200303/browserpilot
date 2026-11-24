@@ -251,6 +251,37 @@ export class Page {
     return String(data.snapshot ?? '')
   }
 
+  /**
+   * 直接下发一条 CDP 命令，返回原始结果。
+   *
+   *   await page.cdp('Emulation.setTimezoneOverride', { timezoneId: 'America/New_York' })
+   *   const metrics = await page.cdp('Page.getLayoutMetrics')
+   *
+   * 走的是 App 的 `page_cdp_batch`，和抓包共用同一个 debugger 会话。
+   */
+  async cdp<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    const results = await this.cdpBatch([{ method, params }])
+    return results[0] as T
+  }
+
+  /**
+   * 一次下发多条命令，共用同一个 debugger 会话。`delayMs` 是每条之后等多久（上限 5 秒）。
+   * 中间某条失败会抛错，前面的命令已经生效。
+   */
+  async cdpBatch(
+    commands: Array<{ method: string; params?: Record<string, unknown>; delayMs?: number }>
+  ): Promise<unknown[]> {
+    const data = await this.call('page_cdp_batch', {
+      commands: commands.map((command) => ({
+        method: command.method,
+        params: command.params,
+        // 工具的 delay 单位是秒
+        delay: command.delayMs ? command.delayMs / 1000 : undefined
+      }))
+    })
+    return (data.results as unknown[]) ?? []
+  }
+
   /** 在页面里执行 JS。传函数会被 toString 后执行，返回值原样回来。 */
   async evaluate<T = unknown>(source: string | (() => T), options: { frame?: string } = {}): Promise<T> {
     const code = typeof source === 'function' ? `(${source.toString()})()` : source

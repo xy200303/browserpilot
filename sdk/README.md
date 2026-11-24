@@ -215,6 +215,31 @@ cookie 隔离不用开新进程，`env_create` 就够。
 
 底层 100 个工具都能从 `bp.call` / `page.call` 直接调：工作流（录制、运行、导入导出）、市场、历史、书签、下载、网络抓包、每环境代理、环境与分组管理。
 
+### 底层 CDP
+
+`page_cdp_batch` 就是原样的 Chrome DevTools Protocol，SDK 封成 `page.cdp()` / `page.cdpBatch()`：
+
+```js
+await page.cdp('Emulation.setTimezoneOverride', { timezoneId: 'America/New_York' })
+await page.cdp('Emulation.setUserAgentOverride', { userAgent: 'MyUA/1.0' })
+const metrics = await page.cdp('Page.getLayoutMetrics')
+
+// 多条命令共用一次 debugger 会话，delayMs 是每条之后等多久（上限 5 秒）
+await page.cdpBatch([
+  { method: 'Emulation.setDeviceMetricsOverride', params: { width: 375, height: 667, deviceScaleFactor: 2, mobile: true } },
+  { method: 'Runtime.evaluate', params: { expression: 'innerWidth' }, delayMs: 500 }
+])
+```
+
+Python 是 `page.cdp(method, params)` / `page.cdp_batch([...])`，Go 是 `page.CDP(ctx, method, params)` / `page.CDPBatch(ctx, []CDPCommand{...})`。
+
+实测（0.20.0）：`setTimezoneOverride` 之后 `Intl.DateTimeFormat().resolvedOptions().timeZone` 立刻从
+`Asia/Shanghai` 变成 `America/New_York`；`setUserAgentOverride` 之后 `navigator.userAgent` 立即变化；
+批量里混 `Runtime.evaluate` 也能拿到返回值。
+
+有了这条通道，`Fetch` 拦截改写、`Emulation` 系列、`DOM` / `Page` 域都不用等 SDK 封装。
+App 的 debugger 是引用计数的租约，和 `net_start` 抓包共存，不会互相踢掉。
+
 ### 一条命令跑一遍
 
 ```bash
@@ -233,7 +258,7 @@ node sdk/scripts/demo.mjs
 | 限制 | 原因 | 现状 |
 | --- | --- | --- |
 | `goto()` 不知道「网络空闲」 | 只有 `did-stop-loading` | 用 `waitForLoadState()` 或 `locator.waitFor()`；也可以等 `tab.navigation` 事件 |
-| 没有 `page.waitForResponse()` | 事件是长轮询拿到的批量流，没有按请求挂起的原语 | 用 `bp.events({types:['net.response']})` 自己筛 |
+| 没有 `page.waitForResponse()` | 事件是长轮询拿到的批量流，没有按请求挂起的原语 | 用 `bp.events({types:['net.response']})` 自己筛；要精确接管请求就用 `page.cdp('Fetch.enable')` |
 | Linux 无头仍需 `Xvfb` | Electron 起 BrowserWindow 需要 display | CI 里 `xvfb-run`；SDK 在 `DISPLAY` 缺失时给出明确提示 |
 | 二进制没有代码签名 | 项目本身如此 | macOS 首次运行可能需要 `xattr -cr` |
 | 一次只能有一个 App 实例 | 单实例锁 | 并发测试靠「环境」隔离，不靠进程隔离 |
