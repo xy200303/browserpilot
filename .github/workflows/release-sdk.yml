@@ -13,8 +13,10 @@ on:
 permissions:
   contents: write
 
+# 三个包分开发：任何一个失败不影响另外两个，重跑也只补失败的那个。
+# 每个发布步骤都做成可重入的——版本已经存在就跳过，而不是报错。
 jobs:
-  publish:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +27,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          registry-url: https://registry.npmjs.org
 
       - uses: actions/setup-python@v5
         with:
@@ -57,34 +58,81 @@ jobs:
           cd ../../sdk/python && python -m unittest discover -s tests
           cd ../go && go vet ./... && test -z "$(gofmt -l .)" && go test ./...
 
-      - name: 发布到 npm
-        if: github.ref_type == 'tag' && inputs.dry_run != true
-        working-directory: sdk/node
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
       - name: 构建 Python 包
         run: |
           python -m pip install --upgrade build
           cd sdk/python && python -m build
 
-      - name: 发布到 PyPI
-        if: github.ref_type == 'tag' && inputs.dry_run != true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: sdk/python/dist/*
+
+  npm:
+    needs: verify
+    if: github.ref_type == 'tag' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - name: 构建
+        working-directory: sdk/node
+        run: node build.mjs
+      - name: 发布到 npm
+        working-directory: sdk/node
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          python -m pip install --upgrade twine
-          twine upload sdk/python/dist/*
+          version="$(node -p "require('./package.json').version")"
+          if npm view "browserpilot@${version}" version >/dev/null 2>&1; then
+            echo "browserpilot@${version} 已经发布过，跳过"
+            exit 0
+          fi
+          npm publish --access public
+
+  pypi:
+    needs: verify
+    if: github.ref_type == 'tag' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 发布到 PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          python -m pip install --upgrade twine
+          twine upload --skip-existing dist/*
 
-      # Go 模块不发版：仓库里的 tag 就是版本。子目录模块的 tag 必须带目录前缀，
-      # 否则 `go get github.com/xy200303/browserpilot/sdk/go@v0.19.0` 解析不到。
+  # Go 模块不发版：仓库里的 tag 就是版本。子目录模块的 tag 必须带目录前缀，
+  # 否则 `go get github.com/xy200303/browserpilot/sdk/go@v0.19.0` 解析不到。
+  gotag:
+    needs: verify
+    if: github.ref_type == 'tag' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: 打 Go 子模块 tag
-        if: github.ref_type == 'tag' && inputs.dry_run != true
         run: |
           version="${GITHUB_REF_NAME#sdk/}"
+          if git ls-remote --tags origin "refs/tags/sdk/go/${version}" | grep -q .; then
+            echo "sdk/go/${version} 已存在，跳过"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "sdk/go/${version}" || echo "tag 已存在"
+          git tag "sdk/go/${version}"
           git push origin "sdk/go/${version}"
