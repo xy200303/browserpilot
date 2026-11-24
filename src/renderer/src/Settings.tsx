@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Info, KeyRound, Layers, Plus, Radio, Search, Shield, SlidersHorizontal, X } from 'lucide-react'
-import { Dialog } from 'radix-ui'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useTranslation } from 'react-i18next'
 import { searchEngines, type LanguageSetting, type PasswordEntry, type SearchEngineId, type TabLayout, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
@@ -132,9 +132,7 @@ function EnvPage({ state }: { state: UiState }) {
           ))}
         </div>
       </div>
-      {pageRef.current && (
-        <CreateEnvDialog container={pageRef.current} open={createOpen} onOpenChange={setCreateOpen} />
-      )}
+      <CreateEnvDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   )
 }
@@ -199,63 +197,54 @@ function EnvDetail({ env, onBack }: { env: Env; onBack: () => void }) {
           ))}
         </div>
       </div>
-      {rootRef.current && (
-        <ConfirmDialog
-          container={rootRef.current}
-          open={ask}
-          title={i18n.t('settings.env.deleteTitle')}
-          detail={`{i18n.t('settings.env.deleteDetail', { name: env.name })}`}
-          onOpenChange={setAsk}
-          onConfirm={() => {
-            void window.browser.deleteEnv(env.id)
-            onBack()
-          }}
-        />
-      )}
+      <ConfirmDialog
+        open={ask}
+        title={i18n.t('settings.env.deleteTitle')}
+        detail={i18n.t('settings.env.deleteDetail', { name: env.name })}
+        onOpenChange={setAsk}
+        onConfirm={() => {
+          void window.browser.deleteEnv(env.id)
+          onBack()
+        }}
+      />
     </div>
   )
 }
 
-function CreateEnvDialog({ container, open, onOpenChange }: { container: HTMLElement; open: boolean; onOpenChange: (open: boolean) => void }) {
+function CreateEnvDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [name, setName] = useState(i18n.t('settings.env.newTitle'))
   const [remark, setRemark] = useState('')
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal container={container}>
-        <Dialog.Overlay className="absolute inset-0 z-20 bg-black/30" />
-        <Dialog.Content className="absolute top-1/2 left-1/2 z-20 w-[min(24rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-white p-4 shadow-lg">
-          <div className="flex items-center justify-between gap-3">
-            <Dialog.Title className="text-base font-medium">{i18n.t('settings.env.newTitle')}</Dialog.Title>
-            <Dialog.Close className="grid size-7 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label={i18n.t('shell.common.close')}>
-              <X className="size-4" />
-            </Dialog.Close>
-          </div>
-          <Dialog.Description className="mt-1 text-xs text-muted-foreground">{i18n.t('settings.env.newDetail')}</Dialog.Description>
-          <form
-            className="mt-4 grid gap-3"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void window.browser.createEnv({ name, remark })
-              setRemark('')
-              onOpenChange(false)
-            }}
-          >
-            <Label className="grid gap-1 text-xs text-muted-foreground">
-              {i18n.t('settings.env.name')}
-              <Input className="solid-field" value={name} onChange={(event) => setName(event.target.value)} />
-            </Label>
-            <Label className="grid gap-1 text-xs text-muted-foreground">
-              {i18n.t('settings.env.remark')}
-              <Input className="solid-field" value={remark} onChange={(event) => setRemark(event.target.value)} placeholder={i18n.t('settings.env.remark')} />
-            </Label>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{i18n.t('shell.common.cancel')}</Button>
-              <Button type="submit">{i18n.t('settings.env.create')}</Button>
-            </div>
-          </form>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{i18n.t('settings.env.newTitle')}</DialogTitle>
+          <DialogDescription>{i18n.t('settings.env.newDetail')}</DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void window.browser.createEnv({ name, remark })
+            setRemark('')
+            onOpenChange(false)
+          }}
+        >
+          <Label className="grid gap-1 text-xs text-muted-foreground">
+            {i18n.t('settings.env.name')}
+            <Input className="solid-field" value={name} onChange={(event) => setName(event.target.value)} />
+          </Label>
+          <Label className="grid gap-1 text-xs text-muted-foreground">
+            {i18n.t('settings.env.remark')}
+            <Input className="solid-field" value={remark} onChange={(event) => setRemark(event.target.value)} placeholder={i18n.t('settings.env.remark')} />
+          </Label>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{i18n.t('shell.common.cancel')}</Button>
+            <Button type="submit">{i18n.t('settings.env.create')}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -748,14 +737,12 @@ function Mark({ children, large }: { children: ReactNode; large?: boolean }) {
 }
 
 function ConfirmDialog({
-  container,
   open,
   title,
   detail,
   onOpenChange,
   onConfirm
 }: {
-  container: HTMLElement
   open: boolean
   title: string
   detail: string
@@ -763,18 +750,17 @@ function ConfirmDialog({
   onConfirm: () => void
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal container={container}>
-        <Dialog.Overlay className="absolute inset-0 z-20 bg-black/30" />
-        <Dialog.Content className="absolute top-1/2 left-1/2 z-20 w-[min(24rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-white p-4 shadow-lg">
-          <Dialog.Title className="text-base font-medium">{title}</Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-muted-foreground">{detail}</Dialog.Description>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{i18n.t('shell.common.cancel')}</Button>
-            <Button type="button" variant="destructive" onClick={onConfirm}>{i18n.t('settings.env.delete')}</Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{detail}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{i18n.t('shell.common.cancel')}</Button>
+          <Button type="button" variant="destructive" onClick={onConfirm}>{i18n.t('settings.env.delete')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

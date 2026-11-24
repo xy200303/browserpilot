@@ -1,22 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { ArrowLeft, ArrowRight, Bookmark, Clock3, Download, Moon, MoreVertical, PanelTop, RotateCw, Search, Star, Workflow, X } from 'lucide-react'
 import i18n from './i18n'
 import { searchEngineOf, type AddressSuggestion, type HistoryEntry, type SuggestionFilters, type TabInfo, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-
-// 只给图标按钮用的带 tooltip 的 Button：disabled 时套一层 span，否则 Radix 收不到 hover
-function TipButton({ label, children, ...props }: ComponentProps<typeof Button> & { label: string }) {
-  const button = <Button {...props}>{children}</Button>
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{props.disabled ? <span className="inline-flex">{button}</span> : button}</TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  )
-}
+import { TipButton } from '@/components/ui/tip-button'
 
 function addressPlaceholder(active: TabInfo | undefined, engineName: string): string {
   if (active?.kind === 'market') return i18n.t('address.kind.market')

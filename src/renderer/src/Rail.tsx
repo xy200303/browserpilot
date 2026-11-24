@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { ChevronDown, Pin, Plus, X } from 'lucide-react'
 import type { TabInfo, UiState } from '../../shared/types'
 import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import i18n from './i18n'
 
@@ -103,7 +104,7 @@ export function RailApp() {
           {pinnedTabs.map((tab) => (
             <RailTab key={tab.id} tab={tab} expanded={expanded} />
           ))}
-          <div className={`my-1 h-px bg-black/10 ${expanded ? 'mx-3' : 'mx-2'}`} />
+          <Separator className={`my-1 bg-black/10 ${expanded ? 'mx-3' : 'mx-2'}`} />
         </div>
       )}
 
