@@ -5,18 +5,35 @@
 | | 发布名 | 地址 | 谁维护 |
 | --- | --- | --- | --- |
 | Python | `browserpilot-sdk` | <https://pypi.org/project/browserpilot-sdk/> | PyPI 账号 `xiaoyun2003` |
-| Node | `browserpilot` | <https://www.npmjs.com/package/browserpilot> | npm 账号 `dev_xiaoyun` |
+| Node | `@dev_xiaoyun/browserpilot` | <https://www.npmjs.com/package/@dev_xiaoyun/browserpilot> | npm 账号 `dev_xiaoyun` |
 | Go | `github.com/xy200303/browserpilot/sdk/go` | 仓库 tag `sdk/go/vX.Y.Z` | 仓库本身 |
 
-## 为什么 Python 不叫 browserpilot
+## 为什么名字都带前缀
 
-PyPI 上 `browserpilot` 已经被一个 Selenium 时代的项目占了（最新 0.2.53，作者 handrew）。
-装的时候是 `pip install browserpilot-sdk`，装完 `import browserpilot` 不变。
+三个注册表的情况不一样：
+
+- **PyPI**：`browserpilot` 已被一个 Selenium 时代的项目占了（0.2.53，作者 handrew）。
+  发布名用 `browserpilot-sdk`，装完 `import browserpilot` 不变。
+- **npm**：裸名 `browserpilot` 会被注册表拒绝，理由是它和已有的 `browser-pilot` 太相似：
+
+  ```
+  403 Forbidden - PUT https://registry.npmjs.org/browserpilot
+  Package name too similar to existing package browser-pilot
+  ```
+
+  所以用 `@dev_xiaoyun/browserpilot`（scope 就是 npm 用户名），装和 `import` 都写全名。
+- **Go**：没有注册表冲突，路径就是仓库子目录 `sdk/go`。
 
 ## 一次性准备
 
-1. **npm**：用 `dev_xiaoyun` 登录，在 <https://www.npmjs.com/settings/dev_xiaoyun/tokens> 建一个
-   Automation token，存成仓库 secret `NPM_TOKEN`。
+1. **npm**：用 `dev_xiaoyun` 登录，在 <https://www.npmjs.com/settings/dev_xiaoyun/tokens> 建
+   **Granular Access Token**：
+   - 勾上 **Bypass two-factor authentication (2FA)**——这是旧的 Automation token 的替代，
+     不勾的话 CI 里发布会被要求 OTP，报 `EOTP`
+   - Packages and scopes 选 **All packages**，权限 **Read and write**
+   - Allowed IP ranges 留空（GitHub Actions 出口 IP 不固定）
+
+   存成仓库 secret `NPM_TOKEN`。
 2. **PyPI**：用 `xiaoyun2003` 登录，在 <https://pypi.org/manage/account/token/> 建一个
    project-scoped token（scope 选 `browserpilot-sdk`），存成仓库 secret `PYPI_TOKEN`。
 3. **Go**：不用做任何事。仓库是公开的，tag 打上去就能被 `go get` 解析。

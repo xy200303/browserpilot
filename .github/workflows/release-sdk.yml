@@ -70,7 +70,7 @@ jobs:
 
   npm:
     needs: verify
-    if: github.ref_type == 'tag' && inputs.dry_run != true
+    if: inputs.dry_run != true && (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,15 +89,15 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           version="$(node -p "require('./package.json').version")"
-          if npm view "browserpilot@${version}" version >/dev/null 2>&1; then
-            echo "browserpilot@${version} 已经发布过，跳过"
+          if npm view "@dev_xiaoyun/browserpilot@${version}" version >/dev/null 2>&1; then
+            echo "@dev_xiaoyun/browserpilot@${version} 已经发布过，跳过"
             exit 0
           fi
           npm publish --access public
 
   pypi:
     needs: verify
-    if: github.ref_type == 'tag' && inputs.dry_run != true
+    if: inputs.dry_run != true && (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -119,7 +119,7 @@ jobs:
   # 否则 `go get github.com/xy200303/browserpilot/sdk/go@v0.19.0` 解析不到。
   gotag:
     needs: verify
-    if: github.ref_type == 'tag' && inputs.dry_run != true
+    if: inputs.dry_run != true && (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
