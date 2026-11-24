@@ -1,0 +1,27 @@
+{
+  "name": "browserpilot",
+  "version": "0.19.0",
+  "description": "Drive the BrowserPilot desktop browser from Node, Playwright style.",
+  "keywords": ["browser", "automation", "mcp", "playwright", "browserpilot"],
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/cjs/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node build.mjs && node test/sdk.test.mjs"
+  }
+}

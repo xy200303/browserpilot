@@ -1,0 +1,3 @@
+# 本地 go build / go test 的缓存目录，不能提交
+.gocache/
+.gomodcache/

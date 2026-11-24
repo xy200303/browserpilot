@@ -1,0 +1,3175 @@
+{
+  "appVersion": "0.19.0",
+  "count": 100,
+  "tools": [
+    {
+      "name": "search_tools",
+      "description": "Search tools by keyword across names, descriptions, groups and aliases (space separated). Tools matching every word come first and partial matches still return, so natural phrases work. Paginates with total/page/page_size and returns each schema. Pass name to get one tool in full; with no query it lists the catalog. Search first instead of guessing parameters.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "page": {
+            "type": "number"
+          },
+          "page_size": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "env_list",
+      "description": "List environments with id, name, note, window open or not, headed or headless. Never returns cookies.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "env_create",
+      "description": "Create an empty environment and open a headed window. remark is required: state what this environment is for (customer A dashboard, second account).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "remark": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name",
+          "remark"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "env_open",
+      "description": "Open the window of an existing environment. Headed when a human is involved; pass headless true for batch work. Does not raise the window; use env_front for that.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "headless": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "env"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "env_front",
+      "description": "Raise and focus an environment window, optionally activating a tab first. No other tool steals focus; call this only when the user must see the window (handoff, demo, recording).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "env_update",
+      "description": "Rename an environment or change its note. The id stays the same.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "remark": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "env"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "env_delete",
+      "description": "Close the window and clear its logins. The default environment cannot be deleted.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "env"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "tab_list",
+      "description": "List tabs across all windows. Tab ids are globally unique.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "tab_open",
+      "description": "Open a new tab in an environment window. Defaults to the default environment.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "tab_close",
+      "description": "Close a tab by its global id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "tab_activate",
+      "description": "Make a tab active by id. Does not raise the window; use env_front to show it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "group_create",
+      "description": "Create a tab group in an environment window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "group_update",
+      "description": "Rename or recolor a group. The id stays the same.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "groupId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "group_list",
+      "description": "List groups and the tabs inside them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "tab_group",
+      "description": "Put a tab into a group. An empty groupId removes it from the group.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "env_close",
+      "description": "Close the environment window but keep logins, cookies and the tab session. env_delete clears logins instead.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "env_headless",
+      "description": "Switch an open environment between headed and headless. Headless hides the window; screenshots and scripts still work.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "headless": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "headless"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "tab_restore",
+      "description": "Reopen the most recently closed tab. Returns restored false when there is nothing to restore.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "tab_duplicate",
+      "description": "Duplicate a tab: open the same address again right after the original.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "tab_close_others",
+      "description": "Close every other tab in the same window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "tab_mute",
+      "description": "Toggle tab audio mute.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "group_delete",
+      "description": "Delete a group. Its tabs are kept, just ungrouped.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "groupId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "permission_list",
+      "description": "List site permissions remembered for this environment (camera, microphone, notifications, location and so on).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "password_list",
+      "description": "List saved logins for this environment: site and account only, never passwords. Use it to judge whether a site can be filled automatically.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "settings_get",
+      "description": "Read browser settings: UI language, tab layout, search engine, password switches, batch concurrency, headless limit, idle tab hibernation, idle window close, cache cleanup. Port and MCP switches are local service config, not included.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "settings_set",
+      "description": "Change browser settings: language (auto, zh-CN or en-US, UI only), tabLayout (top or left), searchEngine, passwordSave, passwordAutofill, batchConcurrency, headlessLimit, maxLiveTabs (1-20), tabHibernateMinutes (0 disables), closeIdleMinutes (0 disables), cacheCleanup (off, onClose or weekly; clears site caches but keeps logins), toolMode (full or search). Applies immediately.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "language": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "zh-CN",
+              "en-US"
+            ]
+          },
+          "tabLayout": {
+            "type": "string",
+            "enum": [
+              "top",
+              "left"
+            ]
+          },
+          "searchEngine": {
+            "type": "string"
+          },
+          "passwordSave": {
+            "type": "boolean"
+          },
+          "passwordAutofill": {
+            "type": "boolean"
+          },
+          "batchConcurrency": {
+            "type": "number"
+          },
+          "headlessLimit": {
+            "type": "number"
+          },
+          "maxLiveTabs": {
+            "type": "number"
+          },
+          "tabHibernateMinutes": {
+            "type": "number"
+          },
+          "closeIdleMinutes": {
+            "type": "number"
+          },
+          "cacheCleanup": {
+            "type": "string",
+            "enum": [
+              "off",
+              "onClose",
+              "weekly"
+            ]
+          },
+          "toolMode": {
+            "type": "string",
+            "enum": [
+              "full",
+              "search"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "clipboard_read",
+      "description": "Read text from the system clipboard. May contain secrets; keep it local.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "clipboard_write",
+      "description": "Write text to the system clipboard.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_navigate",
+      "description": "Open an address.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_back",
+      "description": "Go back.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_forward",
+      "description": "Go forward.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_reload",
+      "description": "Reload the page.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_snapshot",
+      "description": "Read the accessibility tree. Refs are valid for this call only. Does not change who controls the browser.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_query",
+      "description": "Return every match for one locator with index, text, hittable flag and rect. Click and type never use this list; they require exactly one match. pierce also searches shadow DOM and same-origin iframes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_click",
+      "description": "Click an element. Prefer text (visible label, textMatch exact optional), then role plus name, then xpath or selector. within narrows to a CSS container (supports :has-text), index picks the Nth match, offsetX and offsetY shift from the center. Use frame for cross-origin iframes and button right for context menus. For canvas targets use x and y: viewport CSS pixels, or image pixels when shotId comes from page_screenshot. via defaults to cdp; native uses sendInputEvent; inject dispatches pointer events in the page. untilXpath or untilSelector retries up to 3 times until the element appears. count 2 double-clicks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          },
+          "textMatch": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "contains"
+            ]
+          },
+          "testId": {
+            "type": "string"
+          },
+          "alt": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nameMatch": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "contains"
+            ]
+          },
+          "within": {
+            "type": "string"
+          },
+          "index": {
+            "type": "number"
+          },
+          "offsetX": {
+            "type": "number"
+          },
+          "offsetY": {
+            "type": "number"
+          },
+          "canvasX": {
+            "type": "number"
+          },
+          "canvasY": {
+            "type": "number"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "frame": {
+            "type": "string"
+          },
+          "x": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "y": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotWidth": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotHeight": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotX": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotY": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotScale": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotId": {
+            "type": "string"
+          },
+          "button": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ]
+          },
+          "untilXpath": {
+            "type": "string"
+          },
+          "untilSelector": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "inject",
+              "native",
+              "cdp",
+              "pointer"
+            ]
+          },
+          "count": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_wait",
+      "description": "Wait for an element (state appear or gone with xpath or selector) or for the layout to settle (stable: seconds without change; use it after ads expand or images and fonts load). Both waits for the element first. timeout seconds default 10, max 60. Prefer this over fixed sleeps. pierce searches shadow DOM and same-origin iframes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "appear",
+              "gone"
+            ],
+            "default": "appear"
+          },
+          "stable": {
+            "type": "number"
+          },
+          "timeout": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_type",
+      "description": "Type text. Focus first, then type; non-Latin input uses Input.insertText. Locate with label (associated label or placeholder, simplest), a page_snapshot ref, xpath or selector, or x and y. entry paste inserts the whole string at once and avoids per-keystroke rewriting. via defaults to cdp; native clicks first; inject writes directly.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
+          },
+          "placeholder": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "frame": {
+            "type": "string"
+          },
+          "x": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "y": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotWidth": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotHeight": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotX": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotY": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotScale": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotId": {
+            "type": "string"
+          },
+          "entry": {
+            "type": "string",
+            "enum": [
+              "type",
+              "paste"
+            ]
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "inject",
+              "native",
+              "cdp"
+            ]
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_select",
+      "description": "Choose an option in a select. via defaults to cdp (click, then click the option); native uses real clicks; inject sets the value directly.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "option": {
+            "type": "string"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "inject",
+              "native",
+              "cdp"
+            ]
+          }
+        },
+        "required": [
+          "option"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_key",
+      "description": "Send a shortcut to the page without triggering window-level new or close tab. via defaults to cdp; native uses sendInputEvent.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "shortcut": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "cdp",
+              "native"
+            ]
+          }
+        },
+        "required": [
+          "shortcut"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_scroll",
+      "description": "Scroll a long list. This is not the same as swipe. via defaults to cdp (wheel); native uses sendInputEvent. Without a target it scrolls from the viewport center. untilXpath or untilSelector scrolls until the element is hittable, at most 16 tries, and reports what blocked it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ],
+            "default": "down"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "untilXpath": {
+            "type": "string"
+          },
+          "untilSelector": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "cdp",
+              "native"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_swipe",
+      "description": "Press, drag and release: sliders or horizontal panning. Use page_scroll for long lists; swiping does not scroll the page. via defaults to cdp; native uses sendInputEvent. Without a target it swipes from the viewport center. untilXpath or untilSelector repeats at most 20 times.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "left",
+              "right"
+            ],
+            "default": "up"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "untilXpath": {
+            "type": "string"
+          },
+          "untilSelector": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "cdp",
+              "native",
+              "pointer"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_drag",
+      "description": "Drag from a point or element by dx and dy with a human-like track (acceleration, jitter, slight overshoot). Use it for slider captchas and precise distances instead of page_swipe. Start from x and y (viewport CSS pixels, or image pixels with shotWidth, shotHeight and shotId) or from xpath or selector. toSelector or toText drags onto another element. via defaults to cdp.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "x": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "y": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotWidth": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotHeight": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotX": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotY": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotScale": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotId": {
+            "type": "string"
+          },
+          "canvasX": {
+            "type": "number"
+          },
+          "canvasY": {
+            "type": "number"
+          },
+          "dx": {
+            "type": "number"
+          },
+          "dy": {
+            "type": "number"
+          },
+          "toSelector": {
+            "type": "string"
+          },
+          "toText": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "cdp",
+              "native",
+              "pointer"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_inspect",
+      "description": "Identify what an element is: video, image, canvas, audio, link, input or text. Returns kind, address (src, href or poster), tag, id, class, rect and text. Target by xpath or selector, or by x and y. After deriving coordinates from a screenshot, use this to confirm what you are about to click.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "x": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "y": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotWidth": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotHeight": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotX": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotY": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotScale": {
+            "type": [
+              "number",
+              "string"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_save_media",
+      "description": "Save an image, video, audio or canvas element to a local file using this environment session. Direct links download as is; DASH tracks (Bilibili, Douyin, YouTube) are merged into mp4; m3u8 or mpd go through ffmpeg; player-side streams fall back to page_record_video. Target by xpath or selector, or by x and y.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "x": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "y": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotWidth": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotHeight": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotX": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotY": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotScale": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotId": {
+            "type": "string"
+          },
+          "savePath": {
+            "type": "string",
+            "description": "A file path saves exactly there; an existing directory saves into it (name derived); omit to use the download folder (system default, changeable with download action=dir)"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "download",
+      "description": "Local download records and the download directory. action list lists downloads since this run (files persist), each with name, path, state, bytes, url and env; wait waits for active downloads, max 120s. action dir returns the directory, or changes it when path is given (absolute, created if missing; default restores the system folder). open, show, copy, pause, resume, cancel, retry, remove and clear act on one id from list; retry only applies to failed http or https items.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "dir",
+              "open",
+              "show",
+              "copy",
+              "pause",
+              "resume",
+              "cancel",
+              "retry",
+              "remove",
+              "clear"
+            ]
+          },
+          "env": {
+            "type": "string"
+          },
+          "wait": {
+            "type": "number"
+          },
+          "path": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_record_video",
+      "description": "Record a playing video via captureStream and MediaRecorder into webm. seconds defaults to 10, max 3600; playback starts automatically. Works on any site but runs in real time. Uses the download directory when savePath is omitted. For direct streams use page_save_media instead.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "number"
+          },
+          "savePath": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_draw",
+      "description": "Draw on a canvas. Give points, or path (SVG d, supports M/L/H/V/C/S/Q/T/A/Z) with viewBox, or shape (circle, rect, triangle, heart, star). smooth fits a spline through the points, close closes the path, multiple M segments lift the pen. Pass selector to let the tool measure the element: path scales into it and points are element-local, so no stale x, y, width or height. Points may carry pressure (0-1) plus tiltX, tiltY and twist. By default the tool reads canvas pixels afterwards and returns check with painted, kept, wiped and empty; unsupported when there is no 2D context. verify false saves about 600ms. via defaults to cdp.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "pressure": {
+                  "type": "number"
+                },
+                "tiltX": {
+                  "type": "number"
+                },
+                "tiltY": {
+                  "type": "number"
+                },
+                "twist": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "path": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "viewBox": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "shape": {
+            "type": "string",
+            "enum": [
+              "circle",
+              "rect",
+              "triangle",
+              "heart",
+              "star"
+            ]
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "smooth": {
+            "type": "boolean"
+          },
+          "close": {
+            "type": "boolean"
+          },
+          "fill": {
+            "type": "boolean"
+          },
+          "spacing": {
+            "type": "number"
+          },
+          "script": {
+            "type": "string"
+          },
+          "heading": {
+            "type": "number"
+          },
+          "verify": {
+            "type": "boolean"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "cdp",
+              "native",
+              "pointer"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_upload",
+      "description": "Hand local files to a file input without opening the system dialog. Target by xpath or selector; otherwise the first file input on the page.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "paths"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_lock",
+      "description": "Lock the page behind an overlay that says the agent is operating the browser, with a take-over button.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_unlock",
+      "description": "Remove the overlay. The user can interact; the task is not paused.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_handoff",
+      "description": "Pause and let the user finish this step. Viewing the page does not re-lock it; the next action does.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_dialog",
+      "description": "Page dialogs (alert, confirm, prompt) are answered automatically so tabs never block: alerts are dismissed, confirm returns cancel, prompt returns null. Call action accept first (once true for the next dialog only) when a confirmation must return OK. action list shows recent dialogs and the current policy.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "accept",
+              "dismiss"
+            ]
+          },
+          "once": {
+            "type": "boolean"
+          },
+          "promptText": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId",
+          "action"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_hover",
+      "description": "Move the pointer over an element or point to trigger hover menus and tooltips. Prefer text, a snapshot ref, or role plus name; xpath, selector and x and y also work. within and index behave like page_click. via defaults to cdp; inject fires mouseover and mouseenter.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          },
+          "textMatch": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "contains"
+            ]
+          },
+          "testId": {
+            "type": "string"
+          },
+          "alt": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nameMatch": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "contains"
+            ]
+          },
+          "within": {
+            "type": "string"
+          },
+          "index": {
+            "type": "number"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "frame": {
+            "type": "string"
+          },
+          "x": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "y": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotWidth": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotHeight": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotX": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotY": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotScale": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "shotId": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "inject",
+              "native",
+              "cdp",
+              "pointer"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_screenshot",
+      "description": "Look at the page: viewport, one element, or a region, with a coordinate grid by default so you can click by the printed ticks. Does not change who controls the browser.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "x": {
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Left edge of the region in viewport CSS pixels"
+          },
+          "y": {
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Top edge of the region in viewport CSS pixels"
+          },
+          "width": {
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Region width in viewport CSS pixels"
+          },
+          "height": {
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Region height in viewport CSS pixels"
+          },
+          "grid": {
+            "type": [
+              "boolean",
+              "number"
+            ],
+            "description": "Grid spacing, default 100; false or 0 turns it off. Ticks are absolute viewport coordinates; a cropped element screenshot prints its origin in the corner (for example (424, 261)), so use the ticks directly as page_click x and y without adding offsets. Line color follows the background of each 32px block"
+          },
+          "edgeOnly": {
+            "type": "boolean",
+            "description": "Draw ticks on the edges only; useful when content is dense"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_overlay",
+      "description": "List overlays covering the page (ad iframes, full-screen masks, popups) with their rects. action dismiss hides common ad iframes and clicks common close buttons. It never removes page content; list first when unsure.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "dismiss"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_console",
+      "description": "Read console output and JS errors for this tab (last 300, newest first). Uncaught errors and promise rejections include stacks. Check this first when clicks do nothing or a script seems ignored. action clear empties it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "clear"
+            ]
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_find",
+      "description": "Find text in the page like Ctrl+F. Pass text to start, findNext for the next match, stop to clear the highlight. Returns total matches and the current index.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "forward": {
+            "type": "boolean"
+          },
+          "findNext": {
+            "type": "boolean"
+          },
+          "stop": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_wait_load",
+      "description": "Wait until the page finishes loading (did-stop-loading). timeout seconds default 15, max 60. Throws when loading fails. More reliable than sleeping after navigation or a link click.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "screen",
+      "description": "Window recording. action start records this headed window (it comes to the front; the only tool that does), maxSeconds default 300 up to 3600, one recording per window. action stop writes an mp4 into the download directory and returns path, seconds and bytes. action status reports recording state, start time and elapsed seconds.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop",
+              "status"
+            ]
+          },
+          "maxSeconds": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "window_preview",
+      "description": "Composite screenshot of the app shell, page, overlays and popups for GUI automation. Full window by default; x, y, width and height crop the app content area. For clicking inside web pages keep using page_screenshot viewport coordinates.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "grid": {
+            "type": [
+              "boolean",
+              "number"
+            ],
+            "description": "Grid spacing, default 100; false or 0 turns it off. The origin is the app content area top-left, excluding the system title bar; cropped previews still use absolute content-area coordinates"
+          },
+          "x": {
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Crop origin x in app content CSS pixels"
+          },
+          "y": {
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Crop origin y in app content CSS pixels"
+          },
+          "width": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "height": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "edgeOnly": {
+            "type": "boolean",
+            "description": "Draw ticks on the edges only; useful when content is dense"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_source",
+      "description": "Read page source. dom is the live document, response is the original HTML of this navigation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "dom",
+              "response"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_script",
+      "description": "Run JavaScript in the page and return its value. Use it to read data or do something no dedicated tool covers. frame takes a fragment of the frame URL (for example graph.qq.com) and runs inside that iframe, cross-origin included.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "frame": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_cdp_batch",
+      "description": "Run CDP commands in order on one debugger session without reconnecting. commands is an array of method, params and delay; delay is seconds to wait after each command, max 5. Pass a one-element array for a single command.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "method": {
+                  "type": "string"
+                },
+                "params": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "delay": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "method"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "commands"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "captcha_panel",
+      "description": "Screenshot just the captcha area and return path, pixel size, viewport CSS rect and scale. The agent reads the image, works out click points or drag distance, converts through mapping and acts with page_click or page_drag. Works for any captcha type and is the fallback when captcha_solve cannot recognise it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "captcha_detect",
+      "description": "Detect the captcha target. Currently geetest-slide (Geetest v4 slider); type auto detects it. Returns distance (drag distance in viewport CSS pixels), knob center, engine and confidence. mark true saves the gap drawn on the background image. engine picks cv (built-in, no dependencies, best on Geetest), ddddocr (local Python), onnx (models/geetest-slide.onnx) or auto.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "default": "auto"
+          },
+          "engine": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "ddddocr",
+              "onnx",
+              "cv"
+            ],
+            "default": "auto"
+          },
+          "mark": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "captcha_read",
+      "description": "OCR a captcha area with ddddocr and return text plus the image path. Works for alphanumeric captchas. Requires local Python with ddddocr installed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "captcha_solve",
+      "description": "Recognise and drag a slider captcha in one call: detect, human-like drag, verify. retries (default 2) re-detects after the captcha refreshes. engine is cv, ddddocr, onnx or auto. Returns solved, attempts and the distance of each try.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "default": "auto"
+          },
+          "engine": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "ddddocr",
+              "onnx",
+              "cv"
+            ],
+            "default": "auto"
+          },
+          "retries": {
+            "type": "number"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "cdp",
+              "native",
+              "pointer"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "workflow_record",
+      "description": "Record the next tool calls into a workflow. action start begins, action stop ends; with name it is saved (overwriting a same-name workflow), otherwise the graph is returned. Recordable: navigate, click (text, role plus name, xpath or selector, or x and y), type (xpath or selector), key, scroll, select, upload, draw (selector plus SVG path), wait. Calls located by ref or by label cannot be recorded and appear in skipped with the reason.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "workflow_write",
+      "description": "Create or fully replace a workflow from nodes and edges. script runs in the page, code runs in the main process. Use fill with entry type or paste, and loop for loops. Writing the same name replaces the graph and keeps its id; use workflow_update for partial edits.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "icon": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "const": "workflow"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "workflow": {
+            "type": "object",
+            "properties": {
+              "environment_variables": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "conversation_variables": {
+                "type": "array",
+                "items": {}
+              },
+              "graph": {
+                "type": "object",
+                "properties": {
+                  "nodes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "additionalProperties": true
+                        },
+                        "position": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number"
+                            },
+                            "y": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "data"
+                      ],
+                      "additionalProperties": true
+                    },
+                    "minItems": 1
+                  },
+                  "edges": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "target": {
+                          "type": "string"
+                        },
+                        "sourceHandle": {
+                          "type": "string"
+                        },
+                        "targetHandle": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "target"
+                      ],
+                      "additionalProperties": true
+                    }
+                  }
+                },
+                "required": [
+                  "nodes",
+                  "edges"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "graph"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "app",
+          "workflow"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "workflow_update",
+      "description": "Patch part of an existing workflow. nodes replace by id and append when new; parent puts a new node inside that loop. removeNodes deletes nodes and their edges. edges replace or append within their level. Untouched nodes and edges stay as they are.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "workflow": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "rename": {
+            "type": "string"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "parent": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": true
+                },
+                "position": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "id",
+                "data"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "removeNodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                },
+                "sourceHandle": {
+                  "type": "string"
+                },
+                "targetHandle": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source",
+                "target"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "removeEdges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "environment_variables": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "value"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "workflow_list",
+      "description": "List saved workflows and their parameter names.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "workflow_run",
+      "description": "Run the whole workflow by name with inputs in one call.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "workflow": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "workflow_batch",
+      "description": "Run a workflow once per input row in one environment, one row at a time, up to 3 concurrent.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workflow": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "concurrency": {
+            "type": "number"
+          },
+          "env": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "rows"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "workflow_export",
+      "description": "Export a workflow to a JSON file and return its local path.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "workflow": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "workflow_delete",
+      "description": "Delete a saved workflow from this machine. Copies in the market can be installed again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "workflow": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "workflow_import",
+      "description": "Import a workflow from a local JSON file. Same name overwrites, the id stays.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "net_start",
+      "description": "Start recording HTTP for this tab. Request headers may contain cookies; everything stays local.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "events_wait",
+      "description": "Block until matching browser events happen, then return them in one call. Use it right after an action to see what that action triggered. Pass since with the seq from the previous tool result so nothing between the action and this call is missed. types supports net.* style prefixes. timeout seconds default 30, max 60.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "since": {
+            "type": "number"
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "env": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "net_stop",
+      "description": "Stop recording and detach the debugger.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "net_list",
+      "description": "List request summaries without bodies.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "urlContains": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "net_get",
+      "description": "Return one request including its body when still kept. Local only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reqId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reqId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "net_export",
+      "description": "Write this tab records as HAR and return the path.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "net_mock",
+      "description": "Intercept requests in this tab and answer with fake data for API testing and fault injection. rules holds urlContains plus optional status (200), body (string, {} by default) and headers. Non-matching requests pass through. Turn it off with net_mock_off. Mocking and recording can run together.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "urlContains": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "number"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "headers": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "urlContains"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "tabId",
+          "rules"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "net_mock_off",
+      "description": "Stop intercepting requests in this tab.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tabId"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "page_watch",
+      "description": "Watch an element and return before and after when its text or position changes; on timeout it returns the snapshot taken before. timeout seconds default 30 (max 120), interval seconds default 0.5. Useful for prices, new messages and state flips. pierce searches shadow DOM and iframes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tabId": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "xpath": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "pierce": {
+            "type": "boolean"
+          },
+          "timeout": {
+            "type": "number"
+          },
+          "interval": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "connect_info",
+      "description": "Return the BrowserPilot onboarding prompt: MCP address and token, skill install URL, CLI usage. Handy for wiring another agent. copy true also writes it to the clipboard. The token is local; do not forward it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "copy": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "env_export",
+      "description": "Export cookies for this environment to a JSON file and return the path. localStorage is not included. The file holds live cookies; keep it local.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "env"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "env_import",
+      "description": "Restore logins from a file written by env_export. Without env a new environment is created. Returns the environment id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "bookmark_list",
+      "description": "List bookmarks for an environment, newest first. query filters by title or address.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "bookmark_add",
+      "description": "Add a bookmark to an environment. An existing address gets its title updated instead of a duplicate.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "bookmark_remove",
+      "description": "Delete bookmarks: by id or url, or everything when all is true. Returns how many were removed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "all": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "history_list",
+      "description": "List history for an environment, newest first. query filters by title or address; limit defaults to 50, max 500.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "history_remove",
+      "description": "Delete history: by id or url, or everything when all is true. Navigation is recorded automatically.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "all": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "session_list",
+      "description": "List saved tab sessions (saved when a window closes, restored on reopen). Omit env to list all environments.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "session_save",
+      "description": "Snapshot the tabs currently open in an environment. Errors when its window is not open.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "session_restore",
+      "description": "Reopen a saved session as tabs: opens the window if needed, skips tabs already open, at most 20.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "session_clear",
+      "description": "Delete a saved session so the next window for this environment starts empty. Open tabs and history are untouched.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "cookie_list",
+      "description": "List cookies for this environment, optionally filtered by domain. Values may contain session tokens; keep them local.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "cookie_set",
+      "description": "Write one cookie into this environment. Without url an address is built from domain. Same name and domain is overwritten.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "secure": {
+            "type": "boolean"
+          },
+          "httpOnly": {
+            "type": "boolean"
+          },
+          "expirationDate": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "cookie_remove",
+      "description": "Delete cookies: url plus name for one, domain for all of that domain, or all for the environment. Returns how many were removed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "all": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    }
+  ]
+}
