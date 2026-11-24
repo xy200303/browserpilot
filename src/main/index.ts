@@ -87,7 +87,9 @@ if (!gotLock) {
     setTimeout(startMcpLater, 1500).unref()
   })
 
-  app.on('window-all-closed', () => {
+  app.on('before-quit', () => storage.flushHistory())
+
+app.on('window-all-closed', () => {
     if (windows.size !== 0) return
     // 关窗清理可能还在排队，等它跑完再退，最多 3 秒
     void waitCacheCleanup().finally(() => app.quit())

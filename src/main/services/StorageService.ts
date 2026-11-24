@@ -97,6 +97,8 @@ export class StorageService {
 
   /** 上一次写进磁盘的内容，用来跳过没变化的重复写盘（历史每导航一次就存一次） */
   private scopedCache = new Map<string, string>()
+  private historyQueue: StoredHistory[] = []
+  private historyTimer: NodeJS.Timeout | null = null
 
   private scopedItems(name: ScopedCollection): Array<{ envId: string }> {
     if (name === 'bookmarks') return this.bookmarks
@@ -284,7 +286,7 @@ export class StorageService {
       last.title = input.title || last.title
       last.favicon = input.favicon || last.favicon
       last.visitedAt = now
-      refreshHistory(input.envId, last.id, { title: input.title || undefined, favicon: input.favicon, visitedAt: now })
+      this.queueHistory({ ...last })
       return
     }
     const entry: StoredHistory = {
@@ -297,8 +299,34 @@ export class StorageService {
     }
     this.history.unshift(entry)
     this.history = this.history.slice(0, 3000)
-    insertHistory(entry)
-    trimHistory(input.envId)
+    this.queueHistory(entry)
+  }
+
+  /**
+   * 历史写盘攒批：导航事件是同步回调，每次都写一次 SQLite 会让并发导航在主线程上排队。
+   * 内存数组立刻更新，落盘 300ms 内合并成一次批量插入 + 每个环境一次 trim。
+   */
+  private queueHistory(entry: StoredHistory): void {
+    this.historyQueue.push(entry)
+    if (this.historyTimer) return
+    this.historyTimer = setTimeout(() => {
+      this.historyTimer = null
+      this.flushHistory()
+    }, 300)
+    this.historyTimer.unref?.()
+  }
+
+  /** 退出前清空待写队列；也可以手动调。 */
+  flushHistory(): void {
+    if (!this.historyQueue.length) return
+    const batch = this.historyQueue
+    this.historyQueue = []
+    const touched = new Set<string>()
+    for (const entry of batch) {
+      insertHistory(entry)
+      touched.add(entry.envId)
+    }
+    for (const envId of touched) trimHistory(envId)
   }
 
   historyFor(envId: string): HistoryEntry[] {

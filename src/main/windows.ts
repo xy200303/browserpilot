@@ -1059,7 +1059,33 @@ export function restoreTab(runtime: WindowRuntime): TabRuntime | undefined {
   return addTab(runtime, closed.url, closed.groupId)
 }
 
+/**
+ * 合并同一环境的布局请求：一次导航会连发好几个事件（start-navigation、
+ * start-loading、stop-loading、navigate），每个都全量摆一遍所有标签的话，
+ * 并发导航就是 O(标签数²)。合并到一帧只做一次，结果完全等价。
+ */
+const layoutPending = new Set<string>()
+let layoutTimer: NodeJS.Timeout | null = null
+
 export function layoutWindow(envId: string): void {
+  layoutPending.add(envId)
+  if (layoutTimer) return
+  layoutTimer = setTimeout(() => {
+    layoutTimer = null
+    const ids = [...layoutPending]
+    layoutPending.clear()
+    for (const id of ids) layoutNow(id)
+  }, 16)
+  layoutTimer.unref?.()
+}
+
+/** 需要立刻生效的路径（比如窗口刚建好、要按新尺寸截图）直接调这个。 */
+export function flushLayout(envId: string): void {
+  layoutPending.delete(envId)
+  layoutNow(envId)
+}
+
+function layoutNow(envId: string): void {
   const runtime = windows.get(envId)
   if (!runtime) return
   const active = runtime.tabs.find((tab) => tab.id === runtime.activeTabId)
