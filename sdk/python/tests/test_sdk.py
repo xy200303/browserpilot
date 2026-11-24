@@ -592,7 +592,7 @@ class ClientTest(SdkTest):
         server = self.serve()
         bp = self.bp(server)
         self.assertEqual(bp.env_id, 'env-default')
-        self.assertEqual(bp.sdk_version, '0.19.0')
+        self.assertEqual(bp.sdk_version, install_mod.SDK_VERSION)
         self.assertIsNone(bp.app_version)
 
         self.assertEqual([env['id'] for env in bp.environments()], ['env-default'])
@@ -611,7 +611,7 @@ class ClientTest(SdkTest):
         self.assertFalse(any(name == 'env_close' for name in self.names(server)))
 
     def test_strict_version_rejects_mismatch(self):
-        located = AppLocation(exe=os.devnull, source='cache', version='0.20.0')
+        located = AppLocation(exe=os.devnull, source='cache', version=install_mod.SDK_VERSION + '-mismatch')
         with mock.patch.object(client_mod, '_running_endpoint', return_value=None):
             with mock.patch.object(client_mod, 'locate_app', return_value=located):
                 with mock.patch.object(client_mod, '_spawn', side_effect=AssertionError('不该拉起进程')):
