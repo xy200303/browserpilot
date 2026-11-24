@@ -3,12 +3,15 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "browserpilot"
+# PyPI 上 browserpilot 这个名字被一个 Selenium 时代的项目占了（0.2.53，作者 handrew），
+# 所以发布名用 browserpilot-sdk；装完之后 import 的仍然是 browserpilot。
+name = "browserpilot-sdk"
 version = "0.19.0"
-description = "用 Python 驱动 BrowserPilot 桌面浏览器，接口照着 Playwright 的样子做"
+description = "Drive the BrowserPilot desktop browser from Python, Playwright style"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
+authors = [{ name = "xy200303", email = "3483421977@qq.com" }]
 keywords = ["browser", "automation", "mcp", "playwright", "browserpilot"]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -21,6 +24,12 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/xy200303/browserpilot"
+Repository = "https://github.com/xy200303/browserpilot"
+Documentation = "https://github.com/xy200303/browserpilot/blob/main/sdk/README.md"
+Issues = "https://github.com/xy200303/browserpilot/issues"
 
 [tool.setuptools]
 packages = ["browserpilot"]

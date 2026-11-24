@@ -6,7 +6,7 @@ SDK **不自带浏览器引擎**，它驱动的是你机器上那扇 BrowserPilo
 Agent 和你的脚本操作的是同一套 cookie。隔离单位是「环境」（`env-`），一套环境一套 cookie。
 
 ```bash
-go get github.com/xy200303/browserpilot-go
+go get github.com/xy200303/browserpilot/sdk/go
 ```
 
 ## 快速开始
@@ -18,7 +18,7 @@ import (
 	"context"
 	"log"
 
-	browserpilot "github.com/xy200303/browserpilot-go"
+	browserpilot "github.com/xy200303/browserpilot/sdk/go"
 )
 
 func main() {

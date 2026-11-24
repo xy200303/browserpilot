@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	browserpilot "github.com/xy200303/browserpilot-go"
+	browserpilot "github.com/xy200303/browserpilot/sdk/go"
 )
 
 type endpointFile struct {

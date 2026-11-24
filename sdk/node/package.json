@@ -4,6 +4,16 @@
   "description": "Drive the BrowserPilot desktop browser from Node, Playwright style.",
   "keywords": ["browser", "automation", "mcp", "playwright", "browserpilot"],
   "license": "MIT",
+  "author": "xy200303",
+  "homepage": "https://github.com/xy200303/browserpilot/tree/main/sdk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xy200303/browserpilot.git",
+    "directory": "sdk/node"
+  },
+  "bugs": {
+    "url": "https://github.com/xy200303/browserpilot/issues"
+  },
   "type": "module",
   "main": "./dist/cjs/index.js",
   "module": "./dist/index.js",
@@ -18,6 +28,9 @@
   "files": ["dist", "README.md"],
   "engines": {
     "node": ">=18.17"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "node build.mjs",

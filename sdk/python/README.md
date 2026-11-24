@@ -8,7 +8,7 @@ SDK **不自带浏览器引擎**，它驱动的是你机器上那扇 BrowserPilo
 ## 安装
 
 ```bash
-pip install browserpilot
+pip install browserpilot-sdk
 ```
 
 源码目录里开发：

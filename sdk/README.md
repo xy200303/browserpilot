@@ -36,9 +36,9 @@ err = page.Goto(ctx, "https://example.com")
 
 ```
 spec/            三个 SDK 共享的契约：工具快照、版本映射、平台矩阵
-python/          pip install browserpilot
+python/          pip install browserpilot-sdk
 node/            npm install browserpilot
-go/              go get github.com/xy200303/browserpilot-go
+go/              go get github.com/xy200303/browserpilot/sdk/go
 ```
 
 每个 SDK 都由四块组成，行为必须一致：
