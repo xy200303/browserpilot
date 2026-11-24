@@ -6,11 +6,11 @@
 登录态、书签、密码都还在原来的地方。
 
 ```bash
-npm install @dev_xiaoyun/browserpilot
+npm install browserpilot-sdk
 ```
 
 ```ts
-import { launch } from '@dev_xiaoyun/browserpilot'
+import { launch } from 'browserpilot-sdk'
 
 const bp = await launch()
 const page = await bp.newPage()

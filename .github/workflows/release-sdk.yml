@@ -89,8 +89,8 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           version="$(node -p "require('./package.json').version")"
-          if npm view "@dev_xiaoyun/browserpilot@${version}" version >/dev/null 2>&1; then
-            echo "@dev_xiaoyun/browserpilot@${version} 已经发布过，跳过"
+          if npm view "browserpilot-sdk@${version}" version >/dev/null 2>&1; then
+            echo "browserpilot-sdk@${version} 已经发布过，跳过"
             exit 0
           fi
           npm publish --access public

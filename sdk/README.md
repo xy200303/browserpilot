@@ -15,7 +15,7 @@ with launch() as bp:
 ```
 
 ```ts
-import { launch } from '@dev_xiaoyun/browserpilot'
+import { launch } from 'browserpilot-sdk'
 
 const bp = await launch()
 const page = await bp.newPage()
@@ -37,7 +37,7 @@ err = page.Goto(ctx, "https://example.com")
 ```
 spec/            三个 SDK 共享的契约：工具快照、版本映射、平台矩阵
 python/          pip install browserpilot-sdk
-node/            npm install @dev_xiaoyun/browserpilot
+node/            npm install browserpilot-sdk
 go/              go get github.com/xy200303/browserpilot/sdk/go
 ```
 

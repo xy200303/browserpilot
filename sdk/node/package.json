@@ -1,5 +1,5 @@
 {
-  "name": "@dev_xiaoyun/browserpilot",
+  "name": "browserpilot-sdk",
   "version": "0.19.0",
   "description": "Drive the BrowserPilot desktop browser from Node, Playwright style.",
   "keywords": ["browser", "automation", "mcp", "playwright", "browserpilot"],

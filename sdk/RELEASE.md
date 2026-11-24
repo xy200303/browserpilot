@@ -5,15 +5,12 @@
 | | 发布名 | 地址 | 谁维护 |
 | --- | --- | --- | --- |
 | Python | `browserpilot-sdk` | <https://pypi.org/project/browserpilot-sdk/> | PyPI 账号 `xiaoyun2003` |
-| Node | `@dev_xiaoyun/browserpilot` | <https://www.npmjs.com/package/@dev_xiaoyun/browserpilot> | npm 账号 `dev_xiaoyun` |
+| Node | `browserpilot-sdk` | <https://www.npmjs.com/package/browserpilot-sdk> | npm 账号 `dev_xiaoyun` |
 | Go | `github.com/xy200303/browserpilot/sdk/go` | 仓库 tag `sdk/go/vX.Y.Z` | 仓库本身 |
 
-## 为什么名字都带前缀
-
-三个注册表的情况不一样：
+## 为什么两个都叫 browserpilot-sdk
 
 - **PyPI**：`browserpilot` 已被一个 Selenium 时代的项目占了（0.2.53，作者 handrew）。
-  发布名用 `browserpilot-sdk`，装完 `import browserpilot` 不变。
 - **npm**：裸名 `browserpilot` 会被注册表拒绝，理由是它和已有的 `browser-pilot` 太相似：
 
   ```
@@ -21,8 +18,9 @@
   Package name too similar to existing package browser-pilot
   ```
 
-  所以用 `@dev_xiaoyun/browserpilot`（scope 就是 npm 用户名），装和 `import` 都写全名。
-- **Go**：没有注册表冲突，路径就是仓库子目录 `sdk/go`。
+  加 `-sdk` 后缀之后差异足够大，注册表接受。
+
+装的时候两边都是 `browserpilot-sdk`，只是 Python 那边 `import browserpilot` 不变。
 
 ## 一次性准备
 
