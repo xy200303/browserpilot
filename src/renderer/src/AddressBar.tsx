@@ -287,19 +287,19 @@ export function AddressBar({
           />
         </form>
         <LoadProgress tab={active} />
-        <Button variant="ghost" size="icon" className="no-drag" title={bookmarked ? i18n.t('address.bookmark.remove') : i18n.t('address.bookmark.add')} onClick={() => void window.browser.toggleBookmark()}><Star fill={bookmarked ? 'currentColor' : 'none'} className={bookmarked ? 'text-amber-500' : ''} /></Button>
-        <Button
+        <TipButton label={bookmarked ? i18n.t('address.bookmark.remove') : i18n.t('address.bookmark.add')} variant="ghost" size="icon" className="no-drag" onClick={() => void window.browser.toggleBookmark()}><Star fill={bookmarked ? 'currentColor' : 'none'} className={bookmarked ? 'text-amber-500' : ''} /></TipButton>
+        <TipButton
           variant="ghost"
           size="icon"
           className="no-drag"
-          title={i18n.t('address.bookmark.menu')}
+          label={i18n.t('address.bookmark.menu')}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect()
             void window.browser.openLayer({ kind: 'bookmarks', x: rect.right, y: rect.bottom })
           }}
         >
           <Bookmark />
-        </Button>
+        </TipButton>
         <Button variant="ghost" size="icon" className="no-drag relative" title={i18n.t('address.downloads')} onClick={() => void window.browser.openDownloads()}><Download />{state.downloads.some((d) => d.state === 'progressing') && <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-blue-600" />}</Button>
         <Button variant="ghost" size="icon" className="no-drag" title={i18n.t('address.market')} onClick={() => void window.browser.openMarket()}><Workflow /></Button>
         {state.screenRecording && <span className="rounded-md bg-destructive px-1.5 py-0.5 text-xs text-white">{i18n.t('shell.screen.badge')}</span>}

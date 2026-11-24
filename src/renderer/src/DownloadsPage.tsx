@@ -3,6 +3,7 @@ import { CheckCircle2, Copy, Download, FolderOpen, Loader2, Pause, Play, RotateC
 import type { DownloadItem, UiState } from '../../shared/types'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { TipButton } from '@/components/ui/tip-button'
 import i18n from './i18n'
 
 function sizeText(bytes: number): string {
@@ -36,25 +37,25 @@ function Row({ item }: { item: DownloadItem }) {
         <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
         <span className="flex shrink-0 gap-1">
           {item.state === 'progressing' && item.path === '' && (
-            <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.pause')} onClick={() => void window.browser.pauseDownload(item.id)}><Pause /></Button>
+            <TipButton label={i18n.t('downloads.action.pause')} variant="ghost" size="icon-sm" onClick={() => void window.browser.pauseDownload(item.id)}><Pause /></TipButton>
           )}
           {item.state === 'paused' && (
-            <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.resume')} onClick={() => void window.browser.resumeDownload(item.id)}><Play /></Button>
+            <TipButton label={i18n.t('downloads.action.resume')} variant="ghost" size="icon-sm" onClick={() => void window.browser.resumeDownload(item.id)}><Play /></TipButton>
           )}
           {active && (
-            <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.cancel')} onClick={() => void window.browser.cancelDownload(item.id)}><XCircle /></Button>
+            <TipButton label={i18n.t('downloads.action.cancel')} variant="ghost" size="icon-sm" onClick={() => void window.browser.cancelDownload(item.id)}><XCircle /></TipButton>
           )}
           {(item.state === 'failed' || item.state === 'cancelled') && (
-            <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.retry')} onClick={() => void window.browser.retryDownload(item.id)}><RotateCcw /></Button>
+            <TipButton label={i18n.t('downloads.action.retry')} variant="ghost" size="icon-sm" onClick={() => void window.browser.retryDownload(item.id)}><RotateCcw /></TipButton>
           )}
           {item.state === 'completed' && (
             <>
-              <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.open')} onClick={() => void window.browser.openDownload(item.id)}><Download /></Button>
-              <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.show')} onClick={() => void window.browser.showDownload(item.id)}><FolderOpen /></Button>
+              <TipButton label={i18n.t('downloads.action.open')} variant="ghost" size="icon-sm" onClick={() => void window.browser.openDownload(item.id)}><Download /></TipButton>
+              <TipButton label={i18n.t('downloads.action.show')} variant="ghost" size="icon-sm" onClick={() => void window.browser.showDownload(item.id)}><FolderOpen /></TipButton>
             </>
           )}
           {item.url && (
-            <Button variant="ghost" size="icon-sm" title={i18n.t('downloads.action.copyLink')} onClick={() => void window.browser.copyDownloadLink(item.id)}><Copy /></Button>
+            <TipButton label={i18n.t('downloads.action.copyLink')} variant="ghost" size="icon-sm" onClick={() => void window.browser.copyDownloadLink(item.id)}><Copy /></TipButton>
           )}
         </span>
       </div>
