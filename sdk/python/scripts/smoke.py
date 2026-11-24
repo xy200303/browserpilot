@@ -54,7 +54,7 @@ def main() -> int:
         count = page.count('p')
         print(f"✓ count('p') = {count}")
 
-        result = bp.transport.events(since=before.get('seq'), wait_ms=3000)
+        result = bp.transport.events(since=before.get('seq'), wait=3)
         types = sorted({event.get('type', '') for event in result.get('events') or []})
         print(f"✓ 事件 {len(result.get('events') or [])} 条，类型：{', '.join(types) or '（无）'}")
 

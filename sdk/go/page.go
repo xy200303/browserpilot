@@ -634,11 +634,11 @@ func (p *Page) CDP(ctx context.Context, method string, params map[string]any) (a
 	return results[0], nil
 }
 
-// CDPCommand 是 CDPBatch 里的一条命令。DelayMS 是这条命令之后等多久，上限 5 秒。
+// CDPCommand 是 CDPBatch 里的一条命令。Delay 是这条命令之后等多久，上限 5 秒。
 type CDPCommand struct {
-	Method  string
-	Params  map[string]any
-	DelayMS int
+	Method string
+	Params map[string]any
+	Delay  time.Duration
 }
 
 // CDPBatch 一次下发多条命令，共用同一个 debugger 会话。中间某条失败会返回错误，前面的已经生效。
@@ -649,13 +649,13 @@ func (p *Page) CDPBatch(ctx context.Context, commands []CDPCommand) ([]any, erro
 		if command.Params != nil {
 			item["params"] = command.Params
 		}
-		if command.DelayMS > 0 {
-			delay := command.DelayMS
-			if delay > 5000 {
-				delay = 5000
+		if command.Delay > 0 {
+			delay := command.Delay
+			if delay > 5*time.Second {
+				delay = 5 * time.Second
 			}
 			// 工具那边 delay 的单位是秒
-			item["delay"] = float64(delay) / 1000
+			item["delay"] = delay.Seconds()
 		}
 		payload = append(payload, item)
 	}

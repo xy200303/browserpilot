@@ -92,7 +92,7 @@ export class BrowserPilot {
   }
 
   /** 原始工具调用。SDK 没封装的工具都从这里走。 */
-  async call(name: string, args: Record<string, unknown> = {}, options: { timeoutMs?: number } = {}): Promise<Record<string, unknown>> {
+  async call(name: string, args: Record<string, unknown> = {}, options: { timeout?: number } = {}): Promise<Record<string, unknown>> {
     const result: CallResult = await this.transport.call(name, args, options)
     return result.data
   }
@@ -245,7 +245,7 @@ async function applyHeadless(transport: Transport, env: string, headless: boolea
 async function runningEndpoint(): Promise<Endpoint | null> {
   try {
     const endpoint = readEndpoint()
-    const transport = new Transport(endpoint, { timeoutMs: 2_000 })
+    const transport = new Transport(endpoint, { timeout: 2 })
     return (await transport.ping()) ? endpoint : null
   } catch {
     return null
@@ -265,7 +265,7 @@ async function waitForEndpoint(timeoutMs: number, log: (message: string) => void
   for (;;) {
     try {
       const endpoint = readEndpoint(file)
-      const transport = new Transport(endpoint, { timeoutMs: 2_000 })
+      const transport = new Transport(endpoint, { timeout: 2 })
       if (await transport.ping()) return endpoint
     } catch {
       /* 还没写出来，继续等 */

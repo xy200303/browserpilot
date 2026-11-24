@@ -32,7 +32,7 @@ __all__ = [
 ]
 
 DEFAULT_TIMEOUT = 120.0
-MAX_WAIT_MS = 25000
+MAX_WAIT_SECONDS = 25.0
 
 
 @dataclass(frozen=True)
@@ -182,11 +182,11 @@ class Transport:
         types: Optional[List[str]] = None,
         env: Optional[str] = None,
         tab_id: Optional[str] = None,
-        wait_ms: int = MAX_WAIT_MS,
+        wait: float = MAX_WAIT_SECONDS,
         limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         """长轮询取一批事件。返回原始结果（events / seq / reset / timeout）。"""
-        body: Dict[str, Any] = {'wait': max(0, min(MAX_WAIT_MS, int(wait_ms)))}
+        body: Dict[str, Any] = {'wait': round(max(0.0, min(MAX_WAIT_SECONDS, float(wait))) * 1000)}
         if since is not None:
             body['since'] = since
         if types:

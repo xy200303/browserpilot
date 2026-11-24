@@ -171,6 +171,9 @@ cookie 隔离不用开新进程，`env_create` 就够。
 
 ## 7. API
 
+**时间参数一律用秒**：`timeout`、`poll`、`delay`、`wait` 的单位都是秒，工具层也是。
+Go 用 `time.Duration`，单位写在类型里（`500 * time.Millisecond`）。
+
 概念对照：
 
 | Playwright | BrowserPilot |
@@ -224,10 +227,10 @@ await page.cdp('Emulation.setTimezoneOverride', { timezoneId: 'America/New_York'
 await page.cdp('Emulation.setUserAgentOverride', { userAgent: 'MyUA/1.0' })
 const metrics = await page.cdp('Page.getLayoutMetrics')
 
-// 多条命令共用一次 debugger 会话，delayMs 是每条之后等多久（上限 5 秒）
+// 多条命令共用一次 debugger 会话，delay 是每条之后等多久，秒（上限 5）
 await page.cdpBatch([
   { method: 'Emulation.setDeviceMetricsOverride', params: { width: 375, height: 667, deviceScaleFactor: 2, mobile: true } },
-  { method: 'Runtime.evaluate', params: { expression: 'innerWidth' }, delayMs: 500 }
+  { method: 'Runtime.evaluate', params: { expression: 'innerWidth' }, delay: 0.5 }
 ])
 ```
 

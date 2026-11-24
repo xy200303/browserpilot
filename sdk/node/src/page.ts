@@ -6,7 +6,7 @@ import type { CallResult, Transport } from './transport.js'
 /** 定位目标：CSS 选择器、Locator、或者直接给一份定位描述。 */
 export type PageTarget = string | Locator | LocatorSpec
 
-export type ClickOptions = { button?: 'left' | 'right'; count?: number; timeout?: number; via?: 'cdp' | 'native' | 'inject' | 'pointer' }
+export type ClickOptions = { button?: 'left' | 'right'; count?: number; /** 秒 */ timeout?: number; via?: 'cdp' | 'native' | 'inject' | 'pointer' }
 
 export type ScreenshotOptions = {
   path?: string
@@ -20,7 +20,7 @@ export type ScreenshotOptions = {
   edgeOnly?: boolean
 }
 
-export type WaitOptions = { state?: 'appear' | 'gone'; timeout?: number; pollMs?: number }
+export type WaitOptions = { state?: 'appear' | 'gone'; /** 最多等多少秒 */ timeout?: number; /** 轮询间隔，秒 */ poll?: number }
 
 const DEFAULT_MODIFIER = process.platform === 'darwin' ? 'Meta+A' : 'Control+A'
 
@@ -36,7 +36,7 @@ export class Page {
   }
 
   /** 原始工具调用，参数里自动带上 tabId。99 个工具没被 SDK 封装的部分从这里走。 */
-  async call(name: string, args: Record<string, unknown> = {}, options: { timeoutMs?: number } = {}): Promise<ToolPayload> {
+  async call(name: string, args: Record<string, unknown> = {}, options: { timeout?: number } = {}): Promise<ToolPayload> {
     const result = await this.raw(name, args, options)
     return result.data
   }
@@ -114,7 +114,7 @@ export class Page {
     if (options.button) args.button = options.button
     if (options.count) args.count = options.count
     if (options.via) args.via = options.via
-    await this.raw('page_click', args, { timeoutMs: options.timeout })
+    await this.raw('page_click', args, { timeout: options.timeout })
   }
 
   /**
@@ -194,8 +194,8 @@ export class Page {
       await this.raw('page_wait', native)
       return
     }
-    if (spec.text) return this.pollText(spec.text, state, timeout, options.pollMs)
-    if (spec.role && spec.name) return this.pollSnapshot(spec.name, state, timeout, options.pollMs)
+    if (spec.text) return this.pollText(spec.text, state, timeout, options.poll)
+    if (spec.role && spec.name) return this.pollSnapshot(spec.name, state, timeout, options.poll)
     throw new NotFoundError(
       `waitFor 不支持 ${describe(spec)}：用 selector / xpath / getByText / getByRole 都能等，` +
         `label 和 placeholder 请改写成 selector。`
@@ -204,7 +204,7 @@ export class Page {
 
   /** 等页面上出现这段文字，用 Ctrl+F 的原生查找，不走 DOM。 */
   async waitForText(text: string, options: WaitOptions = {}): Promise<void> {
-    await this.pollText(text, options.state ?? 'appear', options.timeout ?? 10, options.pollMs)
+    await this.pollText(text, options.state ?? 'appear', options.timeout ?? 10, options.poll)
   }
 
   /** waitForText 的别名，读起来更像断言。 */
@@ -265,18 +265,18 @@ export class Page {
   }
 
   /**
-   * 一次下发多条命令，共用同一个 debugger 会话。`delayMs` 是每条之后等多久（上限 5 秒）。
+   * 一次下发多条命令，共用同一个 debugger 会话。`delay` 是每条之后等多久，秒（上限 5）。
    * 中间某条失败会抛错，前面的命令已经生效。
    */
   async cdpBatch(
-    commands: Array<{ method: string; params?: Record<string, unknown>; delayMs?: number }>
+    commands: Array<{ method: string; params?: Record<string, unknown>; delay?: number }>
   ): Promise<unknown[]> {
     const data = await this.call('page_cdp_batch', {
       commands: commands.map((command) => ({
         method: command.method,
         params: command.params,
         // 工具的 delay 单位是秒
-        delay: command.delayMs ? command.delayMs / 1000 : undefined
+        delay: command.delay
       }))
     })
     return (data.results as unknown[]) ?? []
@@ -343,11 +343,11 @@ export class Page {
     return { url: found.url, title: found.title }
   }
 
-  private async raw(name: string, args: Record<string, unknown>, options: { timeoutMs?: number } = {}): Promise<CallResult> {
+  private async raw(name: string, args: Record<string, unknown>, options: { timeout?: number } = {}): Promise<CallResult> {
     return this.transport.call(name, { tabId: this.id, ...args }, options)
   }
 
-  private async pollText(text: string, state: 'appear' | 'gone', timeoutSeconds: number, pollMs = 300): Promise<void> {
+  private async pollText(text: string, state: 'appear' | 'gone', timeoutSeconds: number, pollSeconds = 0.3): Promise<void> {
     const deadline = Date.now() + timeoutSeconds * 1000
     try {
       for (;;) {
@@ -359,7 +359,7 @@ export class Page {
         if (Date.now() > deadline) {
           throw new NotFoundError(`等了 ${timeoutSeconds}s，页面上${state === 'gone' ? '还' : '没'}出现「${text}」`)
         }
-        await sleep(pollMs)
+        await sleep(pollSeconds * 1000)
       }
     } finally {
       await this.call('page_find', { stop: true }).catch(() => undefined)
@@ -370,7 +370,7 @@ export class Page {
    * 等 role+name 出现。page_wait 不认 role，这里只能轮询无障碍树。
    * 命中条件是名字出现在树里——比 DOM 准确，但一页大表格会比较费。
    */
-  private async pollSnapshot(name: string, state: 'appear' | 'gone', timeoutSeconds: number, pollMs = 500): Promise<void> {
+  private async pollSnapshot(name: string, state: 'appear' | 'gone', timeoutSeconds: number, pollSeconds = 0.5): Promise<void> {
     const deadline = Date.now() + timeoutSeconds * 1000
     for (;;) {
       const tree = await this.snapshot()
@@ -379,7 +379,7 @@ export class Page {
       if (Date.now() > deadline) {
         throw new NotFoundError(`等了 ${timeoutSeconds}s，无障碍树里${state === 'gone' ? '还' : '没'}出现「${name}」`)
       }
-      await sleep(pollMs)
+      await sleep(pollSeconds * 1000)
     }
   }
 }

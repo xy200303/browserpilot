@@ -12,7 +12,7 @@ const step = async (name, fn) => {
   try {
     const detail = await fn()
     results.push({ name, ok: true, ms: Date.now() - started, detail })
-    console.log(`✓ ${name}${detail ? ` — ${detail}` : ''}`)
+    console.log(`✓ ${name}${detail ? ` — ${detail}` : ''} (${Date.now() - started}ms)`)
     return detail
   } catch (error) {
     results.push({ name, ok: false, ms: Date.now() - started, detail: error.message })
@@ -102,7 +102,7 @@ try {
   await step('事件通道', async () => {
     const before = await bp.call('env_list')
     await page.goto('data:text/html,<title>事件测试</title><p>hi</p>')
-    const result = await bp.transport.events({ since: before.seq, wait: 2000 })
+    const result = await bp.transport.events({ since: before.seq, wait: 2 })
     const types = [...new Set(result.events.map((event) => event.type))]
     return `${result.events.length} 条：${types.slice(0, 5).join(', ')}`
   })

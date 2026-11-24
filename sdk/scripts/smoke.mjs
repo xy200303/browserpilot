@@ -40,7 +40,7 @@ try {
   log(`✓ count('p') = ${found}`)
   if (found === 0) console.error('⚠ 一个段落都没数到，页面可能没加载完')
 
-  const events = await bp.transport.events({ since: before.seq, wait: 3000 })
+  const events = await bp.transport.events({ since: before.seq, wait: 3 })
   const types = [...new Set(events.events.map((event) => event.type))]
   log(`✓ 事件 ${events.events.length} 条，类型：${types.join(', ') || '（无）'}`)
   const sawNavigation = events.events.some((event) => event.type === 'tab.navigation')

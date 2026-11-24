@@ -47,12 +47,12 @@ test('长轮询拿到事件，没有事件时按超时返回', async () => {
   await withServer({}, async (server) => {
     const bp = await launch({ endpoint: server.endpoint })
     server.pushEvent({ type: 'page.console', payload: { message: 'hi' } })
-    const result = await bp.transport.events({ since: 100, wait: 500 })
+    const result = await bp.transport.events({ since: 100, wait: 0.5 })
     assert.equal(result.events.length, 1)
     assert.equal(result.events[0].type, 'page.console')
     assert.equal(result.seq, result.events[0].seq)
 
-    const empty = await bp.transport.events({ since: result.seq, wait: 120 })
+    const empty = await bp.transport.events({ since: result.seq, wait: 0.12 })
     assert.equal(empty.events.length, 0)
     assert.equal(empty.timeout, true)
   })
@@ -191,7 +191,7 @@ test('waitForText 轮询 page_find，结束时清掉高亮', async () => {
     },
     async (server) => {
       const page = pageOf(server)
-      await page.waitForText('完成', { timeout: 5, pollMs: 10 })
+      await page.waitForText('完成', { timeout: 5, poll: 0.01 })
       const found = server.calls.filter((call) => call.name === 'page_find')
       assert.ok(found.length >= 3, `应该至少查了两次再收尾，实际 ${found.length}`)
       assert.equal(found.at(-1).args.stop, true)

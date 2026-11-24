@@ -249,8 +249,8 @@ class Locator:
 
     # ---------- 等待与读取 ----------
 
-    def wait_for(self, state: str = 'appear', timeout: float = 10, poll_ms: Optional[int] = None) -> None:
-        return self.page.wait_for(self.spec, state=state, timeout=timeout, poll_ms=poll_ms)
+    def wait_for(self, state: str = 'appear', timeout: float = 10, poll: Optional[float] = None) -> None:
+        return self.page.wait_for(self.spec, state=state, timeout=timeout, poll=poll)
 
     def count(self) -> int:
         return self.page.count(self.spec)

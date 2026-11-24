@@ -27,7 +27,7 @@ export type EventWaitOptions = {
   types?: string[]
   env?: string
   tabId?: string
-  /** 最多挂起多少毫秒，默认 25000，上限 25000 */
+  /** 最多挂起多少秒，默认 25，上限 25 */
   wait?: number
   limit?: number
 }
@@ -66,25 +66,26 @@ export function readEndpoint(file = mcpFile()): Endpoint {
   return { url: saved.url ?? '', api: saved.api.replace(/\/+$/, ''), token: saved.token }
 }
 
-const DEFAULT_TIMEOUT = 120_000
+const DEFAULT_TIMEOUT_SECONDS = 120
 
 export class Transport {
   readonly endpoint: Endpoint
-  timeoutMs: number
+  /** 单次调用默认超时，秒 */
+  timeout: number
   private closed = false
 
-  constructor(endpoint: Endpoint, options: { timeoutMs?: number } = {}) {
+  constructor(endpoint: Endpoint, options: { timeout?: number } = {}) {
     this.endpoint = endpoint
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT
+    this.timeout = options.timeout ?? DEFAULT_TIMEOUT_SECONDS
   }
 
   /** 探活：能列出工具就算活着。 */
-  async ping(timeoutMs = 2_000): Promise<boolean> {
+  async ping(timeoutSeconds = 2): Promise<boolean> {
     try {
       const response = await fetch(`${this.endpoint.api}/tools`, {
         method: 'GET',
         headers: { Authorization: `Bearer ${this.endpoint.token}` },
-        signal: AbortSignal.timeout(timeoutMs)
+        signal: AbortSignal.timeout(timeoutSeconds * 1000)
       })
       return response.ok
     } catch {
@@ -93,13 +94,13 @@ export class Transport {
   }
 
   async tools(): Promise<Array<{ name: string; description: string; inputSchema: unknown; group?: string }>> {
-    const response = await this.request('GET', '/tools', 10_000)
+    const response = await this.request('GET', '/tools', 10)
     const payload = (await response.json()) as { tools?: Array<{ name: string; description: string; inputSchema: unknown }> }
     return payload.tools ?? []
   }
 
-  async call(name: string, args: Record<string, unknown> = {}, options: { timeoutMs?: number } = {}): Promise<CallResult> {
-    const response = await this.request('POST', '/call', options.timeoutMs ?? this.timeoutMs, { tool: name, args })
+  async call(name: string, args: Record<string, unknown> = {}, options: { timeout?: number } = {}): Promise<CallResult> {
+    const response = await this.request('POST', '/call', options.timeout ?? this.timeout, { tool: name, args })
     const text = await response.text()
     let payload: ToolPayload
     try {
@@ -115,17 +116,17 @@ export class Transport {
     return { data: rest as ToolPayload, image: picture }
   }
 
-  /** 长轮询取事件。`since` 是上次结果里的 seq；不传表示只看新事件。 */
+  /** 长轮询取事件。`since` 是上次结果里的 seq；`wait` 是最多挂起多少秒。 */
   async events(options: EventWaitOptions = {}): Promise<EventWaitResult> {
-    const body: Record<string, unknown> = {}
+    const wait = Math.max(0, Math.min(25, options.wait ?? 25))
+    const body: Record<string, unknown> = { wait: Math.round(wait * 1000) }
     if (options.since !== undefined) body.since = options.since
     if (options.types?.length) body.types = options.types
     if (options.env) body.env = options.env
     if (options.tabId) body.tabId = options.tabId
     if (options.limit !== undefined) body.limit = options.limit
-    body.wait = Math.max(0, Math.min(25_000, options.wait ?? 25_000))
     // 客户端要比服务端挂得更久一点，否则先超时的永远是客户端
-    const response = await this.request('POST', '/events', body.wait as number + 10_000, body)
+    const response = await this.request('POST', '/events', wait + 10, body)
     return (await response.json()) as EventWaitResult
   }
 
@@ -133,10 +134,10 @@ export class Transport {
     this.closed = true
   }
 
-  private async request(method: 'GET' | 'POST', path: string, timeoutMs: number, body?: unknown): Promise<Response> {
+  private async request(method: 'GET' | 'POST', path: string, timeoutSeconds: number, body?: unknown): Promise<Response> {
     if (this.closed) throw new TransportError('连接已经关了')
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const timer = setTimeout(() => controller.abort(), timeoutSeconds * 1000)
     try {
       const init: RequestInit = {
         method,
@@ -157,7 +158,7 @@ export class Transport {
       return response
     } catch (error) {
       if (error instanceof TransportError) throw error
-      if ((error as Error).name === 'AbortError') throw new TransportError(`等了 ${timeoutMs}ms 没回应`)
+      if ((error as Error).name === 'AbortError') throw new TransportError(`等了 ${timeoutSeconds}s 没回应`)
       throw new TransportError(`连不上 ${this.endpoint.api}${path}`, { cause: error })
     } finally {
       clearTimeout(timer)

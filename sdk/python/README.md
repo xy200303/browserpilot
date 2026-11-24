@@ -138,7 +138,7 @@ for event in bp.events(since=before['seq']):
     break                                    # 生成器不会自己结束
 ```
 
-一步拿一批、不等推送：`bp.transport.events(since=..., wait_ms=25000)`。
+一步拿一批、不等推送：`bp.transport.events(since=..., wait=25)`。
 位置失效（App 重启或超出缓冲）时返回里带 `reset`，客户端应该用工具重建状态。
 
 ## 和 Playwright 不一样的地方

@@ -272,11 +272,11 @@ class TransportTest(SdkTest):
         server = self.serve()
         transport = Transport(server.endpoint)
         server.push_event('page.console', {'message': 'hi'})
-        result = transport.events(since=100, wait_ms=500)
+        result = transport.events(since=100, wait=0.5)
         self.assertEqual(len(result['events']), 1)
         self.assertEqual(result['events'][0]['type'], 'page.console')
 
-        empty = transport.events(since=result['seq'], wait_ms=120)
+        empty = transport.events(since=result['seq'], wait=0.12)
         self.assertEqual(empty['events'], [])
         self.assertTrue(empty['timeout'])
 
@@ -455,7 +455,7 @@ class WaitTest(SdkTest):
             return {'ok': True, 'matches': 3 if seen > 1 else 0, 'active': 1 if seen > 1 else 0}
 
         server = self.serve(handlers={'page_find': page_find})
-        self.page(server).wait_for_text('完成', timeout=5, poll_ms=10)
+        self.page(server).wait_for_text('完成', timeout=5, poll=0.01)
         found = [call for call in server.calls if call['name'] == 'page_find']
         self.assertGreaterEqual(len(found), 3, f'应该至少查两次再收尾，实际 {len(found)}')
         self.assertIs(found[-1]['args'].get('stop'), True)
@@ -463,7 +463,7 @@ class WaitTest(SdkTest):
     def test_wait_for_text_timeout_still_clears_find(self):
         server = self.serve()
         with self.assertRaises(NotFoundError):
-            self.page(server).wait_for_text('永远不会出现', timeout=0.05, poll_ms=10)
+            self.page(server).wait_for_text('永远不会出现', timeout=0.05, poll=0.01)
         self.assertIs(server.calls[-1]['args'].get('stop'), True)
 
     def test_expect_text_is_alias(self):

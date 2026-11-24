@@ -232,7 +232,7 @@ class Page:
         target: PageTarget,
         state: str = 'appear',
         timeout: float = 10,
-        poll_ms: Optional[int] = None,
+        poll: Optional[float] = None,
     ) -> None:
         """等元素出现/消失。
 
@@ -245,23 +245,23 @@ class Page:
             self._raw('page_wait', native)
             return
         if spec.text:
-            self._poll_text(spec.text, state, timeout, poll_ms if poll_ms is not None else 300)
+            self._poll_text(spec.text, state, timeout, poll if poll is not None else 0.3)
             return
         if spec.role and spec.name:
-            self._poll_snapshot(spec.name, state, timeout, poll_ms if poll_ms is not None else 500)
+            self._poll_snapshot(spec.name, state, timeout, poll if poll is not None else 0.5)
             return
         raise NotFoundError(
             f'waitFor 不支持 {describe(spec)}：用 selector / xpath / getByText / getByRole 都能等，'
             'label 和 placeholder 请改写成 selector。'
         )
 
-    def wait_for_text(self, text: str, state: str = 'appear', timeout: float = 10, poll_ms: int = 300) -> None:
+    def wait_for_text(self, text: str, state: str = 'appear', timeout: float = 10, poll: float = 0.3) -> None:
         """等页面上出现这段文字，用 Ctrl+F 的原生查找，不走 DOM。"""
-        self._poll_text(text, state, timeout, poll_ms)
+        self._poll_text(text, state, timeout, poll)
 
-    def expect_text(self, text: str, state: str = 'appear', timeout: float = 10, poll_ms: int = 300) -> None:
+    def expect_text(self, text: str, state: str = 'appear', timeout: float = 10, poll: float = 0.3) -> None:
         """wait_for_text 的别名，读起来更像断言。"""
-        self.wait_for_text(text, state=state, timeout=timeout, poll_ms=poll_ms)
+        self.wait_for_text(text, state=state, timeout=timeout, poll=poll)
 
     # ---------- 读取 ----------
 
@@ -396,7 +396,7 @@ class Page:
         # tabId 放前面，这样显式传进来的 tabId 仍然能覆盖。
         return self._transport.call(tool, {'tabId': self.id, **dict(args)}, timeout=timeout)
 
-    def _poll_text(self, text: str, state: str, timeout: float, poll_ms: int) -> None:
+    def _poll_text(self, text: str, state: str, timeout: float, poll: float) -> None:
         deadline = time.monotonic() + timeout
         try:
             while True:
@@ -409,7 +409,7 @@ class Page:
                     raise NotFoundError(
                         f"等了 {timeout}s，页面上{'还' if state == 'gone' else '没'}出现「{text}」"
                     )
-                time.sleep(poll_ms / 1000.0)
+                time.sleep(poll)
         finally:
             # 原生查找会高亮，收尾一定要清掉。
             try:
@@ -417,7 +417,7 @@ class Page:
             except BrowserPilotError:
                 pass
 
-    def _poll_snapshot(self, name: str, state: str, timeout: float, poll_ms: int) -> None:
+    def _poll_snapshot(self, name: str, state: str, timeout: float, poll: float) -> None:
         """page_wait 不认 role，只能轮询无障碍树。"""
         deadline = time.monotonic() + timeout
         while True:
@@ -428,4 +428,4 @@ class Page:
                 raise NotFoundError(
                     f"等了 {timeout}s，无障碍树里{'还' if state == 'gone' else '没'}出现「{name}」"
                 )
-            time.sleep(poll_ms / 1000.0)
+            time.sleep(poll)
