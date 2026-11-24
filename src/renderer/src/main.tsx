@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { applyLanguage } from './i18n'
 import { drawGrid } from './lib/grid'
 import { App } from './App'
+import { TooltipProvider } from './components/ui/tooltip'
 import './index.css'
 
 // 每个图层（主界面、popup、rail、市场、设置）都是独立的渲染入口，
@@ -42,8 +43,10 @@ const Root =
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Suspense fallback={null}>
-      <Root />
-    </Suspense>
+    <TooltipProvider delayDuration={400}>
+      <Suspense fallback={null}>
+        <Root />
+      </Suspense>
+    </TooltipProvider>
   </StrictMode>
 )

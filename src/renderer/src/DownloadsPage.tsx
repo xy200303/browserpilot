@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, Copy, Download, FolderOpen, Loader2, Pause, Play, RotateCcw, XCircle } from 'lucide-react'
 import type { DownloadItem, UiState } from '../../shared/types'
 import { Button } from '@/components/ui/button'
+import { Progress } from '@/components/ui/progress'
 import i18n from './i18n'
 
 function sizeText(bytes: number): string {
@@ -58,12 +59,11 @@ function Row({ item }: { item: DownloadItem }) {
         </span>
       </div>
       {active && (
-        <div className="h-1.5 overflow-hidden rounded bg-neutral-200">
-          <div
-            className={`h-full bg-blue-600 transition-all ${pct < 0 ? 'w-1/3 animate-pulse' : ''}`}
-            style={pct >= 0 ? { width: `${pct}%` } : undefined}
-          />
-        </div>
+        pct >= 0 ? (
+          <Progress value={pct} className="h-1.5" />
+        ) : (
+          <Progress className="h-1.5 [&>[data-slot=progress-indicator]]:w-1/3 [&>[data-slot=progress-indicator]]:animate-pulse" />
+        )
       )}
       <div className="flex items-center gap-3 text-xs text-neutral-500">
         <span>{stateText(item)}</span>

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { searchEngines, type LanguageSetting, type PasswordEntry, type SearchEngineId, type TabLayout, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -325,9 +326,9 @@ function Privacy({ state }: { state: UiState }) {
       <section className="mt-5 rounded-xl border p-4">
         <h2 className="text-sm font-medium">{i18n.t('settings.privacy.clearTitle')}</h2>
         <div className="mt-3 grid gap-2 text-sm">
-          <label className="flex items-center gap-2"><input type="checkbox" className="accent-neutral-900" checked={history} onChange={(event) => setHistory(event.target.checked)} />{i18n.t('settings.privacy.history')}</label>
-          <label className="flex items-center gap-2"><input type="checkbox" className="accent-neutral-900" checked={cookies} onChange={(event) => setCookies(event.target.checked)} />{i18n.t('settings.privacy.cookies')}</label>
-          <label className="flex items-center gap-2"><input type="checkbox" className="accent-neutral-900" checked={cache} onChange={(event) => setCache(event.target.checked)} />{i18n.t('settings.privacy.cache')}</label>
+          <label className="flex items-center gap-2"><Checkbox checked={history} onCheckedChange={(value) => setHistory(value === true)} />{i18n.t('settings.privacy.history')}</label>
+          <label className="flex items-center gap-2"><Checkbox checked={cookies} onCheckedChange={(value) => setCookies(value === true)} />{i18n.t('settings.privacy.cookies')}</label>
+          <label className="flex items-center gap-2"><Checkbox checked={cache} onCheckedChange={(value) => setCache(value === true)} />{i18n.t('settings.privacy.cache')}</label>
         </div>
         {!confirm ? (
           <Button type="button" variant="outline" className="mt-4" onClick={() => setConfirm(true)}>{i18n.t('settings.privacy.clearSelected')}</Button>

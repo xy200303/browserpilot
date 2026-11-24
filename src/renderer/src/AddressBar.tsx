@@ -1,10 +1,22 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type RefObject } from 'react'
 import { ArrowLeft, ArrowRight, Bookmark, Clock3, Download, Moon, MoreVertical, PanelTop, RotateCw, Search, Star, Workflow, X } from 'lucide-react'
 import i18n from './i18n'
 import { searchEngineOf, type AddressSuggestion, type HistoryEntry, type SuggestionFilters, type TabInfo, type UiState } from '../../shared/types'
 import { SearchEngineIcon } from '@/components/SearchEngineIcon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+
+// 只给图标按钮用的带 tooltip 的 Button：disabled 时套一层 span，否则 Radix 收不到 hover
+function TipButton({ label, children, ...props }: ComponentProps<typeof Button> & { label: string }) {
+  const button = <Button {...props}>{children}</Button>
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{props.disabled ? <span className="inline-flex">{button}</span> : button}</TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 function addressPlaceholder(active: TabInfo | undefined, engineName: string): string {
   if (active?.kind === 'market') return i18n.t('address.kind.market')
@@ -221,16 +233,16 @@ export function AddressBar({
   return (
     <>
       <div className="relative flex h-12 items-center gap-1 bg-[#f3f3f3] px-2">
-        <Button variant="ghost" size="icon" className="no-drag" title={i18n.t('address.nav.back')} disabled={!state.canBack} onClick={() => void window.browser.back()}><ArrowLeft /></Button>
-        <Button variant="ghost" size="icon" className="no-drag" title={i18n.t('address.nav.forward')} disabled={!state.canForward} onClick={() => void window.browser.forward()}><ArrowRight /></Button>
-        <Button variant="ghost" size="icon" className="no-drag" title={active?.loading ? i18n.t('address.nav.stop') : i18n.t('address.nav.reload')} onClick={() => {
+        <TipButton label={i18n.t('address.nav.back')} variant="ghost" size="icon" className="no-drag" disabled={!state.canBack} onClick={() => void window.browser.back()}><ArrowLeft /></TipButton>
+        <TipButton label={i18n.t('address.nav.forward')} variant="ghost" size="icon" className="no-drag" disabled={!state.canForward} onClick={() => void window.browser.forward()}><ArrowRight /></TipButton>
+        <TipButton label={active?.loading ? i18n.t('address.nav.stop') : i18n.t('address.nav.reload')} variant="ghost" size="icon" className="no-drag" onClick={() => {
           if (active?.loading) {
             void window.browser.stop()
             return
           }
           if (active && active.kind !== 'page') onReloadBuiltin(active.id)
           else void window.browser.reload()
-        }}>{active?.loading ? <X /> : <RotateCw />}</Button>
+        }}>{active?.loading ? <X /> : <RotateCw />}</TipButton>
         <form
           ref={formRef}
           className="mx-1 flex min-w-0 flex-1 items-center gap-2"
