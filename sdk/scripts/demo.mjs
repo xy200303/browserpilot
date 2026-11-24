@@ -96,7 +96,7 @@ try {
     const before = await page.evaluate('Intl.DateTimeFormat().resolvedOptions().timeZone')
     await page.cdp('Emulation.setTimezoneOverride', { timezoneId: 'America/New_York' })
     const after = await page.evaluate('Intl.DateTimeFormat().resolvedOptions().timeZone')
-    return 时区 ${before} → ${after}
+    return `时区 ${before} → ${after}`
   })
 
   await step('事件通道', async () => {
