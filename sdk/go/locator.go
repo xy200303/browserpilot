@@ -42,6 +42,8 @@ type LocatorSpec struct {
 	Index *int
 	// Pierce 表示进 shadow DOM 和同源 iframe 里找。
 	Pierce bool
+	// Frame 是要进的 iframe：填 frame URL 的一段，和 App 工具的 frame 参数同义。
+	Frame string
 }
 
 // LocatorOption 修饰一个定位描述，GetByRole / GetByText 共用。
@@ -72,8 +74,17 @@ func Exact(exact bool) LocatorOption {
 	}
 }
 
-// describe 给人看的描述，用在报错里。
+// describe 给人看的描述，用在报错里。进了 frame 就把这段 URL 一起带上，
+// 否则只看 selector 分不清是主文档还是 iframe 里没找到。
 func describe(spec LocatorSpec) string {
+	label := describeBody(spec)
+	if spec.Frame != "" {
+		return label + "（frame=" + spec.Frame + "）"
+	}
+	return label
+}
+
+func describeBody(spec LocatorSpec) string {
 	switch {
 	case spec.Role != "":
 		if spec.Name != "" {
@@ -137,6 +148,10 @@ func actionArgs(spec LocatorSpec) map[string]any {
 	if spec.Index != nil {
 		args["index"] = *spec.Index
 	}
+	// page_click / page_type / page_hover 认这个参数：App 会按 URL 片段进 iframe。
+	if spec.Frame != "" {
+		args["frame"] = spec.Frame
+	}
 	return args
 }
 
@@ -175,12 +190,19 @@ func typePlan(spec LocatorSpec) (string, map[string]any, error) {
 		if spec.Pierce {
 			args["pierce"] = true
 		}
+		// 只有 selector / xpath 能一次 inject 进 frame；label / placeholder 没法定位 frame。
+		if spec.Frame != "" {
+			args["frame"] = spec.Frame
+		}
 		return typeModeInject, args, nil
 	}
 	if spec.XPath != "" {
 		args := map[string]any{"xpath": spec.XPath}
 		if spec.Pierce {
 			args["pierce"] = true
+		}
+		if spec.Frame != "" {
+			args["frame"] = spec.Frame
 		}
 		return typeModeInject, args, nil
 	}
@@ -200,8 +222,12 @@ func typePlan(spec LocatorSpec) (string, map[string]any, error) {
 			"以及 role=textbox/searchbox/combobox 且带 name 的定位器。", describe(spec)), nil)
 }
 
-// waitArgs 是 page_wait 的参数：它只认 xpath / selector，返回 nil 表示这个定位器得靠轮询。
+// waitArgs 是 page_wait 的参数：它只认 xpath / selector，而且不进 frame，
+// 返回 nil 表示这个定位器得靠轮询（frame 里的元素就交给 Frame.WaitFor）。
 func waitArgs(spec LocatorSpec, state string, timeout time.Duration) map[string]any {
+	if spec.Frame != "" {
+		return nil
+	}
 	args := map[string]any{"state": state, "timeout": timeout.Seconds()}
 	if spec.Selector != "" {
 		args["selector"] = spec.Selector

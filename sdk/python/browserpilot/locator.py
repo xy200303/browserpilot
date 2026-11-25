@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Any, Dict, NamedTuple, Optional
+from typing import Any, Dict, NamedTuple, Optional, Union
 
 from .errors import NotFoundError
 
@@ -47,6 +47,8 @@ class LocatorSpec:
     index: Optional[int] = None
     # 搜索 shadow DOM 和同源 iframe。
     pierce: bool = False
+    # 进 iframe 找：填 frame URL 的一段（和 App 的 frame 参数同义）。
+    frame: Optional[str] = None
 
 
 # 字典写法和 Node 版的 camelCase 都认，用户不必背工具参数名。
@@ -68,6 +70,7 @@ _ALIASES = {
     'within': 'within',
     'index': 'index',
     'pierce': 'pierce',
+    'frame': 'frame',
 }
 
 
@@ -96,6 +99,13 @@ def coerce_spec(value: Any) -> LocatorSpec:
 
 def describe(spec: LocatorSpec) -> str:
     """给人看的描述，用在报错里。"""
+    label = _describe_body(spec)
+    if spec.frame:
+        return f'{label}（frame={spec.frame}）'
+    return label
+
+
+def _describe_body(spec: LocatorSpec) -> str:
     if spec.role:
         return f'role={spec.role}' + (f' name={spec.name}' if spec.name else '')
     if spec.text:
@@ -144,6 +154,8 @@ def action_args(spec: LocatorSpec) -> Dict[str, Any]:
         args['within'] = spec.within
     if spec.index is not None:
         args['index'] = spec.index
+    if spec.frame:
+        args['frame'] = spec.frame
     return args
 
 
@@ -162,11 +174,15 @@ def type_plan(spec: LocatorSpec) -> TypePlan:
         args: Dict[str, Any] = {'selector': spec.selector}
         if spec.pierce:
             args['pierce'] = True
+        if spec.frame:
+            args['frame'] = spec.frame
         return TypePlan('inject', args)
     if spec.xpath:
         args = {'xpath': spec.xpath}
         if spec.pierce:
             args['pierce'] = True
+        if spec.frame:
+            args['frame'] = spec.frame
         return TypePlan('inject', args)
     if spec.label:
         return TypePlan('focus', {'label': spec.label})
@@ -181,7 +197,9 @@ def type_plan(spec: LocatorSpec) -> TypePlan:
 
 
 def wait_args(spec: LocatorSpec, state: str, timeout: Optional[float] = None) -> Optional[Dict[str, Any]]:
-    """page_wait 只认 xpath / selector。返回 None 表示这个定位器得靠轮询。"""
+    """page_wait 只认 xpath / selector，而且不支持 frame。返回 None 表示这个定位器得靠轮询。"""
+    if spec.frame:
+        return None
     args: Dict[str, Any] = {'state': state}
     if timeout is not None:
         args['timeout'] = timeout
@@ -261,8 +279,8 @@ class Locator:
     def text_content(self) -> str:
         return self.page.text_content(self.spec)
 
-    def screenshot(self, path: Optional[str] = None) -> bytes:
-        return self.page.screenshot(path=path, target=self.spec)
+    def screenshot(self, path: Optional[str] = None, grid: Union[bool, int] = True) -> bytes:
+        return self.page.screenshot(path=path, target=self.spec, grid=grid)
 
     def __str__(self) -> str:
         return f'Locator({describe(self.spec)})'

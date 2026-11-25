@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process'
-import { BrowserPilotError, InstallError, TransportError } from './errors.js'
+import { BrowserPilotError, InstallError, NotFoundError, TransportError } from './errors.js'
 import { ensureApp, locateApp, type DownloadProgress } from './install.js'
 import { Locator } from './locator.js'
+import { addCookies, clearCookies, listCookies, type CookieCall } from './cookies.js'
 import { Page } from './page.js'
 import { mcpFile } from './paths.js'
 import { Transport, readEndpoint, type Endpoint, type CallResult, type EventRecord, type EventWaitOptions } from './transport.js'
-import { Bookmarks, Downloads, Environments, Groups, History, Net, Network, Settings, Tabs, Workflows } from './api.js'
+import { Bookmarks, Downloads, Environments, Groups, History, Net, Network, Sessions, Settings, Tabs, Workflows } from './api.js'
 import { APP_VERSION, SDK_VERSION } from './version.js'
 
 export const DEFAULT_ENV = 'env-default'
@@ -94,6 +95,7 @@ export class BrowserPilot {
   readonly bookmarks: Bookmarks
   readonly downloads: Downloads
   readonly network: Network
+  readonly sessions: Sessions
   private readonly owned?: Owned
 
   constructor(transport: Transport, options: { envId?: string; appVersion?: string; owned?: Owned } = {}) {
@@ -112,6 +114,7 @@ export class BrowserPilot {
     this.bookmarks = new Bookmarks(this)
     this.downloads = new Downloads(this)
     this.network = new Network(this)
+    this.sessions = new Sessions(this)
   }
 
   /** 原始工具调用。SDK 没封装的工具都从这里走。 */
@@ -142,13 +145,79 @@ export class BrowserPilot {
     return new Environment(this, id)
   }
 
-  /** 这套环境里的定位器工厂，等价于先 newPage 再取。 */
+  /** 按标签 id 绑定一个 Page：bp.tab('tab-xxx').locator(...) 不会串到别的页。 */
+  async tab(tabId: string): Promise<Page> {
+    const data = await this.call('tab_list', {})
+    const tabs = (data.tabs as Array<{ id: string; envId: string }> | undefined) ?? []
+    const found = tabs.find((tab) => tab.id === tabId)
+    if (!found) {
+      const known = tabs.map((tab) => tab.id).join('、') || '没有打开的标签'
+      throw new NotFoundError(`标签 ${tabId} 不在了；现有标签：${known}`)
+    }
+    return new Page(this.transport, tabId, found.envId)
+  }
+
+  /**
+   * 这套环境里的定位器工厂，等价于先 newPage 再取。
+   * @deprecated 多标签时「第一页」可能是别人的页面，改用 `bp.tab(id).locator(...)`。
+   */
   async locator(selector: string): Promise<Locator> {
     const pages = await this.pages()
     const page = pages[0]
     if (!page) throw new BrowserPilotError('没有打开的页面，先 newPage()')
+    console.warn('bp.locator() 作用在「第一个标签页」上，多标签时会串页；请改用 bp.tab(id).locator(...)')
     return page.locator(selector)
   }
+
+  // ---------- cookie ----------
+
+  /** 导出这套环境的 cookie（可以直接 JSON.stringify 存起来，以后 addCookies 注回去）。 */
+  async cookies(options: { env?: string; domain?: string } = {}): Promise<Array<Record<string, unknown>>> {
+    return listCookies(this.cookieCall, options)
+  }
+
+  /** 注入 cookie。传一条对象或一个数组，返回写进去的条数。 */
+  async addCookies(
+    cookies: Array<Record<string, unknown>> | Record<string, unknown>,
+    options: { env?: string } = {}
+  ): Promise<number> {
+    return addCookies(this.cookieCall, cookies, options)
+  }
+
+  async clearCookies(
+    options: { name?: string; domain?: string; url?: string; all?: boolean; env?: string } = {}
+  ): Promise<void> {
+    await clearCookies(this.cookieCall, options)
+  }
+
+  // ---------- 剪贴板 ----------
+
+  /** 读系统剪贴板文本。 */
+  async clipboardRead(): Promise<string> {
+    const data = await this.call('clipboard_read', {})
+    return String(data.text ?? '')
+  }
+
+  /** 写系统剪贴板；中文走剪贴板比逐键输入稳。 */
+  clipboardWrite(text: string): Promise<Record<string, unknown>> {
+    return this.call('clipboard_write', { text })
+  }
+
+  // ---------- 权限与密码 ----------
+
+  /** 这套环境记住的站点权限（摄像头、麦克风、通知、定位等）。 */
+  async permissions(env?: string): Promise<Array<Record<string, unknown>>> {
+    const data = await this.call('permission_list', env ? { env } : {})
+    return ((data.permissions ?? data.list ?? []) as Array<Record<string, unknown>>)
+  }
+
+  /** 已保存的登录（只有站点和账号，永远不含密码）。 */
+  async passwords(env?: string): Promise<Array<Record<string, unknown>>> {
+    const data = await this.call('password_list', env ? { env } : {})
+    return ((data.passwords ?? data.list ?? []) as Array<Record<string, unknown>>)
+  }
+
+  private readonly cookieCall: CookieCall = async (tool, args) => this.call(tool, args)
 
   /**
    * 长轮询事件流。默认只看新事件；传 `since` 从某个位置开始。

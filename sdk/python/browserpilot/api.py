@@ -251,6 +251,25 @@ class Downloads(_Api):
         return self._act('clear')
 
 
+class Sessions(_Api):
+    """关窗口时保存的标签组，下次打开同一环境时恢复。"""
+
+    def list(self, env: str) -> List[Dict[str, Any]]:
+        data = self._call('session_list', env=env)
+        return list(data.get('sessions') or data.get('list') or [])
+
+    def save(self, env: str) -> Dict[str, Any]:
+        """把当前打开的标签存成这套环境的会话。"""
+        return self._call('session_save', env=env)
+
+    def restore(self, env: str) -> Dict[str, Any]:
+        """按会话重开标签；窗口没开就顺带开，已有的标签不重复开。"""
+        return self._call('session_restore', env=env)
+
+    def clear(self, env: str) -> Dict[str, Any]:
+        return self._call('session_clear', env=env)
+
+
 class Network(_Api):
     """每套环境自己的出口：代理、UA、语言、WebRTC 策略。"""
 

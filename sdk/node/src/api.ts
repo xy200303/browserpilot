@@ -282,6 +282,28 @@ export class Downloads extends Api {
   }
 }
 
+export class Sessions extends Api {
+  /** 关窗口时保存的标签组，下次打开同一环境时恢复。 */
+  async list(env: string): Promise<Array<Record<string, unknown>>> {
+    const data = await this.call('session_list', { env })
+    return (data.sessions ?? data.list ?? []) as Array<Record<string, unknown>>
+  }
+
+  /** 把当前打开的标签存成这套环境的会话。 */
+  save(env: string): Promise<Record<string, unknown>> {
+    return this.call('session_save', { env })
+  }
+
+  /** 按会话重开标签；窗口没开就顺带开，已有的标签不重复开。 */
+  restore(env: string): Promise<Record<string, unknown>> {
+    return this.call('session_restore', { env })
+  }
+
+  clear(env: string): Promise<Record<string, unknown>> {
+    return this.call('session_clear', { env })
+  }
+}
+
 export class Network extends Api {
   /** 每套环境自己的出口：代理、UA、语言、WebRTC 策略。 */
   get(env: string): Promise<Record<string, unknown>> {

@@ -66,9 +66,30 @@ off()
 const api = await page.waitForResponse('api/user', { timeout: 10 })
 console.log(api.payload.status, api.payload.mimeType)
 
-// 截图（默认不画坐标网格，和 Playwright 一样干净）
+// 截图（默认带 100px 坐标网格，照着刻度就能直接算点击坐标；要干净图传 grid: false）
 await page.screenshot({ path: 'a.png' })
 await page.screenshot({ target: page.locator('#chart') })
+
+// iframe：page_query / page_wait 只看主文档，count 对 iframe 里的元素返回 0
+const tab = await bp.tab(page.id)                  // 明确绑定，别用 bp.locator() 猜第一页
+const frame = await tab.frameLocator('iframe#editor')
+await frame.locator('#save').click()               // 点击 / 输入走 App 的 frame 通道
+await frame.count('#row')                          // 计数 / 文本 / 等待走 page_script
+await tab.waitForFunction("document.body.innerText.includes('已保存')")
+
+// 弹窗默认自动应答；要让某个确认框点「确定」，提前放策略
+await page.acceptDialog({ once: true })
+// 点了没反应先看遮罩；上传直接给 file input；查找 / 监听 / 人工交接
+await page.overlays()
+await page.upload(['a.pdf'], page.locator('#file'))
+await page.find('订单号')
+await page.watch('#price', { timeout: 30 })
+await page.handoff('该你输验证码了')
+
+// cookie：按环境导出、注入，掉登录不用重扫
+const saved = await page.cookies()
+await page.addCookies(saved)
+await page.clearCookies({ name: 'sid' })
 
 // 99 个工具里没被封装的，直接调
 await bp.call('net_start', { tabId: page.id })

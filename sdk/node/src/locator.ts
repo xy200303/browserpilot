@@ -24,18 +24,25 @@ export type LocatorSpec = {
   index?: number
   /** 搜索 shadow DOM 和同源 iframe。 */
   pierce?: boolean
+  /** 进 iframe 找：填 frame URL 的一段（和 App 的 frame 参数同义）。 */
+  frame?: string
 }
 
 export function isLocatorSpec(value: unknown): value is LocatorSpec {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const keys: Array<keyof LocatorSpec> = [
-    'role', 'name', 'text', 'label', 'placeholder', 'testId', 'alt', 'selector', 'xpath', 'within', 'pierce', 'index'
+    'role', 'name', 'text', 'label', 'placeholder', 'testId', 'alt', 'selector', 'xpath', 'within', 'pierce', 'index', 'frame'
   ]
   return keys.some((key) => key in (value as Record<string, unknown>))
 }
 
 /** 给人看的描述，用在报错里。 */
 export function describe(spec: LocatorSpec): string {
+  const label = describeBody(spec)
+  return spec.frame ? `${label}（frame=${spec.frame}）` : label
+}
+
+function describeBody(spec: LocatorSpec): string {
   if (spec.role) return `role=${spec.role}${spec.name ? ` name=${spec.name}` : ''}`
   if (spec.text) return `text=${spec.text}`
   if (spec.label) return `label=${spec.label}`
@@ -70,6 +77,7 @@ export function actionArgs(spec: LocatorSpec): Record<string, unknown> {
   }
   if (spec.within) args.within = spec.within
   if (spec.index !== undefined) args.index = spec.index
+  if (spec.frame) args.frame = spec.frame
   return args
 }
 
@@ -84,8 +92,12 @@ export type TypePlan =
  * role+name 的输入框通常是文本框，它的可访问名一般就是 label 或 placeholder，退一步用它当 label。
  */
 export function typePlan(spec: LocatorSpec, text: string): TypePlan {
-  if (spec.selector) return { mode: 'inject', args: { selector: spec.selector, pierce: spec.pierce || undefined } }
-  if (spec.xpath) return { mode: 'inject', args: { xpath: spec.xpath, pierce: spec.pierce || undefined } }
+  if (spec.selector) {
+    return { mode: 'inject', args: { selector: spec.selector, pierce: spec.pierce || undefined, frame: spec.frame || undefined } }
+  }
+  if (spec.xpath) {
+    return { mode: 'inject', args: { xpath: spec.xpath, pierce: spec.pierce || undefined, frame: spec.frame || undefined } }
+  }
   if (spec.label) return { mode: 'focus', args: { label: spec.label } }
   if (spec.placeholder) return { mode: 'focus', args: { placeholder: spec.placeholder } }
   if (spec.role === 'textbox' || spec.role === 'searchbox' || spec.role === 'combobox') {
@@ -97,8 +109,9 @@ export function typePlan(spec: LocatorSpec, text: string): TypePlan {
   )
 }
 
-/** page_wait 只认 xpath / selector。返回 null 表示这个定位器得靠轮询。 */
+/** page_wait 只认 xpath / selector，而且不支持 frame。返回 null 表示这个定位器得靠轮询。 */
 export function waitArgs(spec: LocatorSpec, state: 'appear' | 'gone', timeout?: number): Record<string, unknown> | null {
+  if (spec.frame) return null
   const args: Record<string, unknown> = { state }
   if (timeout !== undefined) args.timeout = timeout
   if (spec.selector) return { ...args, selector: spec.selector, pierce: spec.pierce || undefined }
@@ -181,7 +194,7 @@ export class Locator {
     return this.page.textContent(this.spec)
   }
 
-  screenshot(options: { path?: string } = {}): Promise<Buffer> {
+  screenshot(options: { path?: string; grid?: boolean | number } = {}): Promise<Buffer> {
     return this.page.screenshot({ ...options, target: this.spec })
   }
 

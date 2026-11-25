@@ -2,6 +2,7 @@ package browserpilot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -97,10 +98,15 @@ type waitOptions struct {
 	state   string
 	timeout time.Duration
 	poll    time.Duration
+	frame   string
 }
 
 // WaitOption 修饰一次等待。
 type WaitOption func(*waitOptions)
+
+// WaitForFunctionOption 和 WaitOption 是同一套选项：都只是等多久、多久探一次、进哪个 frame。
+// 两类等待只差「探什么」，没必要再造一套选项类型。
+type WaitForFunctionOption = WaitOption
 
 // WithState 选等出现还是等消失：appear / gone。
 func WithState(state string) WaitOption {
@@ -159,16 +165,13 @@ func WithConsoleLimit(limit int) ConsoleOption {
 	return func(options *consoleOptions) { options.limit = limit }
 }
 
-type evaluateOptions struct {
-	frame string
-}
+// EvaluateOption 是 WaitOption 的别名：page_script 只用到 frame 这一项，
+// 和等待共用一个选项类型，WithFrame 在 Evaluate / WaitForFunction 两边都能用。
+type EvaluateOption = WaitOption
 
-// EvaluateOption 修饰一次 page_script。
-type EvaluateOption func(*evaluateOptions)
-
-// WithFrame 在指定 frame 里执行，不传就是主框架。
+// WithFrame 在指定 frame 里执行 / 等待，不传就是主框架。
 func WithFrame(frame string) EvaluateOption {
-	return func(options *evaluateOptions) { options.frame = frame }
+	return func(options *waitOptions) { options.frame = frame }
 }
 
 type screenshotOptions struct {
@@ -187,7 +190,8 @@ func WithPath(path string) ScreenshotOption {
 	return func(options *screenshotOptions) { options.path = path }
 }
 
-// WithGrid 打开 App 画的坐标网格。SDK 默认关掉：那是给人估坐标用的，脚本里是噪点。
+// WithGrid 打开或关掉 App 画的坐标网格。默认开（100px）：截图带刻度就能直接算点击坐标，
+// 需要干净图片时传 WithGrid(false)。
 func WithGrid(grid bool) ScreenshotOption {
 	return func(options *screenshotOptions) { options.grid = grid }
 }
@@ -376,7 +380,10 @@ func (p *Page) Click(ctx context.Context, target Target, opts ...ClickOption) er
 		args["via"] = options.via
 	}
 	_, err = p.call(ctx, "page_click", args, options.timeout)
-	return err
+	if err != nil {
+		return p.hinted(ctx, "page_click", spec, err)
+	}
+	return nil
 }
 
 // Fill 覆盖式输入。selector/xpath 一次 inject 搞定；
@@ -393,20 +400,24 @@ func (p *Page) Fill(ctx context.Context, target Target, value string) error {
 	if mode == typeModeInject {
 		args["text"] = value
 		args["via"] = "inject"
-		_, err := p.call(ctx, "page_type", args, 0)
-		return err
+		if _, err := p.call(ctx, "page_type", args, 0); err != nil {
+			return p.hinted(ctx, "page_type", spec, err)
+		}
+		return nil
 	}
 	args["text"] = ""
 	if _, err := p.call(ctx, "page_type", args, 0); err != nil {
-		return err
+		return p.hinted(ctx, "page_type", spec, err)
 	}
 	if err := p.pressSelectAll(ctx); err != nil {
-		return err
+		return p.hinted(ctx, "page_type", spec, err)
 	}
 	args["text"] = value
 	args["entry"] = "paste"
-	_, err = p.call(ctx, "page_type", args, 0)
-	return err
+	if _, err := p.call(ctx, "page_type", args, 0); err != nil {
+		return p.hinted(ctx, "page_type", spec, err)
+	}
+	return nil
 }
 
 // Type 在光标处追加，不清空。
@@ -420,8 +431,10 @@ func (p *Page) Type(ctx context.Context, target Target, value string) error {
 		return err
 	}
 	args["text"] = value
-	_, err = p.call(ctx, "page_type", args, 0)
-	return err
+	if _, err = p.call(ctx, "page_type", args, 0); err != nil {
+		return p.hinted(ctx, "page_type", spec, err)
+	}
+	return nil
 }
 
 // Press 把快捷键发进页面，例如 Control+Enter；不会触发窗口自己的新建/关闭标签。
@@ -446,8 +459,10 @@ func (p *Page) Hover(ctx context.Context, target Target) error {
 	if err != nil {
 		return err
 	}
-	_, err = p.call(ctx, "page_hover", actionArgs(spec), 0)
-	return err
+	if _, err = p.call(ctx, "page_hover", actionArgs(spec), 0); err != nil {
+		return p.hinted(ctx, "page_hover", spec, err)
+	}
+	return nil
 }
 
 // Select 选下拉框的一项，只支持 selector / xpath。
@@ -455,6 +470,25 @@ func (p *Page) Select(ctx context.Context, target Target, option string) error {
 	spec, err := specOf(target)
 	if err != nil {
 		return err
+	}
+	if spec.Frame != "" {
+		// page_select 不进 frame，直接在 frame 里改 value 再派发事件。
+		expr, err := frameFirstExpr(spec)
+		if err != nil {
+			return err
+		}
+		source := "(() => { const el = " + expr + "; if (!el) return null; el.value = " + jsQuote(option) + ";" +
+			" el.dispatchEvent(new Event('input', { bubbles: true }));" +
+			" el.dispatchEvent(new Event('change', { bubbles: true }));" +
+			" return el.value; })()"
+		value, err := p.Evaluate(ctx, source, WithFrame(spec.Frame))
+		if err != nil {
+			return err
+		}
+		if value == nil {
+			return newNotFoundError("iframe「" + spec.Frame + "」里没找到 " + describe(spec))
+		}
+		return nil
 	}
 	located := locateFields(spec)
 	if located == nil {
@@ -529,6 +563,10 @@ func (p *Page) WaitFor(ctx context.Context, target Target, opts ...WaitOption) e
 	if err != nil {
 		return err
 	}
+	if spec.Frame != "" {
+		// page_wait 不进 iframe，改成在 frame 里轮询 page_script。
+		return p.Frame(spec.Frame).WaitFor(ctx, spec, opts...)
+	}
 	options := waitOptions{state: "appear", timeout: 10 * time.Second}
 	for _, apply := range opts {
 		if apply != nil {
@@ -566,6 +604,55 @@ func (p *Page) ExpectText(ctx context.Context, text string, opts ...WaitOption) 
 	return p.WaitForText(ctx, text, opts...)
 }
 
+// WaitForFunction 轮询 JS 表达式，直到它返回真值；返回那个值。
+//
+// expression 既可以写成表达式（`document.readyState === 'complete'`），也可以写成函数
+// （`() => document.body.innerText.includes('已保存')`）——函数会被调用。用 WithWaitTimeout /
+// WithPollInterval 调节奏，WithFrame 进 iframe。超时返回 CodeNotFound，文案里带「条件一直没成立」。
+func (p *Page) WaitForFunction(ctx context.Context, expression string, opts ...WaitForFunctionOption) (any, error) {
+	options := waitOptions{timeout: 10 * time.Second, poll: 100 * time.Millisecond}
+	for _, apply := range opts {
+		if apply != nil {
+			apply(&options)
+		}
+	}
+	if options.poll <= 0 {
+		options.poll = 100 * time.Millisecond
+	}
+	// 函数形式要调用一次才拿到结果；表达式形式原样返回。
+	wrapped := "(() => { const value = (" + expression + ");" +
+		` return typeof value === 'function' ? value() : value; })()`
+	deadline := time.Now().Add(options.timeout)
+	for {
+		var (
+			value any
+			err   error
+		)
+		if options.frame != "" {
+			value, err = p.Evaluate(ctx, wrapped, WithFrame(options.frame))
+		} else {
+			value, err = p.Evaluate(ctx, wrapped)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if truthy(value) {
+			return value, nil
+		}
+		if time.Now().After(deadline) {
+			where := "页面里"
+			if options.frame != "" {
+				where = "iframe「" + options.frame + "」里"
+			}
+			return nil, newNotFoundError("等了 " + secondsString(options.timeout) +
+				"，" + where + "条件一直没成立：" + expression)
+		}
+		if err := p.sleep(ctx, options.poll); err != nil {
+			return nil, err
+		}
+	}
+}
+
 // ---------- 读取 ----------
 
 // Count 数匹配到几个，只支持 selector / xpath。
@@ -573,6 +660,10 @@ func (p *Page) Count(ctx context.Context, target Target) (int, error) {
 	spec, err := specOf(target)
 	if err != nil {
 		return 0, err
+	}
+	if spec.Frame != "" {
+		// page_query 不进 frame，改成在 frame 里查。
+		return p.Frame(spec.Frame).Count(ctx, spec)
 	}
 	located := locateFields(spec)
 	if located == nil {
@@ -590,6 +681,9 @@ func (p *Page) IsVisible(ctx context.Context, target Target) (bool, error) {
 	spec, err := specOf(target)
 	if err != nil {
 		return false, err
+	}
+	if spec.Frame != "" {
+		return p.Frame(spec.Frame).IsVisible(ctx, spec)
 	}
 	located := locateFields(spec)
 	if located == nil {
@@ -612,6 +706,9 @@ func (p *Page) TextContent(ctx context.Context, target Target) (string, error) {
 	spec, err := specOf(target)
 	if err != nil {
 		return "", err
+	}
+	if spec.Frame != "" {
+		return p.Frame(spec.Frame).TextContent(ctx, spec)
 	}
 	located := locateFields(spec)
 	if located == nil {
@@ -701,7 +798,7 @@ func (p *Page) CDPBatch(ctx context.Context, commands []CDPCommand) ([]any, erro
 // Evaluate 在页面里执行 JS，返回值原样回来。传函数不行，Go 这边只能传源码字符串；
 // 想跑函数体就自己写成 `(() => { ... })()` 的形式。
 func (p *Page) Evaluate(ctx context.Context, source string, opts ...EvaluateOption) (any, error) {
-	options := evaluateOptions{}
+	options := waitOptions{}
 	for _, apply := range opts {
 		if apply != nil {
 			apply(&options)
@@ -916,9 +1013,10 @@ func responseMatches(match any, url string) bool {
 // ---------- 截图 ----------
 
 // Screenshot 返回图片字节。App 那边也会存一份，路径在载荷里。
-// 默认 grid:false——App 默认会画坐标网格，脚本里那是噪点。
+// 默认 grid:true——和 App 的 page_screenshot 一致，叠 100px 坐标网格，
+// 照着刻度就能直接算点击坐标；要干净图传 WithGrid(false)。
 func (p *Page) Screenshot(ctx context.Context, opts ...ScreenshotOption) ([]byte, error) {
-	options := screenshotOptions{grid: false}
+	options := screenshotOptions{grid: true}
 	for _, apply := range opts {
 		if apply != nil {
 			apply(&options)
@@ -932,6 +1030,11 @@ func (p *Page) Screenshot(ctx context.Context, opts ...ScreenshotOption) ([]byte
 		spec, err := specOf(options.target)
 		if err != nil {
 			return nil, err
+		}
+		if spec.Frame != "" {
+			// page_screenshot 没有 frame 参数：别静默截主文档里同名元素。
+			return nil, newNotFoundError("frame 里的元素截图还不支持：page_screenshot 没有 frame 参数。" +
+				"需要的话先 frame.Evaluate 算出元素矩形，再用 WithClip 截那块")
 		}
 		for key, value := range locateFields(spec) {
 			args[key] = value
@@ -999,6 +1102,109 @@ func (p *Page) pressSelectAll(ctx context.Context) error {
 		shortcut = "Meta+A"
 	}
 	return p.Press(ctx, shortcut)
+}
+
+// ---------- 失败解释 ----------
+
+// hinted 给工具错误补一句原因：在 iframe 里、被遮罩挡住，还是单纯没有。
+// 只改 error 文案，错误码 / Tool / 原载荷都保留——调用方仍然按 IsToolError 判。
+func (p *Page) hinted(ctx context.Context, tool string, spec LocatorSpec, err error) error {
+	var target *Error
+	if !errors.As(err, &target) || target.Code != CodeToolError {
+		return err
+	}
+	hint := p.missingHint(ctx, spec)
+	if hint == "" {
+		return err
+	}
+	payload := make(map[string]any, len(target.Payload)+1)
+	for key, value := range target.Payload {
+		payload[key] = value
+	}
+	original, _ := payload["error"].(string)
+	if original == "" {
+		original = target.Message
+	}
+	payload["error"] = original + "；" + hint
+	return newToolError(tool, payload)
+}
+
+// missingHint 只在动作失败时跑：先看是不是在某个 iframe 里，再看有没有遮罩。
+// 顺带说明这不是「猜」——探测用的就是 Frame.Count 在 frame 里真正查一遍。
+func (p *Page) missingHint(ctx context.Context, spec LocatorSpec) string {
+	if spec.Frame != "" {
+		return "已经在 iframe「" + spec.Frame + "」里找过：确认 frame 没跳转，或换一段更长的 URL 片段"
+	}
+	frames, err := p.Frames(ctx)
+	if err != nil {
+		frames = nil
+	}
+	if len(frames) > 0 {
+		if where := p.probeFrames(ctx, spec, frames); where != nil {
+			label := where.URL
+			if label == "" {
+				label = where.Name
+			}
+			if label == "" {
+				label = where.Selector
+			}
+			if label == "" {
+				label = "about:blank"
+			}
+			selector := where.Selector
+			if selector == "" {
+				selector = "iframe"
+			}
+			return "元素不在主文档，它在 iframe「" + label + "」里：用 page.FrameLocator(" +
+				jsQuote(selector) + ").Locator(...) 进 frame 再操作"
+		}
+		labels := make([]string, 0, 4)
+		for _, frame := range frames {
+			if len(labels) == 4 {
+				break
+			}
+			label := frame.URL
+			if label == "" {
+				label = frame.Name
+			}
+			if label == "" {
+				label = "about:blank"
+			}
+			labels = append(labels, label)
+		}
+		return "主文档里没有；页面有 " + strconv.Itoa(len(frames)) + " 个 iframe（" +
+			strings.Join(labels, "、") + "），元素可能在其中一个里"
+	}
+	overlays := p.overlayCount(ctx)
+	if overlays > 0 {
+		return "页面上有 " + strconv.Itoa(overlays) + " 个遮罩/弹层，元素可能被挡住：" +
+			`先 page.Call(ctx, "page_overlay", map[string]any{"action": "list"}) 看清楚再 dismiss`
+	}
+	return ""
+}
+
+// probeFrames 挨个 frame 查一下这个选择器，用来判断「元素在 iframe 里」。
+func (p *Page) probeFrames(ctx context.Context, spec LocatorSpec, frames []*Frame) *Frame {
+	if spec.Selector == "" && spec.XPath == "" {
+		return nil
+	}
+	for index, frame := range frames {
+		if index == 4 {
+			break
+		}
+		if count, err := frame.Count(ctx, spec); err == nil && count > 0 {
+			return frame
+		}
+	}
+	return nil
+}
+
+func (p *Page) overlayCount(ctx context.Context) int {
+	data, err := p.Call(ctx, "page_overlay", map[string]any{"action": "list"})
+	if err != nil {
+		return 0
+	}
+	return len(mapList(data["overlays"]))
 }
 
 func (p *Page) pollText(ctx context.Context, text, state string, timeout, poll time.Duration) error {
@@ -1158,4 +1364,24 @@ func mapList(value any) []map[string]any {
 // secondsString 把时长写成工具参数里那种「5s」。
 func secondsString(duration time.Duration) string {
 	return strconv.FormatFloat(duration.Seconds(), 'f', -1, 64) + "s"
+}
+
+// truthy 按 JS 的真值规则判断 page_script 的返回值：
+// WaitForFunction 要判断的是「表达式在页面里成不成立」，不能按 Go 的零值来。
+func truthy(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case bool:
+		return typed
+	case string:
+		return typed != ""
+	case float64:
+		return typed != 0
+	case int:
+		return typed != 0
+	case int64:
+		return typed != 0
+	}
+	return true
 }

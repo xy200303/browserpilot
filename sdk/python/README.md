@@ -128,6 +128,46 @@ launch(env=None, headless=None, timeout=60, exe=None, version=None,
 `Page` 和 `Locator` 都接受三种定位目标：CSS 选择器字符串、`Locator`、
 或者字典（`{"role": "button", "name": "登录"}`，键名同时认 `testId` 和 `test_id`）。
 
+### iframe
+
+`count()` 对 iframe 里的元素返回 0：`page_query` / `page_wait` 只看主文档。进 iframe 用 `Frame`：
+
+```python
+page = bp.tab(tab_id)                        # 先明确绑到哪个标签
+frame = page.frame_locator('iframe#editor')  # 也可以 page.frames() 先看有哪些
+frame.locator('#save').click()               # 点击 / 输入 / 悬停走 App 的 frame 通道
+frame.count('#row')                          # 计数 / 文本 / 可见性 / 等待走 page_script
+frame.wait_for('#saved')
+page.wait_for_function("document.body.innerText.includes('已保存')")
+```
+
+`frame_locator` 按 iframe 元素的选择器解析 src；`page.frame('graph.qq.com')` 直接按 URL
+片段取。同一个 URL 的多个 iframe 会命中第一个（App 的匹配规则），需要精确就用更长的片段。
+定位失败时会说明原因：是在某个 iframe 里、被遮罩挡住，还是主文档就没有。
+
+### 弹窗、上传、遮罩、监听
+
+```python
+page.dialogs()                     # 最近的弹窗 + 当前策略
+page.accept_dialog(once=True)      # 让下一个确认框点「确定」
+page.upload(['a.pdf'], page.locator('#file'))   # 塞文件，不弹系统框
+page.overlays(), page.dismiss_overlays()        # 挡点击的广告/遮罩
+page.find('订单号')                 # 页面内查找（Ctrl+F），page.find_stop() 清高亮
+page.inspect(page.locator('#go'))  # kind/tag/text/rect；也可以传 x/y 按坐标反查
+page.watch('#price', timeout=30, interval=0.5)  # 等文字或位置变化
+page.lock(), page.handoff('该你输验证码了')      # 人工交接
+```
+
+### cookie
+
+按环境隔离，掉登录时不用重扫：
+
+```python
+saved = page.cookies()        # 或 bp.cookies(env='env-default')
+page.add_cookies(saved)       # 导出的列表原样注回去
+page.clear_cookies(name='sid')
+```
+
 ## 事件
 
 页面级：`page.on(event, handler)` 返回取消函数，回调在后台线程里跑。
@@ -172,7 +212,7 @@ for event in bp.events(since=before['seq']):
 | 不能开多个浏览器，隔离单位是「环境」 | App 是单实例应用 |
 | 事件回调是后台线程 + 长轮询 | 没有推送通道；`page.on()` 负责线程和抓包，取消后最多约 1 秒收手 |
 | `goto()` 不知道「网络空闲」 | 只有 `did-stop-loading`，需要时补 `wait_for_load()`、`locator.wait_for()` 或 `wait_for_response()` |
-| `screenshot()` 默认 `grid=False` | App 默认会画坐标网格（给人点位置用），SDK 里那是噪点 |
+| `screenshot()` 默认 `grid=True` | 和 App 一致叠 100px 坐标网格，照着刻度就能直接算点击坐标；要干净图传 `grid=False`，传数字改间距（10–500） |
 | `evaluate()` 只收 JS 源码字符串 | Python 函数没法序列化进页面；Node 版会把函数 `toString()` |
 | `click()` 按 text → role+name → selector/xpath → testId/alt 映射 | 工具本身就按这个优先级找元素；`label` / `placeholder` 定位器点不了，得改写成 selector |
 

@@ -10,11 +10,13 @@ import os
 import subprocess
 import sys
 import time
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
-from .errors import BrowserPilotError, InstallError, TransportError
-from .api import Bookmarks, Downloads, Environments, Groups, History, Net, Network, Settings, Tabs, Workflows
+from .errors import BrowserPilotError, InstallError, NotFoundError, TransportError
+from . import cookies as cookie_ops
+from .api import Bookmarks, Downloads, Environments, Groups, History, Net, Network, Sessions, Settings, Tabs, Workflows
 from .install import APP_VERSION, SDK_VERSION, AppLocation, ensure_app, locate_app
 from .locator import Locator
 from .page import Page
@@ -102,6 +104,7 @@ class BrowserPilot:
         self.bookmarks = Bookmarks(self)
         self.downloads = Downloads(self)
         self.network = Network(self)
+        self.sessions = Sessions(self)
 
     def __enter__(self) -> 'BrowserPilot':
         return self
@@ -160,12 +163,72 @@ class BrowserPilot:
     def environment(self, id: str) -> Environment:
         return Environment(self, id)
 
+    def tab(self, tab_id: str) -> Page:
+        """按标签 id 绑定一个 Page：`bp.tab('tab-xxx').locator(...)` 不会串到别的页。"""
+        tabs = self.call('tab_list', {}).get('tabs') or []
+        for tab in tabs:
+            if tab.get('id') == tab_id:
+                return Page(self.transport, str(tab_id), str(tab.get('envId') or DEFAULT_ENV))
+        known = '、'.join(str(tab.get('id')) for tab in tabs) or '没有打开的标签'
+        raise NotFoundError(f'标签 {tab_id} 不在了；现有标签：{known}')
+
     def locator(self, selector: str) -> Locator:
-        """当前第一页上的定位器，等价于先 new_page 再取。"""
+        """当前第一页上的定位器，等价于先 new_page 再取。
+
+        已经废弃：多标签时这个「第一页」可能是别人的页面。请用 `bp.tab(id).locator(...)`。
+        """
         pages = self.pages()
         if not pages:
             raise BrowserPilotError('没有打开的页面，先 new_page()')
+        warnings.warn(
+            'bp.locator() 作用在「第一个标签页」上，多标签时会串页；请改用 bp.tab(id).locator(...)',
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return pages[0].locator(selector)
+
+    # ---------- cookie ----------
+
+    def cookies(self, env: Optional[str] = None, domain: Optional[str] = None) -> List[Dict[str, Any]]:
+        """导出这套环境的 cookie（可以直接 json.dump 存起来，以后 add_cookies 注回去）。"""
+        return cookie_ops.list_cookies(self.call, env=env, domain=domain)
+
+    def add_cookies(self, cookies: Any, env: Optional[str] = None) -> int:
+        """注入 cookie。传一条字典或一个列表，返回写进去的条数。"""
+        return cookie_ops.add_cookies(self.call, cookies, env=env)
+
+    def clear_cookies(
+        self,
+        name: Optional[str] = None,
+        domain: Optional[str] = None,
+        url: Optional[str] = None,
+        all: bool = False,
+        env: Optional[str] = None,
+    ) -> None:
+        """删 cookie。`name` 单删；`all=True` 清空这套环境；`domain` / `url` 收窄范围。"""
+        cookie_ops.clear_cookies(self.call, name=name, domain=domain, url=url, all=all, env=env)
+
+    # ---------- 剪贴板 ----------
+
+    def clipboard_read(self) -> str:
+        """读系统剪贴板文本。"""
+        return str(self.call('clipboard_read', {}).get('text') or '')
+
+    def clipboard_write(self, text: str) -> Dict[str, Any]:
+        """写系统剪贴板；中文走剪贴板比逐键输入稳。"""
+        return self.call('clipboard_write', {'text': text})
+
+    # ---------- 权限与密码 ----------
+
+    def permissions(self, env: Optional[str] = None) -> List[Dict[str, Any]]:
+        """这套环境记住的站点权限（摄像头、麦克风、通知、定位等）。"""
+        data = self.call('permission_list', {'env': env} if env else {})
+        return list(data.get('permissions') or data.get('list') or [])
+
+    def passwords(self, env: Optional[str] = None) -> List[Dict[str, Any]]:
+        """已保存的登录（只有站点和账号，永远不含密码）。"""
+        data = self.call('password_list', {'env': env} if env else {})
+        return list(data.get('passwords') or data.get('list') or [])
 
     # ---------- 关闭 ----------
 

@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -295,6 +296,33 @@ func (bp *BrowserPilot) Environments(ctx context.Context) ([]EnvironmentInfo, er
 // Environment 拿到一套环境的句柄，不需要它已经开窗。
 func (bp *BrowserPilot) Environment(id string) *Environment {
 	return &Environment{client: bp, id: id}
+}
+
+// Tab 按标签 id 绑定一个 Page：bp.Tab(ctx, "tab-xxx").Locator(...) 不会串到别的页。
+// 找不到时把现在开着的 id 列出来——多标签场景下，「哪个标签还在」比一句「没有了」有用。
+func (bp *BrowserPilot) Tab(ctx context.Context, tabID string) (*Page, error) {
+	data, err := bp.Call(ctx, "tab_list", nil)
+	if err != nil {
+		return nil, err
+	}
+	tabs := mapList(data["tabs"])
+	known := make([]string, 0, len(tabs))
+	for _, tab := range tabs {
+		id := stringField(tab, "id")
+		if id == tabID {
+			env := stringField(tab, "envId")
+			if env == "" {
+				env = DefaultEnv
+			}
+			return NewPage(bp.transport, tabID, env), nil
+		}
+		known = append(known, id)
+	}
+	listing := strings.Join(known, "、")
+	if listing == "" {
+		listing = "没有打开的标签"
+	}
+	return nil, newNotFoundError("标签 " + tabID + " 不在了；现有标签：" + listing)
 }
 
 // Close 收拾自己开的东西，然后断开连接。

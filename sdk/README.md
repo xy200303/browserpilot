@@ -189,9 +189,65 @@ Go 用 `time.Duration`，单位写在类型里（`500 * time.Millisecond`）。
 | `page.screenshot()` | `page_screenshot`，返回 `content[1]` 的图片字节 |
 | `page.content()` | `page_source` |
 | `page.evaluate()` | `page_script` |
+| `page.frames()` / `frameLocator()` | `page_script` 枚举 iframe + `frame` 参数（App 只按 URL 片段进 iframe） |
+| `page.waitForFunction()` | `page_script` 轮询，SDK 侧实现，主文档和 iframe 都能等 |
+| `context.cookies()` / `addCookies()` | `cookie_list` / `cookie_set` / `cookie_remove`，按环境隔离 |
 
 `fill()` 为什么是三步：`page_type` 底层用 `Input.insertText`，**只在光标处插入、不清空**已有内容。
 要 Playwright 的「覆盖」语义，必须先点进控件、全选、再插入。
+
+### iframe 为什么要显式进
+
+App 的 `page_query` / `page_wait` 只看主文档，所以 `count()` 遇到 iframe 里的元素会直接返回 0。
+进 iframe 的办法是 `page_click` / `page_type` / `page_hover` / `page_script` 的 `frame` 参数，
+值是 frame URL 的一段。SDK 把它包成 `Frame`：
+
+```python
+page = bp.tab(tab_id)                      # 先明确绑到哪个标签，别用 bp.locator()
+frames = page.frames()                      # 跨域也能列：读的是父文档里的 <iframe>
+frame = page.frame_locator('iframe#editor') # 解析 src，得到 frame 片段
+frame.locator('#save').click()              # 点击 / 输入 / 悬停走 App 的 frame 通道
+frame.count('#row')                         # 计数 / 文本 / 可见性 / 等待走 page_script
+frame.wait_for('#saved')                    # page_wait 不进 frame，SDK 轮询
+page.wait_for_function("document.title.includes('已保存')")  # 纯条件等待
+```
+
+`wait_for_function` 接受表达式（`document.readyState === 'complete'`）或函数
+（`() => ...`），函数会被调用；超时抛 `NotFoundError`。它同样支持 `frame`。
+`upload` / `inspect` / `watch` 没有 frame 参数，传进 frame 里的定位器会直接报错，不会静默落到主文档。
+同一个 URL 的多个 iframe 会命中第一个（App 的匹配规则），需要精确就用更长的片段。
+
+### 报错会说清楚原因
+
+定位失败时 SDK 会补一句：到底是在某个 iframe 里、被遮罩挡住，还是主文档里就没有。
+排查顺序和它提示的顺序一致：先看 `frames()`，再看 `page_overlay`。
+
+### 弹窗、遮罩和人工交接
+
+弹窗默认不会卡住标签：alert 自动关，confirm 返回取消，prompt 返回 null。
+只有当某个确认框必须点「确定」时，才提前放策略：
+
+```python
+page.accept_dialog(once=True)   # 只作用于下一个弹窗
+page.get_by_role('button', name='删除').click()
+```
+
+点了没反应，先怀疑遮罩：`page.overlays()` 看广告 iframe / 全屏遮罩，`page.dismiss_overlays()` 清掉。
+等元素文字或位置变化用 `page.watch(target, timeout=...)`；页面内查找用 `page.find(text)`（Ctrl+F 语义）。
+文件上传用 `page.upload(paths, target)`，不弹系统选择框。需要人接手时 `page.handoff('提示')`，
+要防止用户误操作时 `page.lock()` / `page.unlock()`。
+
+### cookie 导出与注入
+
+按环境隔离，掉登录时不用重扫：导出后存起来，下次注回去。
+
+```python
+saved = bp.cookies(env='env-default')      # 也可以 page.cookies()，自动带本环境的 env
+json.dump(saved, open('cookies.json', 'w'))
+# 下次
+bp.add_cookies(json.load(open('cookies.json')), env='env-default')
+bp.clear_cookies(name='sid', env='env-default')
+```
 
 ### 现在封装了哪些操作
 
@@ -200,9 +256,11 @@ Go 用 `time.Duration`，单位写在类型里（`500 * time.Millisecond`）。
 | 分类 | 方法 |
 | --- | --- |
 | 导航 | `goto` `reload` `back` `forward` `waitForLoad` `url` `title` |
-| 定位 | `locator` `xpath` `getByText` `getByRole` `getByLabel` `getByPlaceholder` `getByTestId` |
-| 交互 | `click` `fill` `type` `press` `hover` `select` `scroll` `scrollTo` |
-| 等待 | `waitFor` `waitForText` `expectText` |
+| 定位 | `locator` `xpath` `getByText` `getByRole` `getByLabel` `getByPlaceholder` `getByTestId` `frames` `frameLocator` `frame` |
+| 交互 | `click` `fill` `type` `press` `hover` `select` `scroll` `scrollTo` `upload` |
+| 等待 | `waitFor` `waitForText` `expectText` `waitForFunction` `watch` |
+| 诊断 | `find` `findStop` `inspect` `overlays` `dismissOverlays` `consoleLogs` |
+| 弹窗与交接 | `dialogs` `acceptDialog` `dismissDialog` `lock` `unlock` `handoff` |
 | 读取 | `count` `isVisible` `textContent` `content` `snapshot` `consoleLogs` `screenshot` |
 | 事件 | `on` `waitForResponse`（response / request / navigation / console / loading） |
 | 标签 | `bringToFront` `close` |
@@ -214,6 +272,11 @@ Go 用 `time.Duration`，单位写在类型里（`500 * time.Millisecond`）。
 | `bp.environments()` | 列出所有环境 |
 | `bp.environment(id)` | 取一套环境：`open` / `close` / `newPage` / `pages` |
 | `bp.newPage({env})` / `bp.pages()` | 开标签、列标签 |
+| `bp.tab(id)` | 按标签 id 明确绑定一个 Page（别用 `bp.locator()` 猜第一页） |
+| `bp.sessions` | `list` / `save` / `restore` / `clear`：关窗口时保存的标签组 |
+| `bp.clipboardRead()` / `clipboardWrite()` | 系统剪贴板（中文走剪贴板比逐键输入稳） |
+| `bp.permissions(env)` / `bp.passwords(env)` | 站点权限、已保存登录（只有站点和账号） |
+| `bp.cookies()` / `addCookies()` / `clearCookies()` | 导出、注入、清 cookie（按环境；`page` 上同名方法自动带 env） |
 | `bp.events()` / `bp.on(type, fn)` | 事件流（长轮询，`seq` 续传） |
 | `bp.call(tool, args)` | 直接调任意工具，不做封装 |
 
@@ -275,7 +338,7 @@ node sdk/scripts/demo.mjs
 填表点按钮、等文字、数元素、可见性、执行脚本、无障碍快照、截图、页面 console、超时报错、
 事件通道、网络抓包、历史隔离、每环境网络配置，最后把环境删掉。
 
-最近一次在装好的 0.20.0 上跑：**15/15 步通过，约 3 秒**，截图 8716 字节。
+最近一次在装好的 0.21.0 上跑：**16/16 步通过，约 4 秒**，截图 11925 字节（默认带 100px 坐标网格）。
 
 ## 8. 已知限制
 
@@ -292,9 +355,9 @@ node sdk/scripts/demo.mjs
 单元测试对假服务端跑，三套都不需要真机（CI 的 `sdk` job 就是这三条命令）：
 
 ```bash
-cd sdk/node   && node build.mjs && node test/sdk.test.mjs      # 25
-cd sdk/python && python -m unittest discover -s tests          # 51
-cd sdk/go     && go test ./...                                 # 56
+cd sdk/node   && node build.mjs && node test/sdk.test.mjs      # 49
+cd sdk/python && python -m unittest discover -s tests          # 85
+cd sdk/go     && go test ./...                                 # 92
 ```
 
 真机冒烟对着正在运行的 BrowserPilot 跑，三个语言各一条：
@@ -308,8 +371,8 @@ cd sdk/go && go run ./cmd/smoke
 默认读系统的 `mcp.json`；换端点用 `BROWSERPILOT_MCP_FILE` 指。每个脚本都做同一串动作：
 连端点 → 开标签 → 导航到 example.com → 截图 → `waitForText('Example')` → `count('p')` → 收 3 秒事件。
 
-最近一次三语言真机结果（App v0.19.0）：Node 759ms、Python 703ms、Go 502ms，
-截图都是 101202 字节，事件都是 7 条（`tab.navigation` / `tab.title` / `tab.loading` / `tab.favicon` / `page.console`）。
+最近一次三语言真机结果（App v0.21.0）：Node 814ms、Python 811ms、Go 705ms，
+截图都是 109233 字节（默认带 100px 坐标网格），事件 6–7 条（`tab.navigation` / `tab.title` / `tab.loading` / `tab.favicon` / `page.console`）。
 
 工具目录快照用脚本生成，别手改：
 

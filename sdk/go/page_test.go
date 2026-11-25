@@ -279,7 +279,7 @@ func TestWaitForTextTimesOut(t *testing.T) {
 	}
 }
 
-func TestScreenshotGridOffAndBytes(t *testing.T) {
+func TestScreenshotGridOnAndBytes(t *testing.T) {
 	fake := startFakeServer(t, fakeServerOptions{})
 	page := newTestPage(fake)
 
@@ -288,11 +288,20 @@ func TestScreenshotGridOffAndBytes(t *testing.T) {
 		t.Fatalf("截图失败：%v", err)
 	}
 	args := fake.recorded()[0].Args
-	if args["grid"] != false {
-		t.Fatalf("默认必须关掉坐标网格：%#v", args)
+	if args["grid"] != true {
+		t.Fatalf("默认必须打开坐标网格：%#v", args)
 	}
 	if string(image) != "png-bytes" {
 		t.Fatalf("图片字节不对：%q", string(image))
+	}
+
+	if _, err := page.Screenshot(context.Background(), WithGrid(false)); err != nil {
+		t.Fatalf("关网格的截图失败：%v", err)
+	}
+	calls := fake.recorded()
+	offArgs := calls[len(calls)-1].Args
+	if offArgs["grid"] != false {
+		t.Fatalf("WithGrid(false) 没关掉网格：%#v", offArgs)
 	}
 
 	target := filepath.Join(t.TempDir(), "a.png")
@@ -310,7 +319,7 @@ func TestScreenshotGridOffAndBytes(t *testing.T) {
 	if _, err := page.Screenshot(context.Background(), WithGrid(true), WithClip(Clip{X: 1, Y: 2, Width: 30, Height: 40})); err != nil {
 		t.Fatalf("裁剪截图失败：%v", err)
 	}
-	calls := fake.recorded()
+	calls = fake.recorded()
 	clipArgs := calls[len(calls)-1].Args
 	if clipArgs["grid"] != true || intOf(t, clipArgs["width"]) != 30 {
 		t.Fatalf("grid/clip 不对：%#v", clipArgs)

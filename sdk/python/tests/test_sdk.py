@@ -479,12 +479,18 @@ class WaitTest(SdkTest):
 
 
 class ReadTest(SdkTest):
-    def test_screenshot_grid_off_and_bytes(self):
+    def test_screenshot_grid_on_and_bytes(self):
         server = self.serve()
         page = self.page(server)
         data = page.screenshot()
-        self.assertIs(server.calls[0]['args']['grid'], False)
+        self.assertIs(server.calls[0]['args']['grid'], True)
         self.assertEqual(data, PNG_BYTES)
+
+        page.screenshot(grid=False)
+        self.assertIs(server.calls[1]['args']['grid'], False)
+
+        page.screenshot(grid=20)
+        self.assertEqual(server.calls[2]['args']['grid'], 20)
 
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / 'a.png'
@@ -496,7 +502,7 @@ class ReadTest(SdkTest):
         self.page(server).locator('#chart').screenshot()
         args = server.calls[0]['args']
         self.assertEqual(args['selector'], '#chart')
-        self.assertIs(args['grid'], False)
+        self.assertIs(args['grid'], True)
 
     def test_count_is_visible_text_content_need_selector_or_xpath(self):
         server = self.serve()
@@ -824,6 +830,387 @@ class EventTest(SdkTest):
         page = self.page(server)
         with self.assertRaises(ValueError):
             page.on('nope', lambda event: None)
+
+
+# ---------------------------------------------------------------- iframe
+
+FRAME_A = 'https://frame.example.com/login'
+FRAME_B = 'https://other.example.com/child'
+
+
+def script_value(value):
+    return lambda args, calls: {'ok': True, 'value': value}
+
+
+class FrameTest(SdkTest):
+    def test_frames_lists_iframes(self):
+        server = self.serve(
+            handlers={
+                'page_script': script_value(
+                    [
+                        {'src': FRAME_A, 'name': 'login', 'selector': 'iframe#login'},
+                        {'src': FRAME_B, 'name': '', 'selector': 'iframe'},
+                    ]
+                )
+            }
+        )
+        frames = self.page(server).frames()
+        self.assertEqual([frame.url for frame in frames], [FRAME_A, FRAME_B])
+        self.assertEqual(frames[0].name, 'login')
+        self.assertEqual(frames[0].selector, 'iframe#login')
+
+    def test_frame_locator_resolves_iframe_src(self):
+        server = self.serve(handlers={'page_script': script_value({'src': FRAME_A, 'name': 'login'})})
+        frame = self.page(server).frame_locator('iframe#login')
+        self.assertEqual(frame.url, FRAME_A)
+        self.assertEqual(frame.selector, 'iframe#login')
+
+    def test_frame_locator_missing_iframe_lists_frames(self):
+        def script(args, calls):
+            if "querySelectorAll('iframe')" in args.get('source', ''):
+                return {'ok': True, 'value': [{'src': FRAME_A, 'name': 'login', 'selector': '#login'}]}
+            return {'ok': True, 'value': None}
+
+        server = self.serve(handlers={'page_script': script})
+        with self.assertRaises(NotFoundError) as caught:
+            self.page(server).frame_locator('iframe#nope')
+        self.assertIn('没找到 iframe', str(caught.exception))
+        self.assertIn(FRAME_A, str(caught.exception))
+
+    def test_frame_click_and_type_pass_frame_arg(self):
+        server = self.serve(handlers={'page_script': script_value({'src': FRAME_A, 'name': ''})})
+        page = self.page(server)
+        frame = page.frame_locator('iframe#login')
+        frame.locator('#ok').click()
+        self.assertEqual(server.calls[-1]['name'], 'page_click')
+        self.assertEqual(server.calls[-1]['args']['frame'], FRAME_A)
+        self.assertEqual(server.calls[-1]['args']['selector'], '#ok')
+
+        frame.locator('#user').fill('小明')
+        self.assertEqual(server.calls[-1]['name'], 'page_type')
+        self.assertEqual(server.calls[-1]['args']['frame'], FRAME_A)
+        self.assertEqual(server.calls[-1]['args']['via'], 'inject')
+
+    def test_frame_count_runs_script_inside_frame(self):
+        server = self.serve(handlers={'page_script': script_value(3)})
+        frame = self.page(server).frame(FRAME_A)
+        self.assertEqual(frame.count('#row'), 3)
+        call = server.calls[-1]
+        self.assertEqual(call['name'], 'page_script')
+        self.assertEqual(call['args']['frame'], FRAME_A)
+        self.assertIn('querySelectorAll', call['args']['source'])
+
+    def test_frame_text_and_visible(self):
+        hits = iter([2, '登录', True])
+
+        def script(args, calls):
+            return {'ok': True, 'value': next(hits)}
+
+        server = self.serve(handlers={'page_script': script})
+        frame = self.page(server).frame(FRAME_A)
+        self.assertEqual(frame.count('#row'), 2)
+        self.assertEqual(frame.text_content('#row'), '登录')
+        self.assertIs(frame.is_visible('#row'), True)
+        self.assertTrue(all(call['args'].get('frame') == FRAME_A for call in server.calls))
+
+    def test_frame_wait_for_polls_until_appears(self):
+        state = {'count': 0}
+
+        def script(args, calls):
+            state['count'] += 1
+            return {'ok': True, 'value': 0 if state['count'] < 3 else 1}
+
+        server = self.serve(handlers={'page_script': script})
+        self.page(server).frame(FRAME_A).wait_for('#ok', timeout=2, poll=0.01)
+        self.assertGreaterEqual(state['count'], 3)
+
+    def test_page_wait_in_frame_skips_page_wait(self):
+        server = self.serve(handlers={'page_script': script_value(1)})
+        page = self.page(server)
+        page.wait_for(page.frame(FRAME_A).locator('#ok'), timeout=1, poll=0.01)
+        self.assertNotIn('page_wait', self.names(server))
+
+    def test_wait_for_function_polls_and_returns_value(self):
+        values = iter([False, 0, 'ready'])
+
+        def script(args, calls):
+            return {'ok': True, 'value': next(values)}
+
+        server = self.serve(handlers={'page_script': script})
+        page = self.page(server)
+        self.assertEqual(page.wait_for_function('document.title', timeout=2, poll=0.01), 'ready')
+        source = server.calls[-1]['args']['source']
+        self.assertIn('document.title', source)
+        self.assertIn('typeof value === "function"', source)
+
+    def test_wait_for_function_times_out(self):
+        server = self.serve(handlers={'page_script': script_value(False)})
+        with self.assertRaises(NotFoundError) as caught:
+            self.page(server).wait_for_function('false', timeout=0.05, poll=0.01)
+        self.assertIn('条件一直没成立', str(caught.exception))
+
+    def test_frame_wait_for_function_runs_in_frame(self):
+        server = self.serve(handlers={'page_script': script_value(True)})
+        frame = self.page(server).frame(FRAME_A)
+        self.assertTrue(frame.wait_for_function('document.readyState === "complete"', timeout=1, poll=0.01))
+        self.assertEqual(server.calls[-1]['args']['frame'], FRAME_A)
+
+    def test_click_failure_explains_element_in_iframe(self):
+        def script(args, calls):
+            source = args.get('source', '')
+            if "querySelectorAll('iframe')" in source:
+                return {'ok': True, 'value': [{'src': FRAME_A, 'name': 'login', 'selector': 'iframe#login'}]}
+            return {'ok': True, 'value': 1}
+
+        def click(args, calls):
+            raise RuntimeError('DOM Error while querying')
+
+        server = self.serve(handlers={'page_script': script, 'page_click': click})
+        with self.assertRaises(ToolError) as caught:
+            self.page(server).click('#submit')
+        message = str(caught.exception)
+        self.assertIn('DOM Error while querying', message)
+        self.assertIn('iframe', message)
+        self.assertIn('frame_locator', message)
+
+    def test_frame_screenshot_is_rejected(self):
+        server = self.serve(handlers={'page_script': script_value({'src': FRAME_A, 'name': ''})})
+        frame = self.page(server).frame(FRAME_A)
+        with self.assertRaises(NotFoundError) as caught:
+            self.page(server).screenshot(target=frame.locator('#chart'))
+        self.assertIn('frame 里的元素截图', str(caught.exception))
+
+    def test_click_failure_mentions_overlay_when_no_frame_found(self):
+        def script(args, calls):
+            source = args.get('source', '')
+            if "querySelectorAll('iframe')" in source:
+                return {'ok': True, 'value': []}
+            return {'ok': True, 'value': 0}
+
+        def click(args, calls):
+            raise RuntimeError('元素被挡住')
+
+        server = self.serve(
+            handlers={
+                'page_script': script,
+                'page_click': click,
+                'page_overlay': lambda args, calls: {'ok': True, 'overlays': [{'kind': 'mask'}]},
+            }
+        )
+        with self.assertRaises(ToolError) as caught:
+            self.page(server).click('#submit')
+        self.assertIn('遮罩', str(caught.exception))
+
+
+# ---------------------------------------------------------------- tab 与 cookie
+
+
+class TabTest(SdkTest):
+    def test_tab_binds_locator_to_that_tab(self):
+        server = self.serve()
+        bp = self.bp(server)
+        bp.tab('tab-test').locator('#a').click()
+        call = server.calls[-1]
+        self.assertEqual(call['name'], 'page_click')
+        self.assertEqual(call['args']['tabId'], 'tab-test')
+
+    def test_unknown_tab_lists_existing_ids(self):
+        server = self.serve()
+        bp = self.bp(server)
+        with self.assertRaises(NotFoundError) as caught:
+            bp.tab('tab-missing')
+        self.assertIn('tab-test', str(caught.exception))
+
+    def test_bp_locator_warns_deprecation(self):
+        server = self.serve()
+        bp = self.bp(server)
+        with self.assertWarns(DeprecationWarning):
+            bp.locator('#a')
+
+
+class CookieTest(SdkTest):
+    def test_cookies_export_and_import(self):
+        server = self.serve(
+            handlers={
+                'cookie_list': lambda args, calls: {
+                    'ok': True,
+                    'cookies': [
+                        {
+                            'name': 'sid',
+                            'value': 'abc',
+                            'domain': '.example.com',
+                            'path': '/',
+                            'secure': True,
+                            'httpOnly': True,
+                            'session': True,
+                        }
+                    ],
+                }
+            }
+        )
+        bp = self.bp(server)
+        items = bp.cookies(env='env-default')
+        self.assertEqual(items[0]['name'], 'sid')
+
+        self.assertEqual(bp.add_cookies(items[0], env='env-default'), 1)
+        call = server.calls[-1]
+        self.assertEqual(call['name'], 'cookie_set')
+        self.assertEqual(call['args']['name'], 'sid')
+        self.assertEqual(call['args']['env'], 'env-default')
+        self.assertNotIn('session', call['args'])
+
+        bp.clear_cookies(name='sid', env='env-default')
+        self.assertEqual(
+            server.calls[-1],
+            {'name': 'cookie_remove', 'args': {'name': 'sid', 'domain': '.example.com', 'env': 'env-default'}},
+        )
+
+    def test_clear_cookies_by_name_when_absent_does_nothing(self):
+        server = self.serve(handlers={'cookie_list': lambda args, calls: {'ok': True, 'cookies': []}})
+        self.bp(server).clear_cookies(name='nope')
+        self.assertNotIn('cookie_remove', [call['name'] for call in server.calls])
+
+    def test_page_cookies_are_bound_to_its_env(self):
+        server = self.serve(handlers={'cookie_list': lambda args, calls: {'ok': True, 'cookies': []}})
+        self.page(server).cookies()
+        call = server.calls[-1]
+        self.assertEqual(call['name'], 'cookie_list')
+        self.assertEqual(call['args'], {'env': 'env-default'})
+        self.assertNotIn('tabId', call['args'])
+
+    def test_clear_cookies_requires_scope(self):
+        server = self.serve()
+        with self.assertRaises(ValueError):
+            self.bp(server).clear_cookies()
+
+
+# ---------------------------------------------------------------- 弹窗、上传、遮罩、查找、监听
+
+
+class ExtrasTest(SdkTest):
+    def test_dialogs_and_policy(self):
+        server = self.serve(handlers={'page_dialog': lambda args, calls: {'ok': True, 'dialogs': [{'type': 'alert'}]}})
+        page = self.page(server)
+        self.assertEqual(page.dialogs(), [{'type': 'alert'}])
+        self.assertEqual(server.calls[-1], {'name': 'page_dialog', 'args': {'tabId': 'tab-test', 'action': 'list'}})
+
+        page.accept_dialog(once=True, prompt_text='确认删除')
+        self.assertEqual(
+            server.calls[-1]['args'],
+            {'tabId': 'tab-test', 'action': 'accept', 'once': True, 'promptText': '确认删除'},
+        )
+
+        page.dismiss_dialog()
+        self.assertEqual(server.calls[-1]['args'], {'tabId': 'tab-test', 'action': 'dismiss'})
+
+    def test_upload_passes_paths_and_target(self):
+        server = self.serve()
+        page = self.page(server)
+        page.upload(['a.pdf', 'b.png'], page.locator('#file'))
+        args = server.calls[-1]['args']
+        self.assertEqual(server.calls[-1]['name'], 'page_upload')
+        self.assertEqual(args['paths'], ['a.pdf', 'b.png'])
+        self.assertEqual(args['selector'], '#file')
+
+        page.upload('c.txt')
+        self.assertEqual(server.calls[-1]['args'], {'tabId': 'tab-test', 'paths': ['c.txt']})
+
+    def test_overlays_list_and_dismiss(self):
+        server = self.serve(handlers={'page_overlay': lambda args, calls: {'ok': True, 'overlays': [{'kind': 'ad'}]}})
+        page = self.page(server)
+        self.assertEqual(page.overlays(), [{'kind': 'ad'}])
+        page.dismiss_overlays()
+        self.assertEqual(server.calls[-1]['args'], {'tabId': 'tab-test', 'action': 'dismiss'})
+
+    def test_find_and_stop(self):
+        server = self.serve(handlers={'page_find': lambda args, calls: {'ok': True, 'matches': 3, 'active': 1}})
+        page = self.page(server)
+        self.assertEqual(page.find('订单')['matches'], 3)
+        self.assertEqual(server.calls[-1]['args'], {'tabId': 'tab-test', 'text': '订单', 'forward': True})
+        page.find('订单', find_next=True)
+        self.assertTrue(server.calls[-1]['args']['findNext'])
+        page.find_stop()
+        self.assertEqual(server.calls[-1]['args'], {'tabId': 'tab-test', 'stop': True})
+
+    def test_inspect_by_locator_and_point(self):
+        server = self.serve(handlers={'page_inspect': lambda args, calls: {'ok': True, 'type': 'button'}})
+        page = self.page(server)
+        self.assertEqual(page.inspect(page.locator('#go'))['type'], 'button')
+        self.assertEqual(server.calls[-1]['args'], {'tabId': 'tab-test', 'selector': '#go'})
+        page.inspect(x=120.5, y=64)
+        self.assertEqual(server.calls[-1]['args'], {'tabId': 'tab-test', 'x': 120.5, 'y': 64})
+
+    def test_watch_sends_timeout_and_interval(self):
+        server = self.serve(handlers={'page_watch': lambda args, calls: {'ok': True, 'changed': False}})
+        page = self.page(server)
+        page.watch('#price', timeout=12, interval=0.2)
+        self.assertEqual(
+            server.calls[-1]['args'],
+            {'tabId': 'tab-test', 'selector': '#price', 'timeout': 12, 'interval': 0.2},
+        )
+        with self.assertRaises(NotFoundError):
+            page.watch(page.get_by_text('价格'))
+
+    def test_handoff_without_message_still_sends_field(self):
+        server = self.serve()
+        self.page(server).handoff()
+        self.assertEqual(server.calls[-1]['args'], {'tabId': 'tab-test', 'message': ''})
+
+    def test_upload_and_watch_reject_non_selector_or_frame(self):
+        page = self.page(self.serve())
+        with self.assertRaises(NotFoundError):
+            page.upload('a.txt', page.get_by_text('附件'))
+        with self.assertRaises(NotFoundError):
+            page.upload('a.txt', page.frame('https://f.test/x').locator('#file'))
+        with self.assertRaises(NotFoundError):
+            page.watch(page.frame('https://f.test/x').locator('#price'))
+
+    def test_inspect_requires_target_or_point(self):
+        with self.assertRaises(NotFoundError):
+            self.page(self.serve()).inspect()
+
+    def test_lock_unlock_handoff(self):
+        server = self.serve()
+        page = self.page(server)
+        page.lock()
+        self.assertEqual(server.calls[-1], {'name': 'page_lock', 'args': {'tabId': 'tab-test'}})
+        page.unlock()
+        self.assertEqual(server.calls[-1], {'name': 'page_unlock', 'args': {'tabId': 'tab-test'}})
+        page.handoff('该输验证码了')
+        self.assertEqual(server.calls[-1], {'name': 'page_handoff', 'args': {'tabId': 'tab-test', 'message': '该输验证码了'}})
+
+
+class ClientExtrasTest(SdkTest):
+    def test_sessions(self):
+        server = self.serve(handlers={'session_list': lambda args, calls: {'ok': True, 'sessions': [{'id': 's1'}]}})
+        bp = self.bp(server)
+        self.assertEqual(bp.sessions.list('env-default'), [{'id': 's1'}])
+        bp.sessions.save('env-default')
+        self.assertEqual(server.calls[-1], {'name': 'session_save', 'args': {'env': 'env-default'}})
+        bp.sessions.restore('env-default')
+        self.assertEqual(server.calls[-1], {'name': 'session_restore', 'args': {'env': 'env-default'}})
+        bp.sessions.clear('env-default')
+        self.assertEqual(server.calls[-1], {'name': 'session_clear', 'args': {'env': 'env-default'}})
+
+    def test_clipboard(self):
+        server = self.serve(handlers={'clipboard_read': lambda args, calls: {'ok': True, 'text': '剪贴板内容'}})
+        bp = self.bp(server)
+        self.assertEqual(bp.clipboard_read(), '剪贴板内容')
+        bp.clipboard_write('新内容')
+        self.assertEqual(server.calls[-1], {'name': 'clipboard_write', 'args': {'text': '新内容'}})
+
+    def test_permissions_and_passwords(self):
+        server = self.serve(
+            handlers={
+                'permission_list': lambda args, calls: {'ok': True, 'permissions': [{'name': 'camera'}]},
+                'password_list': lambda args, calls: {'ok': True, 'passwords': [{'site': 'example.com'}]},
+            }
+        )
+        bp = self.bp(server)
+        self.assertEqual(bp.permissions('env-default'), [{'name': 'camera'}])
+        self.assertEqual(server.calls[-1]['args'], {'env': 'env-default'})
+        self.assertEqual(bp.passwords('env-default'), [{'site': 'example.com'}])
+        self.assertEqual(server.calls[-1]['args'], {'env': 'env-default'})
 
 
 if __name__ == '__main__':

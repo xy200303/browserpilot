@@ -1,7 +1,22 @@
 import { writeFileSync } from 'node:fs'
 import { NotFoundError, ToolError, type ToolPayload } from './errors.js'
+import { Frame, firstFrameExpr } from './frame.js'
+import { addCookies, clearCookies, listCookies, type CookieCall } from './cookies.js'
 import { Locator, actionArgs, describe, isLocatorSpec, typePlan, waitArgs, type LocatorSpec } from './locator.js'
 import type { CallResult, EventRecord, Transport } from './transport.js'
+
+/** 主文档里的 iframe：跨域也能列，因为读的是父文档里的 <iframe> 元素。 */
+const FRAMES_SOURCE = `(() => Array.from(document.querySelectorAll('iframe')).map((el) => ({
+  src: el.src || el.getAttribute('src') || '',
+  name: el.name || '',
+  selector: el.id ? '#' + el.id : (el.name ? 'iframe[name="' + el.name + '"]' : 'iframe')
+})))()`
+
+const FRAME_RESOLVE_SOURCE = (selector: string): string => `(() => {
+  const el = document.querySelector(${JSON.stringify(selector)});
+  if (!el) return null;
+  return { src: el.src || el.getAttribute('src') || '', name: el.name || '' };
+})()`
 
 /** 页面能订阅的事件，映射到事件总线里的 type */
 export type PageEventName = 'response' | 'request' | 'navigation' | 'console' | 'loading'
@@ -31,8 +46,8 @@ export type ScreenshotOptions = {
   target?: PageTarget
   clip?: { x: number; y: number; width: number; height: number }
   /**
-   * 默认关。App 自己默认会画坐标网格（给人用截图点位置），
-   * SDK 里那是噪点，需要时再显式打开。
+   * 默认开：和 App 的 `page_screenshot` 一致，叠 100px 坐标网格，
+   * 照着刻度就能直接算点击坐标。传 `false` / `0` 关掉，传数字改间距（10–500）。
    */
   grid?: boolean | number
   edgeOnly?: boolean
@@ -129,14 +144,173 @@ export class Page {
     return new Locator(this, { xpath })
   }
 
+  // ---------- iframe ----------
+
+  async frames(): Promise<Frame[]> {
+    const items = await this.evaluate<Array<Record<string, string>> | null>(FRAMES_SOURCE)
+    return (items ?? []).map(
+      (item) => new Frame(this, String(item.src ?? ''), String(item.name ?? ''), String(item.selector ?? ''))
+    )
+  }
+
+  /** 按 iframe 元素的选择器进入它，例如 page.frameLocator('iframe#editor')。 */
+  async frameLocator(selector: string): Promise<Frame> {
+    const info = await this.evaluate<{ src?: string; name?: string } | null>(FRAME_RESOLVE_SOURCE(selector))
+    if (!info) {
+      const frames = await this.frames()
+      const known = frames.map((frame) => frame.url || frame.name || 'about:blank').join('、')
+      throw new NotFoundError(`没找到 iframe「${selector}」；页面现有 frame：${known || '（没有）'}`)
+    }
+    return new Frame(this, String(info.src ?? ''), String(info.name ?? ''), selector)
+  }
+
+  /** 按 URL 片段直接取 frame，等价于 App 的 frame 参数。 */
+  frame(match: string): Frame {
+    return new Frame(this, match)
+  }
+
+  // ---------- 条件等待 ----------
+
+  /**
+   * 轮询 JS 表达式，直到它返回真值；返回那个值。
+   * 表达式写成函数（`() => ...`）也行，函数会被调用。
+   */
+  async waitForFunction<T = unknown>(
+    expression: string,
+    options: { timeout?: number; poll?: number; frame?: string } = {}
+  ): Promise<T> {
+    const timeout = options.timeout ?? 10
+    const poll = options.poll ?? 0.1
+    const wrapped = `(() => { const value = (${expression}); return typeof value === 'function' ? value() : value; })()`
+    const deadline = Date.now() + timeout * 1000
+    for (;;) {
+      const value = await this.evaluate<T>(wrapped, options.frame ? { frame: options.frame } : {})
+      if (value) return value
+      if (Date.now() > deadline) {
+        const where = options.frame ? `iframe「${options.frame}」里` : '页面里'
+        throw new NotFoundError(`等了 ${timeout}s，${where}条件一直没成立：${expression}`)
+      }
+      await sleep(Math.max(1, poll * 1000))
+    }
+  }
+
+  // ---------- 弹窗 ----------
+
+  /** 看最近的弹窗和当前处理策略（App 默认自动应答，标签不会卡住）。 */
+  async dialogs(): Promise<Array<Record<string, unknown>>> {
+    const data = await this.call('page_dialog', { action: 'list' })
+    return ((data.dialogs ?? data.list ?? []) as Array<Record<string, unknown>>)
+  }
+
+  /** 让下一个确认框点「确定」；once 只作用于下一个弹窗。 */
+  async acceptDialog(options: { once?: boolean; promptText?: string } = {}): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = { action: 'accept' }
+    if (options.once) args.once = true
+    if (options.promptText !== undefined) args.promptText = options.promptText
+    return this.call('page_dialog', args)
+  }
+
+  async dismissDialog(options: { once?: boolean } = {}): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = { action: 'dismiss' }
+    if (options.once) args.once = true
+    return this.call('page_dialog', args)
+  }
+
+  // ---------- 文件上传 ----------
+
+  /** 把本地文件塞进 file input，不弹系统选择框。 */
+  async upload(paths: string | string[], target?: PageTarget): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = { paths: Array.isArray(paths) ? paths : [paths] }
+    if (target) {
+      const located = this.frameFreeFields('page_upload', target)
+      if (!located) throw new NotFoundError(`page_upload 只支持 selector / xpath，收到 ${describe(this.specOf(target))}`)
+      Object.assign(args, located)
+    }
+    return this.call('page_upload', args)
+  }
+
+  // ---------- 遮罩 ----------
+
+  /** 列出挡住页面的广告 iframe、全屏遮罩、弹层。 */
+  async overlays(): Promise<Array<Record<string, unknown>>> {
+    const data = await this.call('page_overlay', { action: 'list' })
+    return (data.overlays as Array<Record<string, unknown>> | undefined) ?? []
+  }
+
+  /** 隐藏常见广告 iframe 并点掉常见关闭按钮；不动页面内容。 */
+  dismissOverlays(): Promise<Record<string, unknown>> {
+    return this.call('page_overlay', { action: 'dismiss' })
+  }
+
+  // ---------- 查找 ----------
+
+  /** 页面内查找（相当于 Ctrl+F），返回匹配数；findNext 跳到下一个。 */
+  find(text: string, options: { forward?: boolean; findNext?: boolean } = {}): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = { text, forward: options.forward ?? true }
+    if (options.findNext) args.findNext = true
+    return this.call('page_find', args)
+  }
+
+  /** 清掉查找高亮。 */
+  findStop(): Promise<Record<string, unknown>> {
+    return this.call('page_find', { stop: true })
+  }
+
+  // ---------- 识别与监听 ----------
+
+  /** 识别元素是什么（video / image / canvas / audio / link / input / text），也可以按坐标反查。 */
+  async inspect(options: { target?: PageTarget; x?: number; y?: number } = {}): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {}
+    if (options.target) Object.assign(args, this.frameFreeFields('page_inspect', options.target) ?? {})
+    if (options.x !== undefined) args.x = options.x
+    if (options.y !== undefined) args.y = options.y
+    if (Object.keys(args).length === 0) {
+      throw new NotFoundError('inspect 需要 selector / xpath，或者 x 和 y 两个坐标')
+    }
+    return this.call('page_inspect', args)
+  }
+
+  /** 盯住元素，文字或位置变化时返回前后快照；超时返回变化前的那份。 */
+  async watch(
+    target: PageTarget,
+    options: { timeout?: number; interval?: number } = {}
+  ): Promise<Record<string, unknown>> {
+    const located = this.frameFreeFields('page_watch', target)
+    if (!located) throw new NotFoundError(`watch 只支持 selector 或 xpath，收到 ${describe(this.specOf(target))}`)
+    return this.call('page_watch', { ...located, timeout: options.timeout ?? 30, interval: options.interval ?? 0.5 })
+  }
+
+  // ---------- 人工交接 ----------
+
+  /** 罩一层「Agent 正在操作」遮罩，用户可点按钮接管。 */
+  lock(): Promise<Record<string, unknown>> {
+    return this.call('page_lock', {})
+  }
+
+  unlock(): Promise<Record<string, unknown>> {
+    return this.call('page_unlock', {})
+  }
+
+  /** 暂停，把这一步交给人。 */
+  handoff(message?: string): Promise<Record<string, unknown>> {
+    // App 的 page_handoff 必填 message，空也得发，否则会判成缺参数。
+    return this.call('page_handoff', { message: message ?? '' })
+  }
+
   // ---------- 动作 ----------
 
   async click(target: PageTarget, options: ClickOptions = {}): Promise<void> {
-    const args = actionArgs(this.specOf(target))
+    const spec = this.specOf(target)
+    const args = actionArgs(spec)
     if (options.button) args.button = options.button
     if (options.count) args.count = options.count
     if (options.via) args.via = options.via
-    await this.raw('page_click', args, { timeout: options.timeout })
+    try {
+      await this.raw('page_click', args, { timeout: options.timeout })
+    } catch (error) {
+      if (error instanceof ToolError) throw await this.hinted('page_click', spec, error)
+      throw error
+    }
   }
 
   /**
@@ -145,22 +319,33 @@ export class Page {
    */
   async fill(target: PageTarget, value: string): Promise<void> {
     const spec = this.specOf(target)
-    const plan = typePlan(spec, value)
-    if (plan.mode === 'inject') {
-      await this.raw('page_type', { ...plan.args, text: value, via: 'inject' })
-      return
+    try {
+      const plan = typePlan(spec, value)
+      if (plan.mode === 'inject') {
+        await this.raw('page_type', { ...plan.args, text: value, via: 'inject' })
+        return
+      }
+      await this.raw('page_type', { ...plan.args, text: '' })
+      await this.press(DEFAULT_MODIFIER)
+      await this.raw('page_type', { ...plan.args, text: value, entry: 'paste' })
+    } catch (error) {
+      if (error instanceof ToolError) throw await this.hinted('page_type', spec, error)
+      throw error
     }
-    await this.raw('page_type', { ...plan.args, text: '' })
-    await this.press(DEFAULT_MODIFIER)
-    await this.raw('page_type', { ...plan.args, text: value, entry: 'paste' })
   }
 
   /** 在光标处追加，不清空。 */
   async type(target: PageTarget, value: string): Promise<void> {
-    const plan = typePlan(this.specOf(target), value)
-    const args = { ...plan.args, text: value }
-    if (plan.mode === 'inject') delete (args as Record<string, unknown>).via
-    await this.raw('page_type', args)
+    const spec = this.specOf(target)
+    try {
+      const plan = typePlan(spec, value)
+      const args = { ...plan.args, text: value }
+      if (plan.mode === 'inject') delete (args as Record<string, unknown>).via
+      await this.raw('page_type', args)
+    } catch (error) {
+      if (error instanceof ToolError) throw await this.hinted('page_type', spec, error)
+      throw error
+    }
   }
 
   /** 快捷键进页面，例如 Control+Enter；不会触发窗口自己的新建/关闭标签。 */
@@ -169,11 +354,29 @@ export class Page {
   }
 
   async hover(target: PageTarget): Promise<void> {
-    await this.raw('page_hover', actionArgs(this.specOf(target)))
+    const spec = this.specOf(target)
+    try {
+      await this.raw('page_hover', actionArgs(spec))
+    } catch (error) {
+      if (error instanceof ToolError) throw await this.hinted('page_hover', spec, error)
+      throw error
+    }
   }
 
   async select(target: PageTarget, option: string): Promise<void> {
     const spec = this.specOf(target)
+    if (spec.frame) {
+      const expr = firstFrameExpr(spec)
+      const value = await this.evaluate<string | null>(
+        `(() => { const el = ${expr}; if (!el) return null; el.value = ${JSON.stringify(option)};` +
+          " el.dispatchEvent(new Event('input', { bubbles: true }));" +
+          " el.dispatchEvent(new Event('change', { bubbles: true }));" +
+          ' return el.value; })()',
+        { frame: spec.frame }
+      )
+      if (value == null) throw new NotFoundError(`iframe「${spec.frame}」里没找到 ${describe(spec)}`)
+      return
+    }
     const located = locateFields(spec)
     if (!located) throw new NotFoundError(`selectOption 只支持 selector 或 xpath，收到 ${describe(spec)}`)
     await this.raw('page_select', { ...located, option })
@@ -209,6 +412,14 @@ export class Page {
    */
   async waitFor(target: PageTarget, options: WaitOptions = {}): Promise<void> {
     const spec = this.specOf(target)
+    if (spec.frame) {
+      await this.frame(spec.frame).waitFor(spec, {
+        state: options.state,
+        timeout: options.timeout ?? 10,
+        poll: options.poll
+      })
+      return
+    }
     const state = options.state ?? 'appear'
     const timeout = options.timeout ?? 10
     const native = waitArgs(spec, state, timeout)
@@ -238,6 +449,7 @@ export class Page {
 
   async count(target: PageTarget): Promise<number> {
     const spec = this.specOf(target)
+    if (spec.frame) return this.frame(spec.frame).count(spec)
     const located = locateFields(spec)
     if (!located) throw new NotFoundError(`count 只支持 selector 或 xpath，收到 ${describe(spec)}`)
     const data = await this.call('page_query', located)
@@ -246,6 +458,7 @@ export class Page {
 
   async isVisible(target: PageTarget): Promise<boolean> {
     const spec = this.specOf(target)
+    if (spec.frame) return this.frame(spec.frame).isVisible(spec)
     const located = locateFields(spec)
     if (!located) throw new NotFoundError(`isVisible 只支持 selector 或 xpath，收到 ${describe(spec)}`)
     const data = await this.call('page_query', located)
@@ -255,6 +468,7 @@ export class Page {
 
   async textContent(target: PageTarget): Promise<string> {
     const spec = this.specOf(target)
+    if (spec.frame) return this.frame(spec.frame).textContent(spec)
     const located = locateFields(spec)
     if (!located) throw new NotFoundError(`textContent 只支持 selector 或 xpath，收到 ${describe(spec)}`)
     const data = await this.call('page_inspect', located)
@@ -447,14 +661,46 @@ export class Page {
 
   /** 返回图片字节。App 那边也会存一份，路径在载荷里。 */
   async screenshot(options: ScreenshotOptions = {}): Promise<Buffer> {
-    const args: Record<string, unknown> = { grid: options.grid ?? false }
+    const args: Record<string, unknown> = { grid: options.grid ?? true }
     if (options.edgeOnly) args.edgeOnly = true
-    if (options.target) Object.assign(args, locateFields(this.specOf(options.target)) ?? {})
+    if (options.target) {
+      const spec = this.specOf(options.target)
+      if (spec.frame) {
+        // page_screenshot 没有 frame 参数：别静默截主文档里同名元素。
+        throw new NotFoundError(
+          'frame 里的元素截图还不支持：page_screenshot 没有 frame 参数。' +
+            '需要的话先 frame.evaluate 算出元素矩形，再用 page.screenshot({ clip }) 截那块。'
+        )
+      }
+      Object.assign(args, locateFields(spec) ?? {})
+    }
     if (options.clip) Object.assign(args, options.clip)
     const result = await this.raw('page_screenshot', args)
     if (!result.image) throw new ToolError('page_screenshot', { ok: false, error: '截图没有返回图片内容' })
     if (options.path) writeFileSync(options.path, result.image.data)
     return result.image.data
+  }
+
+  // ---------- cookie ----------
+
+  /** 导出这个标签所属环境的 cookie（可以直接 JSON.stringify 存起来）。 */
+  async cookies(options: { domain?: string } = {}): Promise<Array<Record<string, unknown>>> {
+    return listCookies(this.cookieCall, { env: this.env, domain: options.domain })
+  }
+
+  /** 把导出的 cookie 注回去，返回写入条数。 */
+  async addCookies(cookies: Array<Record<string, unknown>> | Record<string, unknown>): Promise<number> {
+    return addCookies(this.cookieCall, cookies, { env: this.env })
+  }
+
+  async clearCookies(options: { name?: string; domain?: string; url?: string; all?: boolean } = {}): Promise<void> {
+    await clearCookies(this.cookieCall, { ...options, env: this.env })
+  }
+
+  /** cookie 工具不认 tabId，不能走 this.call。 */
+  private readonly cookieCall: CookieCall = async (tool, args) => {
+    const result = await this.transport.call(tool, args)
+    return result.data
   }
 
   // ---------- 生命周期 ----------
@@ -473,7 +719,78 @@ export class Page {
 
   // ---------- 内部 ----------
 
-  private specOf(target: PageTarget): LocatorSpec {
+  /** 主文档里找不到时补一句原因：在 iframe 里、被遮罩挡住，还是单纯没有。 */
+  private async hinted(tool: string, spec: LocatorSpec, error: ToolError): Promise<ToolError> {
+    const hint = await this.missingHint(spec)
+    if (!hint) return error
+    return new ToolError(tool, {
+      ...error.payload,
+      error: `${String(error.payload.error ?? error.message)}；${hint}`
+    })
+  }
+
+  /** page_upload / page_inspect / page_watch 都没有 frame 参数，别静默落到主文档。 */
+  private frameFreeFields(tool: string, target: PageTarget): Record<string, unknown> | null {
+    const spec = this.specOf(target)
+    if (spec.frame) {
+      throw new NotFoundError(`${tool} 没有 frame 参数，进不了 iframe：请在主文档里定位，或改用 Frame 的读取方法`)
+    }
+    return locateFields(spec)
+  }
+
+  private async missingHint(spec: LocatorSpec): Promise<string> {
+    if (spec.frame) return `已经在 iframe「${spec.frame}」里找过：确认 frame 没跳转，或换一段更长的 URL 片段`
+    let frames: Frame[] = []
+    try {
+      frames = await this.frames()
+    } catch {
+      frames = []
+    }
+    if (frames.length) {
+      const where = await this.probeFrames(spec, frames)
+      if (where) {
+        const label = where.url || where.name || where.selector || 'about:blank'
+        return (
+          `元素不在主文档，它在 iframe「${label}」里：` +
+          `用 page.frameLocator(${JSON.stringify(where.selector || 'iframe')}).locator(...) 进 frame 再操作`
+        )
+      }
+      const urls = frames
+        .slice(0, 4)
+        .map((frame) => frame.url || frame.name || 'about:blank')
+        .join('、')
+      return `主文档里没有；页面有 ${frames.length} 个 iframe（${urls}），元素可能在其中一个里`
+    }
+    const overlays = await this.overlayCount()
+    if (overlays) {
+      return `页面上有 ${overlays} 个遮罩/弹层，元素可能被挡住：先 page.call("page_overlay", { action: "list" }) 看清楚再 dismiss`
+    }
+    return ''
+  }
+
+  private async probeFrames(spec: LocatorSpec, frames: Frame[]): Promise<Frame | null> {
+    if (!spec.selector && !spec.xpath) return null
+    for (const frame of frames.slice(0, 4)) {
+      try {
+        if ((await frame.count(spec)) > 0) return frame
+      } catch {
+        /* 这个 frame 读不了就跳过 */
+      }
+    }
+    return null
+  }
+
+  private async overlayCount(): Promise<number> {
+    try {
+      const data = await this.call('page_overlay', { action: 'list' })
+      return ((data.overlays as unknown[] | undefined) ?? []).length
+    } catch {
+      return 0
+    }
+  }
+
+  /** Frame 也要用它，所以不设成 private。 */
+  specOf(target: PageTarget): LocatorSpec {
     if (target instanceof Locator) return target.spec
     if (typeof target === 'string') return { selector: target }
     if (isLocatorSpec(target)) return target

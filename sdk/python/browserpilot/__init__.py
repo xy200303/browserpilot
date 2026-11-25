@@ -20,6 +20,7 @@ from .errors import (
     TransportError,
 )
 from .install import APP_VERSION, SDK_VERSION, asset_for, ensure_app, locate_app
+from .frame import Frame
 from .locator import Locator, LocatorSpec
 from .page import Page
 from .paths import data_home, install_candidates, mcp_file
@@ -45,6 +46,7 @@ __all__ = [
     'Page',
     'Locator',
     'LocatorSpec',
+    'Frame',
     # 错误
     'BrowserPilotError',
     'ToolError',

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import threading
 import time
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Pattern, Union
 
 from .errors import BrowserPilotError, NotFoundError, ToolError
+from . import cookies as cookie_ops
 from .locator import (
     Locator,
     LocatorSpec,
@@ -24,6 +26,7 @@ from .locator import (
     type_plan,
     wait_args,
 )
+from .frame import Frame, _count_expr, _first_expr
 from .transport import EventRecord, Transport
 
 __all__ = ['Page', 'PageTarget', 'PAGE_EVENT_TYPES', 'DEFAULT_MODIFIER']
@@ -69,6 +72,28 @@ def _as_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _js(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+# 主文档里的 iframe：跨域也能列，因为读的是父文档里的 <iframe> 元素。
+_FRAMES_SOURCE = """
+(() => Array.from(document.querySelectorAll('iframe')).map((el) => ({
+  src: el.src || el.getAttribute('src') || '',
+  name: el.name || '',
+  selector: el.id ? '#' + el.id : (el.name ? 'iframe[name="' + el.name + '"]' : 'iframe')
+})))()
+"""
+
+_FRAME_RESOLVE_SOURCE = """
+(() => {
+  const el = document.querySelector(%s);
+  if (!el) return null;
+  return { src: el.src || el.getAttribute('src') || '', name: el.name || '' };
+})()
+"""
 
 
 class Page:
@@ -160,6 +185,172 @@ class Page:
     def xpath(self, xpath: str) -> Locator:
         return Locator(self, LocatorSpec(xpath=xpath))
 
+    # ---------- iframe ----------
+
+    def frames(self) -> List['Frame']:
+        """列出主文档里的 iframe（跨域的也能列）。"""
+        items = self.evaluate(_FRAMES_SOURCE)
+        if not isinstance(items, (list, tuple)):
+            return []
+        return [
+            Frame(
+                self,
+                url=str(item.get('src') or ''),
+                name=str(item.get('name') or ''),
+                selector=str(item.get('selector') or ''),
+            )
+            for item in items
+            if isinstance(item, Mapping)
+        ]
+
+    def frame_locator(self, selector: str) -> 'Frame':
+        """按 iframe 元素的选择器进入它，例如 page.frame_locator('iframe#editor')。"""
+        info = self.evaluate(_FRAME_RESOLVE_SOURCE % _js(selector))
+        if not isinstance(info, Mapping):
+            known = '、'.join(str(frame.url or frame.name or 'about:blank') for frame in self.frames())
+            raise NotFoundError(f'没找到 iframe「{selector}」；页面现有 frame：{known or "（没有）"}')
+        return Frame(
+            self,
+            url=str(info.get('src') or ''),
+            name=str(info.get('name') or ''),
+            selector=selector,
+        )
+
+    def frame(self, match: str) -> 'Frame':
+        """按 URL 片段直接取 frame，等价于 App 工具的 frame 参数。"""
+        return Frame(self, url=match)
+
+    # ---------- 条件等待 ----------
+
+    def wait_for_function(
+        self,
+        expression: str,
+        timeout: float = 10,
+        poll: float = 0.1,
+        frame: Optional[str] = None,
+    ) -> Any:
+        """轮询 JS 表达式，直到它返回真值；返回那个值。
+
+        `expression` 写成表达式（`document.readyState === 'complete'`），
+        或者写成函数（`() => document.body.innerText.includes('已保存')`）——函数会被调用。
+        """
+        if not isinstance(expression, str):
+            raise TypeError('wait_for_function 只接受 JS 源码字符串')
+        wrapped = (
+            '(() => { const value = (' + expression + ');'
+            ' return typeof value === "function" ? value() : value; })()'
+        )
+        deadline = time.monotonic() + timeout
+        while True:
+            value = self.evaluate(wrapped, frame=frame)
+            if value:
+                return value
+            if time.monotonic() > deadline:
+                where = f'iframe「{frame}」里' if frame else '页面里'
+                raise NotFoundError(f'等了 {timeout}s，{where}条件一直没成立：{expression}')
+            time.sleep(poll)
+
+    # ---------- 弹窗 ----------
+
+    def dialogs(self) -> List[Dict[str, Any]]:
+        """看最近的弹窗和当前处理策略（App 默认自动应答，标签不会卡住）。"""
+        data = self.call('page_dialog', {'action': 'list'})
+        return list(data.get('dialogs') or data.get('list') or [])
+
+    def accept_dialog(self, once: bool = False, prompt_text: Optional[str] = None) -> Dict[str, Any]:
+        """让下一个确认框点「确定」；`once` 只作用于下一个弹窗。"""
+        args: Dict[str, Any] = {'action': 'accept'}
+        if once:
+            args['once'] = True
+        if prompt_text is not None:
+            args['promptText'] = prompt_text
+        return self.call('page_dialog', args)
+
+    def dismiss_dialog(self, once: bool = False) -> Dict[str, Any]:
+        args: Dict[str, Any] = {'action': 'dismiss'}
+        if once:
+            args['once'] = True
+        return self.call('page_dialog', args)
+
+    # ---------- 文件上传 ----------
+
+    def upload(self, paths: Union[str, List[str]], target: Optional[PageTarget] = None) -> Dict[str, Any]:
+        """把本地文件塞进 file input，不弹系统选择框。"""
+        files = [paths] if isinstance(paths, str) else list(paths)
+        args: Dict[str, Any] = {'paths': files}
+        if target is not None:
+            fields = self._frame_free_fields('page_upload', target)
+            if fields is None:
+                raise NotFoundError(f'page_upload 只支持 selector / xpath，收到 {describe(self._spec_of(target))}')
+            args.update(fields)
+        return self.call('page_upload', args)
+
+    # ---------- 遮罩 ----------
+
+    def overlays(self) -> List[Dict[str, Any]]:
+        """列出挡住页面的广告 iframe、全屏遮罩、弹层。"""
+        return list(self.call('page_overlay', {'action': 'list'}).get('overlays') or [])
+
+    def dismiss_overlays(self) -> Dict[str, Any]:
+        """隐藏常见广告 iframe 并点掉常见关闭按钮；不动页面内容。"""
+        return self.call('page_overlay', {'action': 'dismiss'})
+
+    # ---------- 查找 ----------
+
+    def find(self, text: str, forward: bool = True, find_next: bool = False) -> Dict[str, Any]:
+        """页面内查找（相当于 Ctrl+F），返回匹配数；`find_next` 跳到下一个。"""
+        args: Dict[str, Any] = {'text': text, 'forward': forward}
+        if find_next:
+            args['findNext'] = True
+        return self.call('page_find', args)
+
+    def find_stop(self) -> Dict[str, Any]:
+        """清掉查找高亮。"""
+        return self.call('page_find', {'stop': True})
+
+    # ---------- 识别与监听 ----------
+
+    def inspect(
+        self,
+        target: Optional[PageTarget] = None,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """识别元素是什么（video / image / canvas / audio / link / input / text），也可以按坐标反查。"""
+        args: Dict[str, Any] = {}
+        if target is not None:
+            args.update(self._frame_free_fields('page_inspect', target) or {})
+        if x is not None:
+            args['x'] = x
+        if y is not None:
+            args['y'] = y
+        if not args:
+            raise NotFoundError('inspect 需要 selector / xpath，或者 x 和 y 两个坐标')
+        return self.call('page_inspect', args)
+
+    def watch(self, target: PageTarget, timeout: float = 30, interval: float = 0.5) -> Dict[str, Any]:
+        """盯住元素，文字或位置变化时返回前后快照；超时返回变化前的那份。"""
+        args = self._frame_free_fields('page_watch', target)
+        if args is None:
+            raise NotFoundError(f'watch 只支持 selector 或 xpath，收到 {describe(self._spec_of(target))}')
+        args['timeout'] = timeout
+        args['interval'] = interval
+        return self.call('page_watch', args)
+
+    # ---------- 人工交接 ----------
+
+    def lock(self) -> Dict[str, Any]:
+        """罩一层「Agent 正在操作」遮罩，用户可点按钮接管。"""
+        return self.call('page_lock', {})
+
+    def unlock(self) -> Dict[str, Any]:
+        return self.call('page_unlock', {})
+
+    def handoff(self, message: Optional[str] = None) -> Dict[str, Any]:
+        """暂停，把这一步交给人。"""
+        # App 的 page_handoff 必填 message，空也得发，否则会判成缺参数。
+        return self.call('page_handoff', {'message': message or ''})
+
     # ---------- 动作 ----------
 
     def click(
@@ -170,14 +361,18 @@ class Page:
         timeout: Optional[float] = None,
         via: Optional[str] = None,
     ) -> Dict[str, Any]:
-        args = action_args(self._spec_of(target))
+        spec = self._spec_of(target)
+        args = action_args(spec)
         if button:
             args['button'] = button
         if count:
             args['count'] = count
         if via:
             args['via'] = via
-        return self._raw('page_click', args, timeout=timeout).data
+        try:
+            return self._raw('page_click', args, timeout=timeout).data
+        except ToolError as error:
+            raise self._hinted('page_click', spec, error) from None
 
     def fill(self, target: PageTarget, value: str) -> Dict[str, Any]:
         """覆盖式输入。
@@ -185,18 +380,26 @@ class Page:
         selector/xpath 一次 inject 搞定；label / placeholder / role 走
         「聚焦 → 全选 → 粘贴」三步，因为 page_type 只在光标处插入、不清空。
         """
-        plan = type_plan(self._spec_of(target))
-        if plan.mode == 'inject':
-            return self._raw('page_type', {**plan.args, 'text': value, 'via': 'inject'}).data
-        self._raw('page_type', {**plan.args, 'text': ''})
-        self.press(DEFAULT_MODIFIER)
-        return self._raw('page_type', {**plan.args, 'text': value, 'entry': 'paste'}).data
+        spec = self._spec_of(target)
+        try:
+            plan = type_plan(spec)
+            if plan.mode == 'inject':
+                return self._raw('page_type', {**plan.args, 'text': value, 'via': 'inject'}).data
+            self._raw('page_type', {**plan.args, 'text': ''})
+            self.press(DEFAULT_MODIFIER)
+            return self._raw('page_type', {**plan.args, 'text': value, 'entry': 'paste'}).data
+        except ToolError as error:
+            raise self._hinted('page_type', spec, error) from None
 
     def type(self, target: PageTarget, value: str) -> Dict[str, Any]:
         """在光标处追加，不清空。"""
-        plan = type_plan(self._spec_of(target))
-        # inject 只给 fill 用，所以这里不带 via。
-        return self._raw('page_type', {**plan.args, 'text': value}).data
+        spec = self._spec_of(target)
+        try:
+            plan = type_plan(spec)
+            # inject 只给 fill 用，所以这里不带 via。
+            return self._raw('page_type', {**plan.args, 'text': value}).data
+        except ToolError as error:
+            raise self._hinted('page_type', spec, error) from None
 
     def press(self, shortcut: str, via: Optional[str] = None) -> Dict[str, Any]:
         """快捷键进页面，例如 Control+Enter；不会触发窗口自己的新建/关闭标签。"""
@@ -206,10 +409,28 @@ class Page:
         return self._raw('page_key', args).data
 
     def hover(self, target: PageTarget) -> Dict[str, Any]:
-        return self._raw('page_hover', action_args(self._spec_of(target))).data
+        spec = self._spec_of(target)
+        try:
+            return self._raw('page_hover', action_args(spec)).data
+        except ToolError as error:
+            raise self._hinted('page_hover', spec, error) from None
 
     def select(self, target: PageTarget, option: str) -> Dict[str, Any]:
         spec = self._spec_of(target)
+        if spec.frame:
+            # page_select 不进 frame，直接在 frame 里改 value 再派发事件。
+            expr = _first_expr(spec)
+            value = self.evaluate(
+                '(() => { const el = ' + expr + ';'
+                f' if (!el) return null; el.value = {_js(option)};'
+                " el.dispatchEvent(new Event('input', { bubbles: true }));"
+                " el.dispatchEvent(new Event('change', { bubbles: true }));"
+                ' return el.value; })()',
+                frame=spec.frame,
+            )
+            if value is None:
+                raise NotFoundError(f'iframe「{spec.frame}」里没找到 {describe(spec)}')
+            return {'ok': True, 'value': value}
         fields = _locate_fields(spec)
         if fields is None:
             raise NotFoundError(f'selectOption 只支持 selector 或 xpath，收到 {describe(spec)}')
@@ -259,6 +480,9 @@ class Page:
         role+name 走无障碍树轮询。label / placeholder 没有对应通道，请用 selector。
         """
         spec = self._spec_of(target)
+        if spec.frame:
+            Frame(self, url=spec.frame).wait_for(spec, state=state, timeout=timeout, poll=poll or 0.2)
+            return
         native = wait_args(spec, state, timeout)
         if native is not None:
             self._raw('page_wait', native)
@@ -286,6 +510,8 @@ class Page:
 
     def count(self, target: PageTarget) -> int:
         spec = self._spec_of(target)
+        if spec.frame:
+            return Frame(self, url=spec.frame).count(spec)
         fields = _locate_fields(spec)
         if fields is None:
             raise NotFoundError(f'count 只支持 selector 或 xpath，收到 {describe(spec)}')
@@ -293,6 +519,8 @@ class Page:
 
     def is_visible(self, target: PageTarget) -> bool:
         spec = self._spec_of(target)
+        if spec.frame:
+            return Frame(self, url=spec.frame).is_visible(spec)
         fields = _locate_fields(spec)
         if fields is None:
             raise NotFoundError(f'isVisible 只支持 selector 或 xpath，收到 {describe(spec)}')
@@ -301,6 +529,8 @@ class Page:
 
     def text_content(self, target: PageTarget) -> str:
         spec = self._spec_of(target)
+        if spec.frame:
+            return Frame(self, url=spec.frame).text_content(spec)
         fields = _locate_fields(spec)
         if fields is None:
             raise NotFoundError(f'textContent 只支持 selector 或 xpath，收到 {describe(spec)}')
@@ -360,6 +590,29 @@ class Page:
             return []
         messages = self.call('page_console', {'limit': limit}).get('messages')
         return list(messages or [])
+
+    # ---------- cookie ----------
+
+    def cookies(self, domain: Optional[str] = None) -> List[Dict[str, Any]]:
+        """导出这个标签所属环境的 cookie（可以 json.dump 存起来）。"""
+        return cookie_ops.list_cookies(self._cookie_call, env=self.env, domain=domain)
+
+    def add_cookies(self, cookies: Any) -> int:
+        """把导出的 cookie 注回去，返回写入条数。"""
+        return cookie_ops.add_cookies(self._cookie_call, cookies, env=self.env)
+
+    def clear_cookies(
+        self,
+        name: Optional[str] = None,
+        domain: Optional[str] = None,
+        url: Optional[str] = None,
+        all: bool = False,
+    ) -> None:
+        cookie_ops.clear_cookies(self._cookie_call, name=name, domain=domain, url=url, all=all, env=self.env)
+
+    def _cookie_call(self, tool: str, args: Mapping[str, Any]) -> Dict[str, Any]:
+        # cookie 工具不认 tabId，不能走 self.call。
+        return self._transport.call(tool, dict(args)).data
 
     # ---------- 事件 ----------
 
@@ -500,18 +753,26 @@ class Page:
         path: Optional[str] = None,
         target: Optional[PageTarget] = None,
         clip: Optional[Mapping[str, Any]] = None,
-        grid: bool = False,
+        grid: Union[bool, int] = True,
         edge_only: bool = False,
     ) -> bytes:
         """返回图片字节，给了 path 就顺手写一份。
 
-        grid 默认关：App 默认会画坐标网格（给人用截图点位置），SDK 里那是噪点。
+        grid 默认开：和 App 的 page_screenshot 一致，叠 100px 坐标网格，
+        照着刻度就能直接算点击坐标。传 False / 0 关掉，传数字改间距（10–500）。
         """
-        args: Dict[str, Any] = {'grid': bool(grid)}
+        args: Dict[str, Any] = {'grid': grid}
         if edge_only:
             args['edgeOnly'] = True
         if target is not None:
-            args.update(_locate_fields(self._spec_of(target)) or {})
+            spec = self._spec_of(target)
+            if spec.frame:
+                # page_screenshot 没有 frame 参数：别静默截主文档里同名元素。
+                raise NotFoundError(
+                    'frame 里的元素截图还不支持：page_screenshot 没有 frame 参数。'
+                    '需要的话先 frame.evaluate 算出元素矩形，再用 page.screenshot(clip={...}) 截那块。'
+                )
+            args.update(_locate_fields(spec) or {})
         if clip:
             args.update(dict(clip))
         result = self._raw('page_screenshot', args)
@@ -531,6 +792,13 @@ class Page:
 
     # ---------- 内部 ----------
 
+    def _frame_free_fields(self, tool: str, target: PageTarget) -> Optional[Dict[str, Any]]:
+        """page_upload / page_inspect / page_watch 都没有 frame 参数，别静默落到主文档。"""
+        spec = self._spec_of(target)
+        if spec.frame:
+            raise NotFoundError(f'{tool} 没有 frame 参数，进不了 iframe：请在主文档里定位，或改用 Frame 的读取方法')
+        return _locate_fields(spec)
+
     def _spec_of(self, target: PageTarget) -> LocatorSpec:
         if isinstance(target, Locator):
             return target.spec
@@ -546,6 +814,61 @@ class Page:
     def _raw(self, tool: str, args: Mapping[str, Any], timeout: Optional[float] = None):
         # tabId 放前面，这样显式传进来的 tabId 仍然能覆盖。
         return self._transport.call(tool, {'tabId': self.id, **dict(args)}, timeout=timeout)
+
+    # ---------- 失败解释 ----------
+
+    def _hinted(self, tool: str, spec: LocatorSpec, error: ToolError) -> ToolError:
+        """主文档里找不到时补一句原因：在 iframe 里、被遮罩挡住，还是单纯没有。"""
+        hint = self._missing_hint(spec)
+        if not hint:
+            return error
+        payload = dict(error.payload)
+        payload['error'] = f'{payload.get("error") or error}；{hint}'
+        return ToolError(tool, payload)
+
+    def _missing_hint(self, spec: LocatorSpec) -> str:
+        if spec.frame:
+            return f'已经在 iframe「{spec.frame}」里找过：确认 frame 没跳转，或换一段更长的 URL 片段'
+        try:
+            frames = self.frames()
+        except BrowserPilotError:
+            frames = []
+        if frames:
+            where = self._probe_frames(spec, frames)
+            if where is not None:
+                label = where.url or where.name or where.selector or 'about:blank'
+                return (
+                    f'元素不在主文档，它在 iframe「{label}」里：'
+                    f'用 page.frame_locator({where.selector or "iframe"!r}).locator(...) 进 frame 再操作'
+                )
+            urls = '、'.join((frame.url or frame.name or 'about:blank') for frame in frames[:4])
+            return f'主文档里没有；页面有 {len(frames)} 个 iframe（{urls}），元素可能在其中一个里'
+        overlays = self._overlay_count()
+        if overlays:
+            return (
+                f'页面上有 {overlays} 个遮罩/弹层，元素可能被挡住：'
+                '先 page.call("page_overlay", {"action": "list"}) 看清楚再 dismiss'
+            )
+        return ''
+
+    def _probe_frames(self, spec: LocatorSpec, frames: List['Frame']) -> Optional['Frame']:
+        """只在失败时跑：挨个 frame 找一下这个选择器，用来判断「元素在 iframe 里」。"""
+        if not (spec.selector or spec.xpath):
+            return None
+        for frame in frames[:4]:
+            try:
+                if frame.count(spec) > 0:
+                    return frame
+            except BrowserPilotError:
+                continue
+        return None
+
+    def _overlay_count(self) -> int:
+        try:
+            data = self._raw('page_overlay', {'action': 'list'}).data
+        except BrowserPilotError:
+            return 0
+        return len(data.get('overlays') or [])
 
     def _poll_text(self, text: str, state: str, timeout: float, poll: float) -> None:
         deadline = time.monotonic() + timeout

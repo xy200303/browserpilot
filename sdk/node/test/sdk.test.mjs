@@ -199,12 +199,20 @@ test('waitForText 轮询 page_find，结束时清掉高亮', async () => {
   )
 })
 
-test('截图默认关掉坐标网格，并返回图片字节', async () => {
+test('截图默认带坐标网格，并返回图片字节', async () => {
   await withServer({}, async (server) => {
     const page = pageOf(server)
+    const shots = () => server.calls.filter((call) => call.name === 'page_screenshot').map((call) => call.args)
+
     const buffer = await page.screenshot()
-    assert.equal(server.calls[0].args.grid, false)
+    assert.equal(shots()[0].grid, true)
     assert.equal(buffer.toString(), 'png-bytes')
+
+    await page.screenshot({ grid: false })
+    assert.equal(shots()[1].grid, false)
+
+    await page.screenshot({ grid: 20 })
+    assert.equal(shots()[2].grid, 20)
 
     const target = join(tmpdir(), `bp-shot-${Date.now()}.png`)
     await page.screenshot({ path: target })
@@ -375,4 +383,424 @@ test('抓包按订阅计数：先取消一个不关，最后一个取消才关',
     offSecond()
     await waitFor(() => server.calls.filter((call) => call.name === 'net_stop').length === 1)
   })
+})
+
+// ---------------------------------------------------------------- iframe
+
+const FRAME_A = 'https://frame.example.com/login'
+const FRAME_B = 'https://other.example.com/child'
+
+const scriptValue = (value) => () => ({ ok: true, value })
+
+test('frames() 列出主文档里的 iframe', async () => {
+  await withServer(
+    {
+      handlers: {
+        ...defaults,
+        page_script: scriptValue([
+          { src: FRAME_A, name: 'login', selector: 'iframe#login' },
+          { src: FRAME_B, name: '', selector: 'iframe' }
+        ])
+      }
+    },
+    async (server) => {
+      const frames = await pageOf(server).frames()
+      assert.deepEqual(frames.map((frame) => frame.url), [FRAME_A, FRAME_B])
+      assert.equal(frames[0].name, 'login')
+      assert.equal(frames[0].selector, 'iframe#login')
+    }
+  )
+})
+
+test('frameLocator 解析 iframe 的 src，缺失时列出已有 frame', async () => {
+  await withServer({ handlers: { ...defaults, page_script: scriptValue({ src: FRAME_A, name: 'login' }) } }, async (server) => {
+    const frame = await pageOf(server).frameLocator('iframe#login')
+    assert.equal(frame.url, FRAME_A)
+    assert.equal(frame.selector, 'iframe#login')
+  })
+
+  await withServer(
+    {
+      handlers: {
+        ...defaults,
+        page_script: (args) =>
+          String(args.source).includes("querySelectorAll('iframe')")
+            ? { ok: true, value: [{ src: FRAME_A, name: 'login', selector: '#login' }] }
+            : { ok: true, value: null }
+      }
+    },
+    async (server) => {
+      await assert.rejects(() => pageOf(server).frameLocator('iframe#nope'), (error) => {
+        assert.ok(error instanceof NotFoundError)
+        assert.match(error.message, /iframe/)
+        assert.match(error.message, new RegExp(FRAME_A.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+        return true
+      })
+    }
+  )
+})
+
+test('frame 里的点击和输入带上 frame 参数', async () => {
+  await withServer({ handlers: { ...defaults, page_script: scriptValue({ src: FRAME_A, name: '' }) } }, async (server) => {
+    const page = pageOf(server)
+    const frame = await page.frameLocator('iframe#login')
+    await frame.locator('#ok').click()
+    assert.equal(server.calls.at(-1).name, 'page_click')
+    assert.equal(server.calls.at(-1).args.frame, FRAME_A)
+    assert.equal(server.calls.at(-1).args.selector, '#ok')
+
+    await frame.locator('#user').fill('小明')
+    assert.equal(server.calls.at(-1).name, 'page_type')
+    assert.equal(server.calls.at(-1).args.frame, FRAME_A)
+    assert.equal(server.calls.at(-1).args.via, 'inject')
+  })
+})
+
+test('frame.count 在 frame 里跑 page_script', async () => {
+  await withServer({ handlers: { ...defaults, page_script: scriptValue(3) } }, async (server) => {
+    const frame = pageOf(server).frame(FRAME_A)
+    assert.equal(await frame.count('#row'), 3)
+    const call = server.calls.at(-1)
+    assert.equal(call.name, 'page_script')
+    assert.equal(call.args.frame, FRAME_A)
+    assert.match(String(call.args.source), /querySelectorAll/)
+  })
+})
+
+test('frame.waitFor 轮询到出现为止', async () => {
+  let count = 0
+  await withServer(
+    {
+      handlers: {
+        ...defaults,
+        page_script: () => {
+          count += 1
+          return { ok: true, value: count < 3 ? 0 : 1 }
+        }
+      }
+    },
+    async (server) => {
+      await pageOf(server).frame(FRAME_A).waitFor('#ok', { timeout: 2, poll: 0.01 })
+      assert.ok(count >= 3)
+    }
+  )
+})
+
+test('page.waitFor 遇到 frame 定位器不走 page_wait', async () => {
+  await withServer({ handlers: { ...defaults, page_script: scriptValue(1) } }, async (server) => {
+    const page = pageOf(server)
+    await page.waitFor(page.frame(FRAME_A).locator('#ok'), { timeout: 1, poll: 0.01 })
+    assert.equal(server.calls.filter((call) => call.name === 'page_wait').length, 0)
+  })
+})
+
+test('waitForFunction 轮询并返回真值，超时报 NotFoundError', async () => {
+  let step = 0
+  await withServer(
+    {
+      handlers: {
+        ...defaults,
+        page_script: () => {
+          step += 1
+          return { ok: true, value: step < 3 ? false : 'ready' }
+        }
+      }
+    },
+    async (server) => {
+      assert.equal(await pageOf(server).waitForFunction('document.title', { timeout: 2, poll: 0.01 }), 'ready')
+      const source = String(server.calls.at(-1).args.source)
+      assert.match(source, /document\.title/)
+      assert.match(source, /typeof value === 'function'/)
+    }
+  )
+
+  await withServer({ handlers: { ...defaults, page_script: scriptValue(false) } }, async (server) => {
+    await assert.rejects(() => pageOf(server).waitForFunction('false', { timeout: 0.05, poll: 0.01 }), NotFoundError)
+  })
+})
+
+test('点击失败时解释「元素在 iframe 里」', async () => {
+  await withServer(
+    {
+      handlers: {
+        page_script: (args) =>
+          String(args.source).includes("querySelectorAll('iframe')")
+            ? { ok: true, value: [{ src: FRAME_A, name: 'login', selector: 'iframe#login' }] }
+            : { ok: true, value: 1 },
+        page_click: () => {
+          throw new Error('DOM Error while querying')
+        }
+      }
+    },
+    async (server) => {
+      await assert.rejects(() => pageOf(server).click('#submit'), (error) => {
+        assert.ok(error instanceof ToolError)
+        assert.match(error.message, /DOM Error while querying/)
+        assert.match(error.message, /iframe/)
+        assert.match(error.message, /frameLocator/)
+        return true
+      })
+    }
+  )
+})
+
+test('frame 里的元素截图直接报错，不静默截主文档', async () => {
+  await withServer(
+    { handlers: { ...defaults, page_script: scriptValue({ src: FRAME_A, name: '' }) } },
+    async (server) => {
+      const page = pageOf(server)
+      const frame = await page.frameLocator('iframe#login')
+      await assert.rejects(
+        () => page.screenshot({ target: frame.locator('#chart') }),
+        (error) => {
+          assert.ok(error instanceof NotFoundError)
+          assert.match(error.message, /frame 里的元素截图/)
+          return true
+        }
+      )
+    }
+  )
+})
+
+// ---------------------------------------------------------------- tab 与 cookie
+
+test('bp.tab(id) 把定位器绑到指定标签', async () => {
+  await withServer({}, async (server) => {
+    const bp = await launch({ endpoint: server.endpoint })
+    const page = await bp.tab('tab-test')
+    await page.locator('#a').click()
+    const call = server.calls.at(-1)
+    assert.equal(call.name, 'page_click')
+    assert.equal(call.args.tabId, 'tab-test')
+  })
+})
+
+test('bp.tab(id) 不存在时列出已有 id', async () => {
+  await withServer({}, async (server) => {
+    const bp = await launch({ endpoint: server.endpoint })
+    await assert.rejects(() => bp.tab('tab-missing'), (error) => {
+      assert.ok(error instanceof NotFoundError)
+      assert.match(error.message, /tab-test/)
+      return true
+    })
+  })
+})
+
+test('cookie 导出与导入', async () => {
+  await withServer(
+    {
+      handlers: {
+        ...defaults,
+        cookie_list: () => ({
+          ok: true,
+          cookies: [{ name: 'sid', value: 'abc', domain: '.example.com', path: '/', session: true }]
+        })
+      }
+    },
+    async (server) => {
+      const bp = await launch({ endpoint: server.endpoint })
+      const items = await bp.cookies({ env: 'env-default' })
+      assert.equal(items[0].name, 'sid')
+
+      assert.equal(await bp.addCookies(items[0], { env: 'env-default' }), 1)
+      const setCall = server.calls.at(-1)
+      assert.equal(setCall.name, 'cookie_set')
+      assert.equal(setCall.args.name, 'sid')
+      assert.equal(setCall.args.env, 'env-default')
+      assert.equal('session' in setCall.args, false)
+
+      await bp.clearCookies({ name: 'sid', env: 'env-default' })
+      assert.deepEqual(server.calls.at(-1), {
+        name: 'cookie_remove',
+        args: { name: 'sid', domain: '.example.com', env: 'env-default' }
+      })
+    }
+  )
+})
+
+test('page.cookies 绑定本环境的 env，不带 tabId', async () => {
+  await withServer({ handlers: { ...defaults, cookie_list: () => ({ ok: true, cookies: [] }) } }, async (server) => {
+    await pageOf(server).cookies()
+    const call = server.calls.at(-1)
+    assert.equal(call.name, 'cookie_list')
+    assert.deepEqual(call.args, { env: 'env-default' })
+  })
+})
+
+// ---------------------------------------------------------------- 弹窗、上传、遮罩、查找、监听
+
+test('弹窗：列表、接受、关闭', async () => {
+  let dialogs = [{ type: 'alert' }]
+  await withServer(
+    {
+      handlers: {
+        ...defaults,
+        page_dialog: (args) => {
+          if (args.action === 'list') return { ok: true, dialogs }
+          dialogs = []
+          return { ok: true, action: args.action }
+        }
+      }
+    },
+    async (server) => {
+      const page = pageOf(server)
+      assert.deepEqual(await page.dialogs(), [{ type: 'alert' }])
+      assert.deepEqual(server.calls.at(-1).args, { tabId: 'tab-test', action: 'list' })
+
+      await page.acceptDialog({ once: true, promptText: '确认删除' })
+      assert.deepEqual(server.calls.at(-1).args, {
+        tabId: 'tab-test',
+        action: 'accept',
+        once: true,
+        promptText: '确认删除'
+      })
+
+      await page.dismissDialog()
+      assert.deepEqual(server.calls.at(-1).args, { tabId: 'tab-test', action: 'dismiss' })
+    }
+  )
+})
+
+test('上传：paths 和 file input 定位一起传', async () => {
+  await withServer({}, async (server) => {
+    const page = pageOf(server)
+    await page.upload(['a.pdf', 'b.png'], page.locator('#file'))
+    assert.equal(server.calls.at(-1).name, 'page_upload')
+    assert.deepEqual(server.calls.at(-1).args, {
+      tabId: 'tab-test',
+      paths: ['a.pdf', 'b.png'],
+      selector: '#file'
+    })
+
+    await page.upload('c.txt')
+    assert.deepEqual(server.calls.at(-1).args, { tabId: 'tab-test', paths: ['c.txt'] })
+  })
+})
+
+test('遮罩：list 和 dismiss', async () => {
+  await withServer(
+    { handlers: { ...defaults, page_overlay: () => ({ ok: true, overlays: [{ kind: 'ad' }] }) } },
+    async (server) => {
+      const page = pageOf(server)
+      assert.deepEqual(await page.overlays(), [{ kind: 'ad' }])
+      await page.dismissOverlays()
+      assert.deepEqual(server.calls.at(-1).args, { tabId: 'tab-test', action: 'dismiss' })
+    }
+  )
+})
+
+test('查找与停止', async () => {
+  await withServer({ handlers: { ...defaults, page_find: () => ({ ok: true, matches: 3 }) } }, async (server) => {
+    const page = pageOf(server)
+    assert.equal((await page.find('订单')).matches, 3)
+    assert.deepEqual(server.calls.at(-1).args, { tabId: 'tab-test', text: '订单', forward: true })
+
+    await page.find('订单', { findNext: true })
+    assert.equal(server.calls.at(-1).args.findNext, true)
+
+    await page.findStop()
+    assert.deepEqual(server.calls.at(-1).args, { tabId: 'tab-test', stop: true })
+  })
+})
+
+test('识别元素：按定位器和按坐标', async () => {
+  await withServer({ handlers: { ...defaults, page_inspect: () => ({ ok: true, type: 'button' }) } }, async (server) => {
+    const page = pageOf(server)
+    assert.equal((await page.inspect({ target: page.locator('#go') })).type, 'button')
+    assert.deepEqual(server.calls.at(-1).args, { tabId: 'tab-test', selector: '#go' })
+
+    await page.inspect({ x: 120.5, y: 64 })
+    assert.deepEqual(server.calls.at(-1).args, { tabId: 'tab-test', x: 120.5, y: 64 })
+  })
+})
+
+test('监听元素变化：带 timeout 和 interval，文本定位器不支持', async () => {
+  await withServer({ handlers: { ...defaults, page_watch: () => ({ ok: true, changed: false }) } }, async (server) => {
+    const page = pageOf(server)
+    await page.watch('#price', { timeout: 12, interval: 0.2 })
+    assert.deepEqual(server.calls.at(-1).args, {
+      tabId: 'tab-test',
+      selector: '#price',
+      timeout: 12,
+      interval: 0.2
+    })
+    await assert.rejects(() => page.watch(page.getByText('价格')), NotFoundError)
+  })
+})
+
+test('handoff 空 message 也要发字段；upload/watch/inspect 的非法目标直接报错', async () => {
+  await withServer({}, async (server) => {
+    const page = pageOf(server)
+    await page.handoff()
+    assert.deepEqual(server.calls.at(-1).args, { tabId: 'tab-test', message: '' })
+
+    await assert.rejects(() => page.upload('a.txt', page.getByText('附件')), NotFoundError)
+    await assert.rejects(
+      () => page.upload('a.txt', page.frame('https://f.test/x').locator('#file')),
+      NotFoundError
+    )
+    await assert.rejects(() => page.watch(page.frame('https://f.test/x').locator('#price')), NotFoundError)
+    await assert.rejects(() => page.inspect(), NotFoundError)
+  })
+})
+
+test('人工交接：lock / unlock / handoff', async () => {
+  await withServer({}, async (server) => {
+    const page = pageOf(server)
+    await page.lock()
+    assert.deepEqual(server.calls.at(-1), { name: 'page_lock', args: { tabId: 'tab-test' } })
+    await page.unlock()
+    assert.deepEqual(server.calls.at(-1), { name: 'page_unlock', args: { tabId: 'tab-test' } })
+    await page.handoff('该输验证码了')
+    assert.deepEqual(server.calls.at(-1), { name: 'page_handoff', args: { tabId: 'tab-test', message: '该输验证码了' } })
+  })
+})
+
+// ---------------------------------------------------------------- 会话、剪贴板、权限
+
+test('会话保存 / 恢复 / 清空', async () => {
+  await withServer(
+    { handlers: { ...defaults, session_list: () => ({ ok: true, sessions: [{ id: 's1' }] }) } },
+    async (server) => {
+      const bp = await launch({ endpoint: server.endpoint })
+      assert.deepEqual(await bp.sessions.list('env-default'), [{ id: 's1' }])
+      await bp.sessions.save('env-default')
+      assert.deepEqual(server.calls.at(-1), { name: 'session_save', args: { env: 'env-default' } })
+      await bp.sessions.restore('env-default')
+      assert.deepEqual(server.calls.at(-1), { name: 'session_restore', args: { env: 'env-default' } })
+      await bp.sessions.clear('env-default')
+      assert.deepEqual(server.calls.at(-1), { name: 'session_clear', args: { env: 'env-default' } })
+    }
+  )
+})
+
+test('剪贴板读写', async () => {
+  await withServer(
+    { handlers: { ...defaults, clipboard_read: () => ({ ok: true, text: '剪贴板内容' }) } },
+    async (server) => {
+      const bp = await launch({ endpoint: server.endpoint })
+      assert.equal(await bp.clipboardRead(), '剪贴板内容')
+      await bp.clipboardWrite('新内容')
+      assert.deepEqual(server.calls.at(-1), { name: 'clipboard_write', args: { text: '新内容' } })
+    }
+  )
+})
+
+test('权限与已保存登录', async () => {
+  await withServer(
+    {
+      handlers: {
+        ...defaults,
+        permission_list: () => ({ ok: true, permissions: [{ name: 'camera' }] }),
+        password_list: () => ({ ok: true, passwords: [{ site: 'example.com' }] })
+      }
+    },
+    async (server) => {
+      const bp = await launch({ endpoint: server.endpoint })
+      assert.deepEqual(await bp.permissions('env-default'), [{ name: 'camera' }])
+      assert.deepEqual(server.calls.at(-1).args, { env: 'env-default' })
+      assert.deepEqual(await bp.passwords('env-default'), [{ site: 'example.com' }])
+      assert.deepEqual(server.calls.at(-1).args, { env: 'env-default' })
+    }
+  )
 })
